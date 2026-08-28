@@ -5,8 +5,8 @@
    ===================================================================== */
 
 // !!! ĐIỀN THÔNG TIN DỰ ÁN SUPABASE CỦA CẬU VÀO ĐÂY !!!
-const SUPABASE_URL = "https://znzakqzdezxzqzfplmgv.supabase.co";
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpuemFrcXpkZXp4enF6ZnBsbWd2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc4MTQyNzAsImV4cCI6MjEwMzM5MDI3MH0.aV5YaOLxTySiB26ror4CRzJvQsjANNI1DwbtbxcNe4A";
+const SUPABASE_URL = "https://YOUR-PROJECT.supabase.co";
+const SUPABASE_ANON_KEY = "YOUR-ANON-PUBLIC-KEY";
 
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
@@ -65,7 +65,6 @@ function injectCdeUI() {
     </div>
     <div class="cde-status-tabs" id="cdeStatusTabs"></div>
     <div id="cdeFilesList"></div>
-    <div id="cdeUploadBox"></div>
     <div id="cdeMembersBox" style="display:none;"></div>`;
   document.body.appendChild(panel);
 
@@ -199,157 +198,94 @@ function renderStatusTabs() {
     tab.className = "cde-status-tab" + (st === activeStatusTab ? " active" : "");
     tab.dataset.status = st;
     tab.innerText = STATUS_LABELS[st];
-    tab.addEventListener("click", () => { activeStatusTab = st; renderStatusTabs(); loadFilesList(); });
+    tab.addEventListener("click", () => { activeStatusTab = st; renderStatusTabs(); });
     tabsEl.appendChild(tab);
   });
-  renderUploadBox();
   renderMembersButton();
-  loadFilesList();
-}
-
-function canUpload() {
-  return ["author", "task_team_manager", "bim_manager"].includes(activeRole);
-}
-
-function renderUploadBox() {
-  const box = document.getElementById("cdeUploadBox");
-  if (!canUpload()) { box.innerHTML = ""; return; }
-  box.innerHTML = `
-    <div style="font-size:11px;font-weight:700;margin-bottom:4px;">⬆️ Nạp file lên CDE (trạng thái WIP)</div>
-    <input type="file" id="cdeUploadInput" accept=".ifc,.xkt,.glb,.pdf">
-    <input type="text" id="cdeUploadOriginator" placeholder="Mã đơn vị tạo (Originator), vd: ABC">
-    <input type="text" id="cdeUploadDiscipline" placeholder="Bộ môn, vd: AR / ST / ME">
-    <input type="text" id="cdeUploadDesc" placeholder="Mô tả ngắn">
-    <button class="btn btn-primary" style="width:100%;margin-top:6px;" id="cdeUploadSubmit">Tải lên</button>`;
-  document.getElementById("cdeUploadSubmit").addEventListener("click", doUploadFile);
-}
-
-async function doUploadFile() {
-  const fileInput = document.getElementById("cdeUploadInput");
-  const file = fileInput.files[0];
-  if (!file) { alert("Chọn 1 file trước."); return; }
-
-  const path = `${activeProjectId}/${Date.now()}_${file.name}`;
-  const { error: upErr } = await sb.storage.from("cde-files").upload(path, file);
-  if (upErr) { alert("Lỗi tải file lên Storage: " + upErr.message); return; }
-
-  const { error: dbErr } = await sb.from("cde_files").insert({
-    project_id: activeProjectId,
-    file_name: file.name,
-    file_path: path,
-    file_type: file.name.split(".").pop().toLowerCase(),
-    file_size: file.size,
-    originator: document.getElementById("cdeUploadOriginator").value.trim(),
-    discipline: document.getElementById("cdeUploadDiscipline").value.trim(),
-    description: document.getElementById("cdeUploadDesc").value.trim(),
-    uploaded_by: currentUser.id,
-    status: "WIP"
-  });
-  if (dbErr) { alert("Lỗi ghi metadata: " + dbErr.message); return; }
-
-  showToast ? showToast("✅ Đã tải file lên CDE (WIP)", "success") : alert("Đã tải lên.");
-  activeStatusTab = "WIP";
-  renderStatusTabs();
+  loadActiveProjectDriveLinks();
 }
 
 /* ---------------------------------------------------------------------
-   4. DANH SÁCH FILE + HÀNH ĐỘNG CHUYỂN TRẠNG THÁI
+   3b. LIÊN KẾT THƯ MỤC GOOGLE DRIVE THEO TỪNG TRẠNG THÁI (Cách A)
+   Mỗi dự án có 4 link thư mục Drive tương ứng WIP/Shared/Published/Archived.
+   Chỉ BIM Manager được đặt/sửa link — thành viên khác chỉ mở link để thao
+   tác trực tiếp trên giao diện Google Drive quen thuộc. Việc phân quyền ai
+   được xem/sửa file TRONG Drive nằm ở phần chia sẻ (Share) của chính thư
+   mục đó trên Google Drive — BIM Manager cần tự cấu hình đúng ở Drive.
    --------------------------------------------------------------------- */
-async function loadFilesList() {
-  const listEl = document.getElementById("cdeFilesList");
-  listEl.innerHTML = "Đang tải...";
+const STATUS_COLUMN = {
+  WIP: "drive_wip_url",
+  SHARED: "drive_shared_url",
+  PUBLISHED: "drive_published_url",
+  ARCHIVED: "drive_archived_url"
+};
+
+let activeProjectDriveLinks = {};
+
+async function loadActiveProjectDriveLinks() {
+  const box = document.getElementById("cdeFilesList");
+  box.innerHTML = "Đang tải...";
+
   const { data, error } = await sb
-    .from("cde_files")
-    .select("*")
-    .eq("project_id", activeProjectId)
-    .eq("status", activeStatusTab)
-    .order("uploaded_at", { ascending: false });
+    .from("projects")
+    .select("id, drive_wip_url, drive_shared_url, drive_published_url, drive_archived_url")
+    .eq("id", activeProjectId)
+    .single();
 
-  if (error) { listEl.innerHTML = `<div style="color:#d9534f">${error.message}</div>`; return; }
-  if (!data || data.length === 0) { listEl.innerHTML = `<div style="color:#999">Không có file nào ở trạng thái này.</div>`; return; }
-
-  listEl.innerHTML = "";
-  data.forEach(f => listEl.appendChild(buildFileCard(f)));
+  if (error) { box.innerHTML = `<div style="color:#d9534f">${error.message}</div>`; return; }
+  activeProjectDriveLinks = data || {};
+  renderDriveLinkBox();
 }
 
-function buildFileCard(f) {
-  const card = document.createElement("div");
-  card.className = "cde-file-card";
-  card.innerHTML = `
-    <div class="fname">${f.file_name}</div>
-    <div class="meta">Rev ${f.revision || "-"} · ${f.originator || "-"}/${f.discipline || "-"} · ${(f.file_size / 1024).toFixed(0)} KB<br>
-    Tải lên: ${new Date(f.uploaded_at).toLocaleString("vi-VN")}</div>
-    <div class="actions" id="actions_${f.id}"></div>`;
+function renderDriveLinkBox() {
+  const box = document.getElementById("cdeFilesList");
+  const col = STATUS_COLUMN[activeStatusTab];
+  const url = activeProjectDriveLinks ? activeProjectDriveLinks[col] : null;
+  const isBimManager = activeRole === "bim_manager";
 
-  const actionsEl = card.querySelector(".actions");
+  if (url) {
+    box.innerHTML = `
+      <div class="cde-file-card">
+        <div class="fname">📁 Thư mục ${STATUS_LABELS[activeStatusTab]} trên Google Drive</div>
+        <div class="meta" style="word-break:break-all;">${url}</div>
+        <div class="actions">
+          <button id="cdeOpenDrive">🔗 Mở trên Google Drive</button>
+          ${isBimManager ? `<button id="cdeEditDrive">✏ Sửa link</button>` : ""}
+        </div>
+      </div>`;
+    document.getElementById("cdeOpenDrive").addEventListener("click", () => window.open(url, "_blank"));
+    if (isBimManager) document.getElementById("cdeEditDrive").addEventListener("click", () => showDriveLinkForm(col, url));
+    return;
+  }
 
-  const btnOpen = document.createElement("button");
-  btnOpen.innerText = "👁 Nạp vào Viewer";
-  btnOpen.addEventListener("click", () => openFileInViewer(f));
-  actionsEl.appendChild(btnOpen);
+  if (isBimManager) {
+    showDriveLinkForm(col, "");
+    return;
+  }
 
-  const btnDownload = document.createElement("button");
-  btnDownload.innerText = "⬇ Tải xuống";
-  btnDownload.addEventListener("click", () => downloadFile(f));
-  actionsEl.appendChild(btnDownload);
-
-  // Nút chuyển trạng thái theo vai trò hiện tại
-  const transitions = getAvailableTransitions(f.status, activeRole);
-  transitions.forEach(t => {
-    const btn = document.createElement("button");
-    btn.innerText = t.label;
-    btn.addEventListener("click", () => changeStatus(f.id, t.to));
-    actionsEl.appendChild(btn);
-  });
-
-  return card;
+  box.innerHTML = `<div style="color:#999">Chưa có thư mục Drive cho trạng thái này. Liên hệ BIM Manager để thêm.</div>`;
 }
 
-function getAvailableTransitions(status, role) {
-  const out = [];
-  if (status === "WIP" && ["author", "task_team_manager", "bim_manager"].includes(role))
-    out.push({ to: "SHARED", label: "➡ Gửi Shared" });
-  if (status === "SHARED" && ["approver", "task_team_manager", "bim_manager"].includes(role))
-    out.push({ to: "WIP", label: "↩ Trả về WIP" });
-  if (status === "SHARED" && role === "bim_manager")
-    out.push({ to: "PUBLISHED", label: "✅ Publish" });
-  if (status === "PUBLISHED" && role === "bim_manager")
-    out.push({ to: "ARCHIVED", label: "🗄 Archive" });
-  return out;
+function showDriveLinkForm(col, currentValue) {
+  const box = document.getElementById("cdeFilesList");
+  box.innerHTML = `
+    <div class="cde-file-card">
+      <div class="fname" style="margin-bottom:6px;">Link thư mục Drive cho trạng thái ${STATUS_LABELS[activeStatusTab]}</div>
+      <input type="text" id="cdeDriveLinkInput" placeholder="Dán link thư mục Google Drive vào đây" value="${(currentValue || "").replace(/"/g, "&quot;")}">
+      <button class="btn btn-primary" style="width:100%;margin-top:6px;" id="cdeSaveDriveLink">💾 Lưu link</button>
+    </div>`;
+  document.getElementById("cdeSaveDriveLink").addEventListener("click", () => saveDriveLink(col));
 }
 
-async function changeStatus(fileId, newStatus) {
-  const comment = prompt("Ghi chú (không bắt buộc):", "") || null;
-  const { error } = await sb.rpc("change_file_status", { p_file_id: fileId, p_new_status: newStatus, p_comment: comment });
-  if (error) { alert("Không thể chuyển trạng thái: " + error.message); return; }
-  loadFilesList();
-}
+async function saveDriveLink(col) {
+  const val = document.getElementById("cdeDriveLinkInput").value.trim();
+  if (!val) { alert("Dán link thư mục Drive trước đã."); return; }
 
-async function downloadFile(f) {
-  const { data, error } = await sb.storage.from("cde-files").download(f.file_path);
-  if (error) { alert(error.message); return; }
-  const url = URL.createObjectURL(data);
-  const a = document.createElement("a");
-  a.href = url; a.download = f.file_name; a.click();
-  URL.revokeObjectURL(url);
-}
+  const { error } = await sb.from("projects").update({ [col]: val }).eq("id", activeProjectId);
+  if (error) { alert("Lỗi lưu link: " + error.message); return; }
 
-// Nạp file CDE thẳng vào viewer hiện có bằng cách tái sử dụng input nạp file
-// gốc của app (không đụng vào logic loader IFC/XKT đã có sẵn).
-async function openFileInViewer(f) {
-  const { data, error } = await sb.storage.from("cde-files").download(f.file_path);
-  if (error) { alert(error.message); return; }
-
-  const targetInputId = f.file_type === "ifc" ? "ifcModelFileInput" : "modelFileInput";
-  const input = document.getElementById(targetInputId);
-  if (!input) { alert("Không tìm thấy input nạp file phù hợp cho ." + f.file_type); return; }
-
-  const file = new File([data], f.file_name, { type: data.type });
-  const dt = new DataTransfer();
-  dt.items.add(file);
-  input.files = dt.files;
-  input.dispatchEvent(new Event("change"));
-  document.getElementById("cdeFilesPanel").style.display = "none";
+  activeProjectDriveLinks[col] = val;
+  renderDriveLinkBox();
 }
 
 /* ---------------------------------------------------------------------

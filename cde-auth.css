@@ -59,6 +59,10 @@
   background: #f8f9fa; cursor: pointer;
 }
 .cde-file-card .actions button:hover { background: #0275d8; color: #fff; border-color: #0275d8; }
+.cde-file-card input[type="text"] {
+  width: 100%; padding: 7px 8px; margin: 4px 0; border: 1px solid #dcdfe3;
+  border-radius: 6px; box-sizing: border-box; font-size: 11px;
+}
 
 #cdeUploadBox { border-top: 1px solid #eee; margin-top: 10px; padding-top: 10px; }
 #cdeUploadBox input, #cdeUploadBox select { font-size: 11px; padding: 5px; }
