@@ -1,0 +1,64 @@
+/* ===================== CDE AUTH + FILE MANAGER ===================== */
+#cdeAuthOverlay {
+  position: fixed; inset: 0; background: rgba(20, 24, 28, 0.6);
+  display: flex; align-items: center; justify-content: center; z-index: 2000;
+  backdrop-filter: blur(4px);
+}
+#cdeAuthOverlay.hidden { display: none; }
+
+#cdeAuthBox {
+  background: #fff; border-radius: 14px; padding: 28px 30px; width: 340px;
+  box-shadow: 0 10px 40px rgba(0,0,0,0.25); font-family: 'Segoe UI', Tahoma, sans-serif;
+}
+#cdeAuthBox h2 { margin: 0 0 4px; font-size: 18px; color: #1a252f; }
+#cdeAuthBox p.sub { margin: 0 0 18px; font-size: 12px; color: #888; }
+#cdeAuthBox input {
+  width: 100%; padding: 9px 10px; margin: 6px 0; border: 1px solid #dcdfe3;
+  border-radius: 6px; box-sizing: border-box; font-size: 13px;
+}
+#cdeAuthBox .btn-full {
+  width: 100%; margin-top: 10px; padding: 10px; border-radius: 6px;
+  background: #0275d8; color: #fff; border: none; font-weight: 600; cursor: pointer; font-size: 13px;
+}
+#cdeAuthBox .btn-full:hover { background: #025aa5; }
+#cdeAuthBox .switch-mode { text-align: center; margin-top: 12px; font-size: 12px; color: #0275d8; cursor: pointer; }
+#cdeAuthBox .cde-error { color: #d9534f; font-size: 12px; margin-top: 8px; min-height: 14px; }
+
+#cdeUserBadge {
+  position: absolute; top: 15px; right: 15px; z-index: 150;
+  background: rgba(255,255,255,0.95); border: 1px solid #e0e0e0; border-radius: 20px;
+  padding: 6px 12px; font-size: 12px; display: flex; align-items: center; gap: 8px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.1); cursor: pointer;
+}
+#cdeUserBadge .role-chip {
+  background: #e3f2fd; color: #0275d8; padding: 2px 8px; border-radius: 10px; font-weight: 600; font-size: 10px;
+  text-transform: uppercase;
+}
+
+/* Panel quản lý file CDE */
+#cdeFilesPanel { right: 15px; width: 400px; }
+.cde-status-tabs { display: flex; gap: 4px; margin-bottom: 10px; }
+.cde-status-tab {
+  flex: 1; text-align: center; padding: 6px 4px; font-size: 10px; font-weight: 700;
+  border-radius: 6px; cursor: pointer; background: #f1f3f5; color: #666; border: 1px solid #dee2e6;
+}
+.cde-status-tab.active { background: #0275d8; color: #fff; border-color: #0275d8; }
+.cde-status-tab[data-status="WIP"].active { background: #6c757d; border-color: #6c757d; }
+.cde-status-tab[data-status="SHARED"].active { background: #f0ad4e; border-color: #f0ad4e; }
+.cde-status-tab[data-status="PUBLISHED"].active { background: #5cb85c; border-color: #5cb85c; }
+.cde-status-tab[data-status="ARCHIVED"].active { background: #4a4f55; border-color: #4a4f55; }
+
+.cde-file-card {
+  border: 1px solid #e5e5e5; border-radius: 8px; padding: 10px; margin-bottom: 8px; font-size: 11px;
+}
+.cde-file-card .fname { font-weight: 700; color: #1a252f; font-size: 12px; margin-bottom: 3px; word-break: break-all; }
+.cde-file-card .meta { color: #888; margin-bottom: 6px; }
+.cde-file-card .actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+.cde-file-card .actions button {
+  font-size: 10px; padding: 4px 8px; border-radius: 12px; border: 1px solid #ccc;
+  background: #f8f9fa; cursor: pointer;
+}
+.cde-file-card .actions button:hover { background: #0275d8; color: #fff; border-color: #0275d8; }
+
+#cdeUploadBox { border-top: 1px solid #eee; margin-top: 10px; padding-top: 10px; }
+#cdeUploadBox input, #cdeUploadBox select { font-size: 11px; padding: 5px; }

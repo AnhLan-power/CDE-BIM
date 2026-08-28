@@ -1,0 +1,3738 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>CDE BIM Viewer</title>
+
+ <script src="./libs/jszip.min.js"></script>
+ <script src="./libs/xlsx.full.min.js"></script>
+ <script src="./libs/jspdf.umd.min.js"></script>
+ <script src="./libs/jspdf.plugin.autotable.min.js"></script>
+ <script type="module" src="https://unpkg.com/@google/model-viewer@3.5.0/dist/model-viewer.min.js"></script>
+
+ <!-- CDE: đăng nhập + quản lý file theo ISO 19650 -->
+ <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+ <link rel="stylesheet" href="./cde-auth.css">
+
+  <style>
+    body { margin: 0; padding: 0; overflow: hidden; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+    #myCanvas { width: 100vw; height: 100vh; background: #ffffff; display: block; }
+    
+    #loading {
+      position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+      background: rgba(255, 255, 255, 0.95); color: #333; padding: 16px 28px;
+      border-radius: 8px; font-size: 15px; font-weight: bold; z-index: 1000;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.15); border: 1px solid #ddd; display: none;
+    }
+
+    /* Top Toolbar — kiểu Ribbon (tab + nhóm nút có nhãn), giống Navisworks */
+    #toolbar {
+      position: absolute; top: 15px; left: 50%; transform: translateX(-50%);
+      background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(8px);
+      border-radius: 14px; max-width: 94vw;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.12); z-index: 100; border: 1px solid #e0e0e0;
+      overflow: hidden;
+    }
+
+    .ribbon-tabs {
+      display: flex; gap: 2px; padding: 6px 10px 0; border-bottom: 1px solid #e5e5e5;
+      background: #f8f9fa;
+    }
+    .ribbon-tab {
+      background: transparent; border: none; padding: 6px 14px; font-size: 12px;
+      font-weight: 600; color: #666; cursor: pointer; border-radius: 8px 8px 0 0;
+    }
+    .ribbon-tab:hover { background: #eef2f6; color: #333; }
+    .ribbon-tab.active { background: #fff; color: #0275d8; box-shadow: 0 -2px 0 #0275d8 inset; }
+
+    .ribbon-panels { padding: 8px 14px; }
+    .ribbon-panel {
+      display: none; align-items: flex-start; gap: 0; flex-wrap: wrap; max-width: 88vw;
+    }
+    .ribbon-panel.active { display: flex; }
+
+    .ribbon-group {
+      display: flex; flex-direction: column; align-items: center; justify-content: space-between;
+      padding: 2px 10px; min-height: 56px;
+    }
+    .ribbon-group-buttons {
+      display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: center;
+      flex: 1;
+    }
+    .ribbon-group-label {
+      font-size: 10px; color: #888; margin-top: 6px; white-space: nowrap; text-align: center;
+    }
+    .ribbon-sep { width: 1px; align-self: stretch; background: #e5e5e5; margin: 4px 4px; flex-shrink: 0; }
+
+    #navHelpText { font-size: 10px; color: #666; line-height: 1.5; text-align: left; }
+
+    .btn {
+      background: #f1f3f5; color: #333; border: 1px solid #ccc;
+      padding: 7px 12px; border-radius: 20px; cursor: pointer;
+      font-size: 12px; font-weight: 500; transition: all 0.2s ease;
+      display: flex; align-items: center; gap: 4px;
+    }
+    .btn:hover { background: #007acc; color: white; border-color: #007acc; }
+    .btn.active { background: #0275d8 !important; color: white !important; border-color: #0275d8 !important; font-weight: bold; }
+
+    /* Đồng bộ toàn bộ nút chức năng theo 1 hệ màu duy nhất (accent = xanh
+       dương thương hiệu). Chỉ trạng thái "đang bật" (.active) hoặc nút
+       chính (.btn-primary) mới tô đậm màu, tránh mỗi nút một màu ngẫu
+       nhiên như bản cũ gây rối mắt. */
+    .btn, .btn-add-model {
+      background: #f1f3f5; color: #333; border: 1px solid #dcdfe3;
+    }
+    .btn-primary, .btn-add-model {
+      background: #0275d8; color: #fff; border-color: #0275d8; font-weight: bold;
+    }
+    .btn-primary:hover, .btn-add-model:hover { background: #025aa5; border-color: #025aa5; color: #fff; }
+    .btn-danger { color: #d9534f; }
+    .btn-danger:hover { background: #d9534f; color: #fff; border-color: #d9534f; }
+
+    #modelFileInput, #ifcModelFileInput { display: none; }
+
+    .toolbar-sep { width: 1px; height: 22px; background: #e0e0e0; margin: 0 2px; flex-shrink: 0; }
+
+    /* Nút + bảng chọn màu nền */
+    #btnBgColor { position: relative; }
+    #bgColorPanel {
+      position: absolute; top: 42px; left: 50%; transform: translateX(-50%);
+      background: #fff; border: 1px solid #e0e0e0; border-radius: 10px;
+      box-shadow: 0 6px 24px rgba(0,0,0,0.18); padding: 10px; z-index: 200;
+      display: none; width: 190px;
+    }
+    #bgColorPanel.open { display: block; }
+    #bgColorPanel .swatches { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+    #bgColorPanel .swatch {
+      width: 26px; height: 26px; border-radius: 50%; cursor: pointer;
+      border: 2px solid #fff; box-shadow: 0 0 0 1px #ccc; flex-shrink: 0;
+    }
+    #bgColorPanel .swatch:hover { box-shadow: 0 0 0 2px #0275d8; }
+    #bgColorPanel .swatch.selected { box-shadow: 0 0 0 2px #0275d8; }
+    #bgColorPanel input[type="color"] {
+      width: 100%; height: 30px; padding: 2px; margin: 0; cursor: pointer;
+    }
+    #bgColorPanel .panel-label { font-size: 11px; color: #777; margin: 6px 0 4px; }
+
+    #clearBtn { background: #dc3545; color: white; border-color: #dc3545; }
+    #clearBtn:hover { background: #bd2130; }
+
+    /* Layout Panel UI */
+    .panel {
+      position: absolute; top: 70px; width: 340px; max-height: calc(100vh - 100px);
+      background: rgba(255, 255, 255, 0.98); border-radius: 8px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.15); overflow-y: auto;
+      padding: 14px; z-index: 90; font-size: 12px; border: 1px solid #e0e0e0; color: #333; display: none;
+    }
+    #treePanel { left: 15px; }
+    #coordPanel { left: 15px; }
+    #measurePanel { left: 15px; }
+    #infoPanel { right: 15px; width: 360px; }
+    #bcfPanel { right: 15px; }
+    #modelsPanel { right: 15px; }
+
+    .panel-header {
+      cursor: move;
+      user-select: none;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid #eee;
+      padding-bottom: 5px;
+    }
+
+    .pset-header {
+      background: #e9ecef; color: #1a252f; font-weight: bold;
+      padding: 5px 8px; margin-top: 10px; border-radius: 4px;
+      border-left: 4px solid #007acc; font-size: 11px; text-transform: uppercase;
+    }
+    .prop-table { width: 100%; border-collapse: collapse; margin-top: 5px; font-size: 11px; }
+    .prop-table th, .prop-table td { border: 1px solid #e9ecef; padding: 5px; text-align: left; word-break: break-all; }
+    .prop-table th { background-color: #f8f9fa; font-weight: 600; color: #495057; width: 38%; }
+
+    .coord-item, .measure-item {
+      padding: 8px; margin-bottom: 6px; background: #e3f2fd; border: 1px solid #90caf9;
+      border-radius: 6px; font-family: monospace; font-size: 11px;
+    }
+
+    .model-tag {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 8px 10px; margin-bottom: 6px; background: #f8f9fa;
+      border: 1px solid #dee2e6; border-radius: 6px; font-weight: 500;
+    }
+
+    select, input, textarea {
+      width: 100%; padding: 6px; margin: 6px 0; border: 1px solid #ccc;
+      border-radius: 4px; box-sizing: border-box; font-size: 12px;
+    }
+
+    #instruction {
+      position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
+      background: rgba(33, 37, 41, 0.9); color: #fff; padding: 8px 18px;
+      border-radius: 20px; font-size: 12px; display: none; z-index: 100;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+    }
+
+    .coord-marker {
+      position: absolute; width: 20px; height: 20px; background: #6f42c1;
+      color: #ffffff; border: 2px solid #ffffff; border-radius: 50%;
+      text-align: center; line-height: 16px; font-size: 10px; font-weight: bold;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.4); transform: translate(-50%, -50%);
+      pointer-events: none; z-index: 80;
+    }
+
+    .measure-tag-3d {
+      position: absolute; background: #d9534f; color: #ffffff;
+      padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: bold;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.3); border: 1px solid #ffffff;
+      transform: translate(-50%, -100%); pointer-events: none; z-index: 85; white-space: nowrap;
+    }
+
+    .coord-tag-3d {
+      position: absolute; background: #6f42c1; color: #ffffff;
+      padding: 4px 8px; border-radius: 8px; font-size: 11px; font-family: monospace;
+      font-weight: bold; box-shadow: 0 2px 10px rgba(0,0,0,0.3); border: 1px solid #ffffff;
+      transform: translate(-50%, -120%); pointer-events: none; z-index: 86; white-space: nowrap;
+    }
+
+    /* -----------------------------------------------------------
+       Thanh công cụ khi chọn 1 cấu kiện (kiểu Trimble Connect):
+       zoom / cắt tại đây / ẩn / cô lập / hiện tất cả + slider độ
+       trong suốt của riêng cấu kiện đó.
+       ----------------------------------------------------------- */
+    #selectionToolbar {
+      position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%);
+      background: rgba(33, 37, 41, 0.95); color: #fff; border-radius: 24px;
+      padding: 8px 14px; display: none; align-items: center; gap: 4px;
+      box-shadow: 0 6px 24px rgba(0,0,0,0.3); z-index: 150; flex-wrap: wrap; max-width: 92vw;
+    }
+    #selectionToolbar.open { display: flex; }
+    #selectionToolbar .sel-label {
+      font-size: 12px; font-weight: bold; color: #fff; margin-right: 6px;
+      max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    #selectionToolbar button {
+      background: rgba(255,255,255,0.12); color: #fff; border: none;
+      padding: 7px 10px; border-radius: 16px; cursor: pointer; font-size: 12px;
+      display: flex; align-items: center; gap: 4px; white-space: nowrap;
+    }
+    #selectionToolbar button:hover { background: rgba(255,255,255,0.28); }
+    #selectionToolbar .sel-opacity {
+      display: flex; align-items: center; gap: 6px; font-size: 11px;
+      background: rgba(255,255,255,0.12); padding: 5px 10px; border-radius: 16px;
+    }
+    #selectionToolbar .sel-opacity input[type="range"] { width: 90px; }
+
+    /* Thanh nổi cho chế độ "Chọn Nhiều" — cùng kiểu với #selectionToolbar
+       nhưng màu tím để phân biệt rõ đang ở chế độ chọn nhóm. */
+    #multiSelectBar {
+      position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%);
+      background: rgba(111, 66, 193, 0.95); color: #fff; border-radius: 24px;
+      padding: 8px 14px; display: none; align-items: center; gap: 4px;
+      box-shadow: 0 6px 24px rgba(0,0,0,0.3); z-index: 150; flex-wrap: wrap; max-width: 92vw;
+    }
+    #multiSelectBar.open { display: flex; }
+    #multiSelectBar .sel-label { font-size: 12px; font-weight: bold; color: #fff; margin-right: 6px; white-space: nowrap; }
+    #multiSelectBar button {
+      background: rgba(255,255,255,0.18); color: #fff; border: none;
+      padding: 7px 10px; border-radius: 16px; cursor: pointer; font-size: 12px;
+      display: flex; align-items: center; gap: 4px; white-space: nowrap;
+    }
+    #multiSelectBar button:hover { background: rgba(255,255,255,0.32); }
+
+    /* D-pad ảo cho chế độ Đi Bộ (Walk) trên cảm ứng — hiện góc dưới bên
+       trái, chỉ khi Walk đang bật. Nhìn quanh vẫn dùng cách kéo ngón tay có
+       sẵn của xeokit (navMode firstPerson), D-pad chỉ lo phần DI CHUYỂN. */
+    #walkPad {
+      display: none; position: absolute; left: 20px; bottom: 24px; z-index: 150;
+      width: 148px; height: 148px;
+    }
+    #walkPad.open { display: block; }
+    .walk-btn {
+      position: absolute; width: 48px; height: 48px; border-radius: 50%;
+      background: rgba(33,37,41,0.75); color: #fff; border: 2px solid rgba(255,255,255,0.4);
+      font-size: 18px; display: flex; align-items: center; justify-content: center;
+      cursor: pointer; touch-action: none; user-select: none; -webkit-user-select: none;
+    }
+    .walk-btn:active, .walk-btn.pressed { background: rgba(2, 117, 216, 0.9); }
+    .walk-up    { top: 0;    left: 50px; }
+    .walk-down  { bottom: 0; left: 50px; }
+    .walk-left  { left: 0;   top: 50px; }
+    .walk-right { right: 0;  top: 50px; }
+    .walk-pad-label {
+      position: absolute; bottom: -18px; left: 0; right: 0; text-align: center;
+      font-size: 10px; color: #444; text-shadow: 0 1px 2px #fff;
+    }
+
+    /* Slider độ trong suốt riêng cho mỗi model trong bảng Danh Sách Model */
+    .model-tag { flex-direction: column; align-items: stretch; gap: 4px; }
+    .model-tag .model-tag-row { display: flex; justify-content: space-between; align-items: center; }
+    .model-tag .model-opacity-row { display: flex; align-items: center; gap: 6px; font-size: 10px; color: #666; }
+    .model-tag .model-opacity-row input[type="range"] { flex: 1; }
+
+    /* Pin markup trên khung nhìn 3D — kiểu ghim (pin) giống Trimble Connect */
+    .markup-pin {
+      position: absolute; width: 26px; height: 26px; background: #fd7e14;
+      color: #fff; border: 2px solid #fff; border-radius: 50% 50% 50% 0;
+      transform: translate(-50%, -100%) rotate(-45deg);
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 3px 10px rgba(0,0,0,0.45); cursor: pointer; z-index: 82;
+      font-size: 13px; font-weight: bold; transition: transform 0.12s;
+    }
+    .markup-pin:hover { transform: translate(-50%, -100%) rotate(-45deg) scale(1.15); }
+    .markup-pin span { transform: rotate(45deg); }
+    .markup-cloud {
+      position: absolute; transform: translate(-50%, -50%); pointer-events: none;
+      z-index: 78; filter: drop-shadow(0 0 4px rgba(253,126,20,0.5));
+    }
+    .markup-item {
+      padding: 8px; margin-bottom: 6px; background: #fff3e0; border: 1px solid #ffcc80;
+      border-radius: 6px; font-size: 12px; cursor: pointer;
+    }
+    .markup-item .markup-del { float: right; color: #d9534f; font-weight: bold; cursor: pointer; }
+
+    /* Form nổi tạo/xem Markup — kiểu bong bóng chú thích của Trimble Connect */
+    .markup-popup {
+      position: absolute; display: none; z-index: 500; width: 260px;
+      background: #ffffff; border-radius: 10px; box-shadow: 0 8px 28px rgba(0,0,0,0.35);
+      border: 1px solid #eee; padding: 12px; font-size: 13px;
+      transform: translate(-50%, -100%); margin-top: -14px;
+    }
+    .markup-popup::after {
+      content: ""; position: absolute; left: 50%; bottom: -8px; transform: translateX(-50%);
+      border-width: 8px 8px 0 8px; border-style: solid;
+      border-color: #ffffff transparent transparent transparent;
+    }
+    .markup-popup .mp-title {
+      font-weight: bold; color: #fd7e14; margin-bottom: 8px;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .markup-popup textarea {
+      width: 100%; box-sizing: border-box; min-height: 60px; resize: vertical;
+      border: 1px solid #ddd; border-radius: 6px; padding: 6px; font-size: 12px;
+      font-family: inherit;
+    }
+    .markup-popup .mp-note-text {
+      white-space: pre-wrap; word-break: break-word; color: #333; margin-bottom: 8px;
+    }
+    .markup-popup .mp-actions {
+      display: flex; gap: 6px; margin-top: 8px; justify-content: flex-end;
+    }
+    .markup-popup button {
+      border: none; border-radius: 6px; padding: 6px 12px; font-size: 12px;
+      font-weight: bold; cursor: pointer;
+    }
+    .markup-popup .mp-save { background: #fd7e14; color: white; }
+    .markup-popup .mp-cancel { background: #eee; color: #333; }
+    .markup-popup .mp-delete { background: #f8d7da; color: #721c24; margin-right: auto; }
+
+    /* Modal xem AR (model-viewer) — hiển thị cấu kiện đang chọn để bấm nút
+       AR gốc của model-viewer, mở Scene Viewer (Android/ARCore) ở tỉ lệ 1:1. */
+    #arModal {
+      display: none; position: fixed; inset: 0; z-index: 800;
+      background: rgba(0,0,0,0.6); flex-direction: column; align-items: center; justify-content: center;
+    }
+    #arModal.open { display: flex; }
+    #arModalHeader {
+      width: 100%; max-width: 480px; background: #212529; color: #fff;
+      padding: 10px 16px; display: flex; justify-content: space-between; align-items: center;
+      border-radius: 10px 10px 0 0; font-weight: bold; font-size: 14px;
+    }
+    #arModalHeader button {
+      background: none; border: none; color: #fff; font-size: 16px; cursor: pointer;
+    }
+    #arModalBody {
+      width: 100%; max-width: 480px; height: 55vh; background: #f1f3f5;
+      display: flex; align-items: center; justify-content: center; position: relative;
+    }
+    #arModalBody model-viewer { width: 100%; height: 100%; --poster-color: transparent; }
+    #arDimBadge {
+      position: absolute; top: 10px; left: 10px; background: rgba(33,37,41,0.8);
+      color: #fff; font-size: 11px; font-weight: bold; padding: 5px 10px;
+      border-radius: 8px; z-index: 5;
+    }
+    #arLoadingMsg { color: #555; font-size: 13px; font-weight: bold; text-align: center; padding: 0 20px; }
+    #arModalHint {
+      width: 100%; max-width: 480px; background: #fff; color: #555; font-size: 11px;
+      padding: 10px 16px; border-radius: 0 0 10px 10px; box-sizing: border-box;
+    }
+    #arEnterBtn {
+      position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
+      background: #fd7e14; color: #fff; border: none; padding: 10px 20px;
+      border-radius: 22px; font-weight: bold; font-size: 13px; box-shadow: 0 4px 14px rgba(0,0,0,0.3);
+    }
+
+    /* Nút thu gọn/mở toolbar — chỉ hiện trên màn hình nhỏ (xem media query
+       bên dưới), giúp lấy lại không gian xem mô hình trên điện thoại. */
+    #toolbarToggle {
+      display: none; position: absolute; top: 10px; right: 10px; z-index: 110;
+      width: 34px; height: 34px; border-radius: 50%; background: rgba(33,37,41,0.85);
+      color: #fff; align-items: center; justify-content: center; font-size: 15px;
+      border: none; box-shadow: 0 2px 10px rgba(0,0,0,0.25); cursor: pointer;
+    }
+
+    /* =============================================================
+       TỐI ƯU CHO ĐIỆN THOẠI / MÀN HÌNH NHỎ
+       - Toolbar chính: chuyển thành 1 thanh cuộn ngang gọn (thay vì bị bẻ
+         xuống nhiều dòng chiếm gần hết màn hình như trước).
+       - Có nút tròn thu gọn/mở toolbar để lấy lại không gian xem mô hình.
+       - Các bảng thông tin (panel): rộng full màn hình, neo dưới toolbar,
+         giới hạn chiều cao để không che hết khung nhìn 3D.
+       - Thanh công cụ khi chọn cấu kiện: cũng cuộn ngang gọn, neo đáy màn
+         hình, tách hẳn khỏi các panel (neo trên) để không đè lên nhau.
+       ============================================================= */
+    @media (max-width: 768px) {
+      #toolbar {
+        top: 8px; left: 8px; right: 46px; transform: none; max-width: none;
+        width: auto; border-radius: 14px;
+      }
+      #toolbar.collapsed { display: none; }
+
+      #toolbarToggle { display: flex; }
+
+      .ribbon-tabs { padding: 4px 6px 0; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+      .ribbon-tabs::-webkit-scrollbar { display: none; }
+      .ribbon-tab { flex-shrink: 0; padding: 5px 10px; font-size: 11px; }
+
+      .ribbon-panels { padding: 6px 8px; }
+      .ribbon-panel {
+        flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch;
+        max-width: none; scrollbar-width: none;
+      }
+      .ribbon-panel::-webkit-scrollbar { display: none; }
+      .ribbon-group { flex-shrink: 0; padding: 2px 6px; min-height: 48px; }
+      .ribbon-sep { flex-shrink: 0; }
+
+      .btn { flex-shrink: 0; white-space: nowrap; font-size: 11px; padding: 7px 10px; }
+      .toolbar-sep { flex-shrink: 0; }
+
+      #treePanel, #coordPanel, #measurePanel, #infoPanel, #bcfPanel,
+      #modelsPanel, #markupPanel, #clashPanel {
+        left: 8px; right: 8px; width: auto; max-width: none;
+        top: 92px; max-height: 40vh; font-size: 12px;
+      }
+
+      #selectionToolbar {
+        left: 8px; right: 8px; bottom: 8px; transform: none; max-width: none;
+        flex-wrap: nowrap; overflow-x: auto; justify-content: flex-start;
+        -webkit-overflow-scrolling: touch; border-radius: 14px; padding: 8px 10px;
+        scrollbar-width: none;
+      }
+      #selectionToolbar::-webkit-scrollbar { display: none; }
+      #selectionToolbar .sel-label { max-width: 90px; }
+      #selectionToolbar button, #selectionToolbar .sel-opacity { flex-shrink: 0; }
+
+      #multiSelectBar {
+        left: 8px; right: 8px; bottom: 8px; transform: none; max-width: none;
+        flex-wrap: nowrap; overflow-x: auto; justify-content: flex-start;
+        -webkit-overflow-scrolling: touch; border-radius: 14px; padding: 8px 10px;
+      }
+      #multiSelectBar button { flex-shrink: 0; }
+
+      #bgColorPanel {
+        position: fixed; left: 50%; top: auto; bottom: 60px; transform: translateX(-50%);
+      }
+
+      #instruction { bottom: 14px; font-size: 11px; padding: 7px 14px; max-width: 90vw; }
+    }
+  </style>
+</head>
+<body>
+
+  <div id="loading">🚀 Đang tải mô hình BIM...</div>
+  <div id="instruction"></div>
+  <div id="markerContainer"></div>
+  <div id="markupContainer"></div>
+
+  <div id="markupPopup" class="markup-popup"></div>
+
+  <div id="arModal">
+    <div id="arModalHeader">
+      <span>🕶️ Xem AR — Tỉ lệ 1:1</span>
+      <button id="arModalClose" type="button">✕</button>
+    </div>
+    <div id="arModalBody">
+      <div id="arLoadingMsg">⌛ Đang chuẩn bị hình học 3D cho AR...</div>
+    </div>
+    <div id="arModalHint">
+      📱 Bấm nút AR trong khung xem để đưa cấu kiện ra ngoài đời thực đúng kích thước thật. Cần có Internet và máy hỗ trợ ARCore (Android) / mở bằng Chrome.
+    </div>
+  </div>
+
+  <div id="selectionToolbar">
+    <span class="sel-label" id="selLabel">—</span>
+    <button id="selZoom" title="Zoom đến cấu kiện này">🔍 Zoom</button>
+    <button id="selClip" title="Tạo mặt cắt tại vị trí cấu kiện này">✂️ Cắt Tại Đây</button>
+    <button id="selHide" title="Ẩn cấu kiện này">🙈 Ẩn</button>
+    <button id="selIsolate" title="Chỉ hiện cấu kiện này, ẩn hết phần còn lại">🎯 Cô Lập</button>
+    <button id="selAR" title="Xem cấu kiện này ngoài đời thực ở tỉ lệ 1:1 qua AR">🕶️ AR</button>
+    <button id="selShowAll" title="Hiện lại toàn bộ mô hình">↩️ Hiện Tất Cả</button>
+    <button id="selReset" title="Reset toàn bộ: hiện lại tất cả, xóa mờ/ẩn/cô lập, bỏ chọn" style="background:#d9534f; color:#fff;">🔄 Reset</button>
+    <div class="sel-opacity">
+      🌫️ <input type="range" id="selOpacity" min="0" max="100" value="100">
+      <span id="selOpacityVal">100%</span>
+    </div>
+    <button id="selClose" title="Đóng">✕</button>
+  </div>
+
+  <div id="multiSelectBar">
+    <span class="sel-label">☑️ Đã chọn: <b id="multiSelectCount">0</b> cấu kiện</span>
+    <button id="multiSelIsolate" title="Chỉ hiện đúng nhóm đã chọn, ẩn hết phần còn lại">🎯 Cô Lập Nhóm</button>
+    <button id="multiSelAR" title="Xem AR cho đúng nhóm đã chọn">🕶️ AR Nhóm</button>
+    <button id="multiSelClear" title="Bỏ chọn hết, giữ nguyên chế độ Chọn Nhiều">🗑️ Bỏ Chọn Hết</button>
+  </div>
+
+  <!-- Nút ảo điều khiển Đi Bộ (Walk) trên màn hình cảm ứng — chỉ hiện khi
+       đang bật chế độ Walk. Giữ (không phải bấm nhả) để di chuyển liên tục,
+       giống hệt giữ phím W/A/S/D trên bàn phím. -->
+  <div id="walkPad">
+    <button id="walkUp" class="walk-btn walk-up" type="button">⬆</button>
+    <button id="walkLeft" class="walk-btn walk-left" type="button">⬅</button>
+    <button id="walkDown" class="walk-btn walk-down" type="button">⬇</button>
+    <button id="walkRight" class="walk-btn walk-right" type="button">➡</button>
+    <div class="walk-pad-label">Đi Bộ</div>
+  </div>
+
+  <button id="toolbarToggle" title="Thu gọn / Mở thanh công cụ">☰</button>
+
+  <div id="toolbar">
+    <div class="ribbon-tabs">
+      <button class="ribbon-tab active" data-panel="ribbonHome">Trang Chủ</button>
+      <button class="ribbon-tab" data-panel="ribbonReview">Kiểm Tra</button>
+      <button class="ribbon-tab" data-panel="ribbonNavigate">Điều Hướng</button>
+    </div>
+
+    <div class="ribbon-panels">
+      <!-- ===================== TAB: TRANG CHỦ ===================== -->
+      <div class="ribbon-panel active" id="ribbonHome">
+        <div class="ribbon-group">
+          <div class="ribbon-group-buttons">
+            <label for="ifcModelFileInput" class="btn btn-add-model" id="btnAddIfcModel" title="Chỉ cần 1 file .ifc — hệ thống tự dựng hình 3D và giữ dữ liệu chính xác để check va chạm, không cần nạp thêm .xkt">📂 Nạp Mô Hình (.IFC)</label>
+            <input type="file" id="ifcModelFileInput" accept=".ifc" multiple>
+            <button class="btn" id="btnModelsList">📁 Danh Sách Model (<span id="modelCount">0</span>)</button>
+            <button class="btn" onclick="toggleCdeFilesPanel()" title="Quản lý file theo CDE ISO 19650">📁 CDE</button>
+            <label for="modelFileInput" class="btn" id="btnAddXkt" title="Nâng cao: chỉ dùng khi bạn đã có sẵn file .xkt convert trước, phù hợp model rất lớn">⚙️ XKT (nâng cao)</label>
+            <input type="file" id="modelFileInput" accept=".xkt" multiple>
+            <button class="btn btn-danger" id="btnResetApp" title="Xóa hết model đang mở, tải lại app từ đầu để nạp mô hình mới">♻️ Nạp Mô Hình Mới</button>
+          </div>
+          <div class="ribbon-group-label">Model</div>
+        </div>
+
+        <div class="ribbon-sep"></div>
+
+        <div class="ribbon-group">
+          <div class="ribbon-group-buttons">
+            <button class="btn" id="btnTree">🌳 Cây Thư Mục</button>
+            <button class="btn" id="btnZoomAll">🔍 Zoom Toàn Bộ</button>
+            <div id="btnBgColor" class="btn" title="Đổi màu nền khung nhìn">
+              🎨 Màu Nền
+              <div id="bgColorPanel">
+                <div class="swatches" id="bgSwatches"></div>
+                <div class="panel-label">Tùy chỉnh:</div>
+                <input type="color" id="bgColorCustom" value="#ffffff">
+              </div>
+            </div>
+          </div>
+          <div class="ribbon-group-label">Hiển Thị</div>
+        </div>
+
+        <div class="ribbon-sep"></div>
+
+        <div class="ribbon-group">
+          <div class="ribbon-group-buttons">
+            <button class="btn" id="btnMultiSelect" title="Tap/click từng cấu kiện để gộp thành 1 nhóm, dùng để Cô Lập hoặc Xem AR cả nhóm">☑️ Chọn Nhiều</button>
+          </div>
+          <div class="ribbon-group-label">Chọn</div>
+        </div>
+      </div>
+
+      <!-- ===================== TAB: KIỂM TRA ===================== -->
+      <div class="ribbon-panel" id="ribbonReview">
+        <div class="ribbon-group">
+          <div class="ribbon-group-buttons">
+            <button class="btn" id="btnMeasure">📏 Đo Kích Thước & Độ Dốc</button>
+            <button class="btn" id="btnCoord">📍 Tọa Độ XYZ</button>
+          </div>
+          <div class="ribbon-group-label">Đo Đạc</div>
+        </div>
+
+        <div class="ribbon-sep"></div>
+
+        <div class="ribbon-group">
+          <div class="ribbon-group-buttons">
+            <button class="btn" id="btnMarkup">✏️ Markup</button>
+          </div>
+          <div class="ribbon-group-label">Markup</div>
+        </div>
+
+        <div class="ribbon-sep"></div>
+
+        <div class="ribbon-group">
+          <div class="ribbon-group-buttons">
+            <button class="btn" id="btnSection">✂️ Mặt Cắt</button>
+          </div>
+          <div class="ribbon-group-label">Mặt Cắt</div>
+        </div>
+
+        <div class="ribbon-sep"></div>
+
+        <div class="ribbon-group">
+          <div class="ribbon-group-buttons">
+            <button class="btn btn-danger" id="btnClash">⚡ Check Va Chạm</button>
+            <button class="btn" id="btnBCF">📝 Tạo BCF Issue</button>
+          </div>
+          <div class="ribbon-group-label">Va Chạm</div>
+        </div>
+
+        <div class="ribbon-sep"></div>
+
+        <div class="ribbon-group">
+          <div class="ribbon-group-buttons">
+            <button class="btn" id="btnARVisible" title="Xem AR cho TOÀN BỘ cấu kiện đang hiển thị — dùng Cô Lập/Ẩn để thu hẹp khu vực trước khi bấm">🕶️ AR Khu Vực Đang Hiện</button>
+          </div>
+          <div class="ribbon-group-label">AR</div>
+        </div>
+
+        <div class="ribbon-sep"></div>
+
+        <div class="ribbon-group">
+          <div class="ribbon-group-buttons">
+            <button class="btn btn-danger" id="clearBtn">🗑️ Xóa Highlight / Đo</button>
+          </div>
+          <div class="ribbon-group-label">Dọn Dẹp</div>
+        </div>
+      </div>
+
+      <!-- ===================== TAB: ĐIỀU HƯỚNG ===================== -->
+      <div class="ribbon-panel" id="ribbonNavigate">
+        <div class="ribbon-group">
+          <div class="ribbon-group-buttons">
+            <button class="btn btn-primary" id="btnNavOrbit" title="Xoay quanh mô hình bằng chuột/ngón tay (mặc định)">🖱️ Xoay (Orbit)</button>
+            <button class="btn" id="btnNavWalk" title="Đi bộ trong mô hình ở góc nhìn người thật, giữ nguyên chiều cao mắt — giống công cụ Walk của Navisworks">🚶 Đi Bộ (Walk)</button>
+          </div>
+          <div class="ribbon-group-label">Chế Độ</div>
+        </div>
+
+        <div class="ribbon-sep"></div>
+
+        <div class="ribbon-group">
+          <div class="ribbon-group-buttons">
+            <button class="btn" id="btnZoomAll2" title="Xem toàn bộ mô hình">🔍 Zoom Toàn Bộ</button>
+          </div>
+          <div class="ribbon-group-label">Góc Nhìn</div>
+        </div>
+
+        <div class="ribbon-sep"></div>
+
+        <div class="ribbon-group">
+          <div class="ribbon-group-buttons">
+            <span id="navHelpText">🖱️ Orbit: kéo chuột trái để xoay, cuộn để zoom.<br>🚶 Walk: W/A/S/D hoặc phím mũi tên để đi, kéo chuột trái để nhìn quanh.</span>
+          </div>
+          <div class="ribbon-group-label">Hướng Dẫn</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="treePanel" class="panel">
+    <div class="panel-header">
+      <h4 style="margin:0; color:#007acc;">Cấu Trúc Mô Hình BIM</h4>
+      <button onclick="document.getElementById('treePanel').style.display='none'" style="border:none;background:none;cursor:pointer;">✕</button>
+    </div>
+    <div id="treeViewContainer" style="margin-top:10px;"></div>
+  </div>
+
+  <div id="measurePanel" class="panel">
+    <div class="panel-header">
+      <h4 style="margin:0; color:#0275d8;">Kết Quả Đo & Độ Dốc</h4>
+      <button onclick="document.getElementById('measurePanel').style.display='none'" style="border:none;background:none;cursor:pointer;">✕</button>
+    </div>
+    <div id="measureList" style="margin-top:10px;">
+      <div style="color:#777;">Click chọn 2 điểm trên mô hình để tính khoảng cách và độ dốc.</div>
+    </div>
+  </div>
+
+  <div id="coordPanel" class="panel">
+    <div class="panel-header">
+      <h4 style="margin:0; color:#6f42c1;">Danh Sách Tọa Độ (XYZ)</h4>
+      <button onclick="document.getElementById('coordPanel').style.display='none'" style="border:none;background:none;cursor:pointer;">✕</button>
+    </div>
+    <div id="coordList" style="margin-top:10px;">
+      <div style="color:#777;">Click chọn điểm trên mô hình để lấy tọa độ.</div>
+    </div>
+  </div>
+
+  <div id="markupPanel" class="panel">
+    <div class="panel-header">
+      <h4 style="margin:0; color:#fd7e14;">Danh Sách Markup</h4>
+      <button onclick="document.getElementById('markupPanel').style.display='none'" style="border:none;background:none;cursor:pointer;">✕</button>
+    </div>
+    <div style="font-size:11px; color:#777; margin-top:6px;">Bật "✏️ Markup" trên thanh công cụ rồi click vào mô hình để ghim chú thích tại đúng vị trí đó.</div>
+    <div id="markupList" style="margin-top:10px;">
+      <div style="color:#777;">Chưa có markup nào.</div>
+    </div>
+  </div>
+
+  <div id="infoPanel" class="panel">
+    <div class="panel-header">
+      <h4 style="margin:0; color:#007acc;">Chi Tiết Thuộc Tính IFC</h4>
+      <button onclick="document.getElementById('infoPanel').style.display='none'" style="border:none;background:none;cursor:pointer;">✕</button>
+    </div>
+    <div id="infoContent" style="margin-top:8px;"></div>
+  </div>
+
+  <div id="modelsPanel" class="panel">
+    <div class="panel-header">
+      <h4 style="margin:0; color:#0275d8;">Các Mô Hình Đang Mở</h4>
+      <button onclick="document.getElementById('modelsPanel').style.display='none'" style="border:none;background:none;cursor:pointer;">✕</button>
+    </div>
+    <div id="modelsList" style="margin-top:10px;"></div>
+  </div>
+
+  <div id="clashPanel" style="display: none; position: fixed; top: 80px; left: 20px; z-index: 999999; background: #ffffff; padding: 15px; border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.3); width: 320px; pointer-events: auto;">
+    <div class="panel-header" style="margin-bottom: 10px;">
+      <h3 style="margin: 0; font-size: 15px; color: #d9534f;">Kiểm Tra Va Chạm (Clash)</h3>
+      <span onclick="toggleClashPanel()" style="cursor: pointer; font-weight: bold; font-size: 20px;">&times;</span>
+    </div>
+
+    <label style="font-size: 12px; font-weight: bold; display: block; margin-top: 5px;">Chế độ check:</label>
+    <select id="clashMode" style="width: 100%; padding: 6px; margin-top: 4px; margin-bottom: 10px; border-radius: 4px; border: 1px solid #ccc;">
+      <option value="between_models">Va chạm GIỮA các Mô Hình khác nhau</option>
+      <option value="all">Tất cả cấu kiện trong Scene (Gồm cả cùng Model)</option>
+    </select>
+
+    <label style="font-size: 12px; font-weight: bold; display: block;">Khoảng cách va chạm / Clearance (m):</label>
+    <input type="number" id="clashTolerance" value="0.00" step="0.01" style="width: 100%; padding: 6px; margin-top: 4px; border-radius: 4px; border: 1px solid #ccc; box-sizing: border-box;">
+
+    <button type="button" onclick="runClashNow()" style="margin-top: 15px; width: 100%; background: #d9534f; color: white; border: none; padding: 10px; border-radius: 4px; font-weight: bold; cursor: pointer; pointer-events: auto;">
+      ⚡ Bắt Đầu Quét Va Chạm
+    </button>
+
+    <div id="clashResults" style="margin-top: 12px; max-height: 250px; overflow-y: auto;"></div>
+
+    <div id="clashExportRow" style="display:flex; gap:6px; margin-top:10px;">
+      <button type="button" onclick="exportClashReport('html')" title="Xuất báo cáo dạng trang HTML" style="flex:1; background:#20c997; color:#fff; border:none; padding:8px 4px; border-radius:4px; font-size:11px; font-weight:bold; cursor:pointer;">🌐 HTML</button>
+      <button type="button" onclick="exportClashReport('excel')" title="Xuất báo cáo dạng bảng Excel" style="flex:1; background:#28a745; color:#fff; border:none; padding:8px 4px; border-radius:4px; font-size:11px; font-weight:bold; cursor:pointer;">📊 Excel</button>
+      <button type="button" onclick="exportClashReport('pdf')" title="Xuất báo cáo dạng PDF" style="flex:1; background:#d9534f; color:#fff; border:none; padding:8px 4px; border-radius:4px; font-size:11px; font-weight:bold; cursor:pointer;">📄 PDF</button>
+    </div>
+
+    <div style="margin-top: 14px; padding-top: 10px; border-top: 1px dashed #ccc;">
+      <label style="font-size: 12px; font-weight: bold; display: block; color: #0275d8;">🔍 Debug 2 Vật Thể Cụ Thể</label>
+      <div style="font-size: 11px; color: #666; margin: 4px 0 6px;">Click 1 vật trong scene rồi bấm "Gán A". Click vật thứ 2 rồi bấm "Gán B". Sau đó bấm Phân Tích.</div>
+      <div style="display:flex; gap:6px; margin-bottom:4px;">
+        <input type="text" id="debugIdA" readonly placeholder="Vật A (chưa chọn)" style="flex:1; font-size:11px; padding:4px; border-radius:4px; border:1px solid #ccc;">
+        <button type="button" onclick="assignDebugSlot('A')" style="font-size:11px; padding:4px 8px; border-radius:4px; border:1px solid #0275d8; background:#eaf4ff; cursor:pointer;">Gán A</button>
+      </div>
+      <div style="display:flex; gap:6px; margin-bottom:6px;">
+        <input type="text" id="debugIdB" readonly placeholder="Vật B (chưa chọn)" style="flex:1; font-size:11px; padding:4px; border-radius:4px; border:1px solid #ccc;">
+        <button type="button" onclick="assignDebugSlot('B')" style="font-size:11px; padding:4px 8px; border-radius:4px; border:1px solid #0275d8; background:#eaf4ff; cursor:pointer;">Gán B</button>
+      </div>
+      <button type="button" onclick="debugClashPair()" style="width:100%; background:#0275d8; color:white; border:none; padding:8px; border-radius:4px; font-weight:bold; font-size:12px; cursor:pointer;">
+        📊 Phân Tích Chi Tiết
+      </button>
+      <div id="debugClashOutput" style="margin-top:10px; font-size:11px; font-family: monospace; white-space: pre-wrap; max-height:260px; overflow-y:auto; background:#f7f7f9; border:1px solid #ddd; border-radius:4px; padding:8px; display:none;"></div>
+    </div>
+  </div>
+
+  <div id="bcfPanel" class="panel">
+    <div class="panel-header">
+      <h4 style="margin:0; color:#0275d8;">Ghi Chú Vấn Đề (BCF Issue)</h4>
+      <button onclick="document.getElementById('bcfPanel').style.display='none'" style="border:none;background:none;cursor:pointer;">✕</button>
+    </div>
+    <div style="margin-top:10px;">
+      <label><b>Tiêu đề sự cố:</b></label>
+      <input type="text" id="bcfTitle" placeholder="Ví dụ: Va chạm ống cấp nước và dầm...">
+      
+      <label><b>Mô tả / Đề xuất xử lý:</b></label>
+      <textarea id="bcfDescription" rows="3" placeholder="Nhập chi tiết yêu cầu sửa chữa..."></textarea>
+      
+      <label><b>Cấu kiện liên quan:</b></label>
+      <input type="text" id="bcfTarget" readonly placeholder="Click chọn cấu kiện 3D...">
+
+      <button id="exportBcfBtn" class="btn" style="width:100%; background:#28a745; color:white; border:none; padding:10px; margin-top:8px; font-weight:bold;">
+        💾 Xuất File BCF (.bcfzip)
+      </button>
+    </div>
+  </div>
+
+  <canvas id="myCanvas"></canvas>
+
+  <!-- Thư viện web-ifc: đọc trực tiếp file .IFC gốc để lấy hình học CHÍNH XÁC
+       (tam giác lưới thật, không nén trên GPU) — dùng RIÊNG cho việc tính
+       toán clash, độc lập hoàn toàn với pipeline hiển thị của xeokit.
+       LƯU Ý: phải dùng đúng file "web-ifc-api-IIFE.js" (bản build riêng cho
+       thẻ <script> thường, tự tạo biến toàn cục window.WebIFC). File
+       "web-ifc-api.js" là bản dành cho bundler (import/require), KHÔNG tạo
+       biến toàn cục khi nhúng bằng <script> thường -> đây chính là lý do
+       gây lỗi "Không tải được thư viện web-ifc" trước đó. -->
+  <script src="https://cdn.jsdelivr.net/npm/web-ifc@0.0.57/web-ifc-api-iife.js"></script>
+
+  <script type="module">
+    import { 
+      Viewer, 
+      XKTLoaderPlugin, 
+      WebIFCLoaderPlugin,
+      TreeViewPlugin, 
+      SectionPlanesPlugin, 
+      DistanceMeasurementsPlugin 
+    } from "https://cdn.jsdelivr.net/npm/@xeokit/xeokit-sdk/dist/xeokit-sdk.es.js";
+
+    const viewer = new Viewer({ 
+      canvasId: "myCanvas", 
+      transparent: false,
+      backgroundColor: [1, 1, 1] 
+    });
+
+    const xktLoader = new XKTLoaderPlugin(viewer);
+    // WebIFCLoaderPlugin dựng luôn phần hình học + metadata trực tiếp từ file
+    // .ifc gốc trong trình duyệt (dùng chung engine web-ifc bên dưới) — nhờ
+    // vậy người dùng chỉ cần nạp 1 file .ifc là xem được mô hình 3D, không
+    // cần convert sẵn ra .xkt ở bước ngoài nữa. Được khởi tạo "lười" (lazy)
+    // ở lần nạp IFC đầu tiên, vì nó cần 1 IfcAPI đã Init() xong (xem
+    // getIfcApi() / getWebIfcLoader() phía dưới).
+    let webIfcLoader = null;
+    const treeView = new TreeViewPlugin(viewer, { containerElementId: "treeViewContainer", autoExpandDepth: 1 });
+    const sectionPlanes = new SectionPlanesPlugin(viewer);
+    const distanceMeasurements = new DistanceMeasurementsPlugin(viewer);
+
+    const loadedModels = new Map();
+    let selectedEntity = null;
+    let multiSelectMode = false;
+    const multiSelectedIds = new Set();
+
+    // Cache hình học THẬT lấy trực tiếp từ file .IFC gốc qua web-ifc (WASM),
+    // KHÔNG qua xeokit -> không bị giới hạn GPU-only. Key = GlobalId (trùng
+    // với entity.id mà xeokit dùng khi model được convert từ cùng file IFC).
+    // Value = { points: [[x,y,z], ...] } toạ độ world-space THẬT.
+    const ifcGeometryCache = new Map();
+    let ifcApiInstance = null;
+    let ifcApiReady = null; // Promise
+
+    // Giữ lại buffer .ifc gốc của từng model (theo modelId) để có thể trích
+    // xuất hình học chính xác SAU, thay vì làm ngay lúc nạp file — nhờ vậy
+    // bước "Nạp Mô Hình" hiển thị nhanh hơn hẳn (không phải parse file IFC
+    // 2 lần liên tiếp). Việc trích xuất chính xác chỉ thực sự chạy khi
+    // người dùng bấm "Check Va Chạm" lần đầu cho model đó (xem
+    // ensureGeometryCacheForModel bên dưới).
+    const rawIfcBuffers = new Map();
+    const parsedGeometryModelIds = new Set();
+
+    async function ensureGeometryCacheForModel(modelId) {
+      if (parsedGeometryModelIds.has(modelId)) return;
+      const buf = rawIfcBuffers.get(modelId);
+      if (!buf) { parsedGeometryModelIds.add(modelId); return; } // model .xkt không có buffer IFC gốc
+      await parseIFCForGeometry(buf);
+      parsedGeometryModelIds.add(modelId);
+    }
+
+    async function getIfcApi() {
+      if (ifcApiInstance) return ifcApiInstance;
+      if (!window.WebIFC) {
+        throw new Error(
+          "Không tìm thấy biến toàn cục window.WebIFC. Nguyên nhân thường gặp: " +
+          "(1) file web-ifc-api-iife.js chưa tải xong hoặc bị 404 (mở tab Console " +
+          "của trình duyệt, F12, xem có lỗi đỏ liên quan 'web-ifc' không), " +
+          "(2) mất mạng / CDN jsdelivr đang chặn. Kiểm tra Console rồi báo lại kết quả nhé."
+        );
+      }
+      if (!ifcApiReady) {
+        ifcApiReady = (async () => {
+          const api = new window.WebIFC.IfcAPI();
+          // Tham số thứ 2 = true báo đây là URL TUYỆT ĐỐI. Thiếu tham số
+          // này, web-ifc tự nối thêm base path phía trước -> URL bị lặp đôi
+          // ("...web-ifc@0.0.57/https://cdn.jsdelivr.net/...") -> lỗi 400/404
+          // khi tải file .wasm. Đây chính là nguyên nhân lỗi "Aborted (both
+          // async and sync fetching of the wasm failed)".
+          api.SetWasmPath("https://cdn.jsdelivr.net/npm/web-ifc@0.0.57/", true);
+          await api.Init();
+          ifcApiInstance = api;
+          return api;
+        })();
+      }
+      return ifcApiReady;
+    }
+
+    // Tạo (1 lần) WebIFCLoaderPlugin dùng chung IfcAPI đã Init() ở trên, để
+    // nạp thẳng file .ifc vào scene xeokit (hiển thị + metadata + cây IFC).
+    async function getWebIfcLoader() {
+      if (webIfcLoader) return webIfcLoader;
+      const api = await getIfcApi();
+      webIfcLoader = new WebIFCLoaderPlugin(viewer, {
+        WebIFC: window.WebIFC,
+        IfcAPI: api
+      });
+      // QUAN TRỌNG: bật globalizeObjectIds để tránh trùng Entity#id giữa các
+      // model khác nhau. Nhiều file .ifc thuộc cùng 1 dự án dùng CHUNG
+      // GlobalId cho 1 số cấu kiện gốc (IfcProject/IfcSite/hoặc cấu kiện dùng
+      // chung giữa các bộ môn) — nếu không globalize, Entity của model nạp
+      // sau sẽ ĐÈ/TRÙNG lên Entity cùng ID của model nạp trước trong
+      // viewer.scene.objects, khiến 2 model bị "dính" nhau khi set opacity/
+      // visibility (đây chính là nguyên nhân slider độ trong suốt bị dính).
+      // Khi bật, Entity#id sẽ có dạng "<modelId>#<globalId>", còn
+      // Entity#originalSystemId giữ nguyên GlobalId gốc (dùng để tra
+      // ifcGeometryCache bên dưới).
+      webIfcLoader.globalizeObjectIds = true;
+      return webIfcLoader;
+    }
+
+    // Đọc 1 file .ifc, trích xuất tam giác lưới THẬT của từng cấu kiện
+    // (world-space, đã nhân transform), lưu vào ifcGeometryCache theo GlobalId.
+    async function parseIFCForGeometry(arrayBuffer, statusCb) {
+      const api = await getIfcApi();
+      const data = new Uint8Array(arrayBuffer);
+      const modelID = api.OpenModel(data);
+
+      let elementCount = 0;
+
+      try {
+        api.StreamAllMeshes(modelID, (mesh) => {
+          try {
+            const expressID = mesh.expressID;
+
+            // Lấy GlobalId (GUID) của cấu kiện — đây là khoá để khớp với
+            // entity.id bên xeokit
+            let globalId = null;
+            try {
+              const line = api.GetLine(modelID, expressID);
+              if (line && line.GlobalId && line.GlobalId.value) {
+                globalId = line.GlobalId.value;
+              }
+            } catch (e) { /* bỏ qua nếu không lấy được */ }
+
+            if (!globalId) return;
+
+            const points = [];
+            const geoms = mesh.geometries;
+            const geomCount = geoms.size ? geoms.size() : 0;
+
+            for (let i = 0; i < geomCount; i++) {
+              const g = geoms.get(i);
+              const geometry = api.GetGeometry(modelID, g.geometryExpressID);
+              const verts = api.GetVertexArray(geometry.GetVertexData(), geometry.GetVertexDataSize());
+              const m = g.flatTransformation; // ma trận 4x4 đưa geometry local -> world (đã áp sẵn placement)
+
+              // verts xen kẽ [x,y,z,nx,ny,nz] mỗi đỉnh (stride 6) -> chỉ lấy vị trí
+              // Lấy mẫu tối đa ~200 điểm/geometry để giữ hiệu năng PCA sau này
+              const vertCount = verts.length / 6;
+              const stride = Math.max(1, Math.floor(vertCount / 200));
+
+              for (let v = 0; v < vertCount; v += stride) {
+                const x = verts[v * 6], y = verts[v * 6 + 1], z = verts[v * 6 + 2];
+                let wx = x, wy = y, wz = z;
+                if (m && m.length === 16) {
+                  wx = x * m[0] + y * m[4] + z * m[8] + m[12];
+                  wy = x * m[1] + y * m[5] + z * m[9] + m[13];
+                  wz = x * m[2] + y * m[6] + z * m[10] + m[14];
+                }
+                points.push([wx, wy, wz]);
+              }
+            }
+
+            if (points.length >= 3) {
+              // Nếu 1 GlobalId có nhiều mesh (nhiều lần gọi callback), gộp lại
+              if (ifcGeometryCache.has(globalId)) {
+                ifcGeometryCache.get(globalId).points.push(...points);
+              } else {
+                ifcGeometryCache.set(globalId, { points });
+              }
+              elementCount++;
+            }
+          } catch (innerErr) {
+            console.warn("Lỗi khi đọc 1 mesh IFC:", innerErr);
+          }
+        });
+      } finally {
+        api.CloseModel(modelID);
+      }
+
+      if (statusCb) statusCb(elementCount);
+      return elementCount;
+    }
+
+    // -------------------------------------------------------------
+    // XEM AR (Augmented Reality) — TỈ LỆ 1:1 THỰC TẾ, kiểu Trimble Connect
+    // -------------------------------------------------------------
+    // Chỉ export ĐÚNG 1 cấu kiện đang chọn (không phải nguyên model hạ tầng
+    // hàng chục nghìn đối tượng) — đây là cách dùng thực tế nhất ("đứng tại
+    // công trường, giơ điện thoại lên xem đúng kích thước cái hố ga/cống
+    // này có khớp với vị trí thật không"), và cũng giữ file glb đủ nhẹ để
+    // xử lý mượt ngay trên điện thoại.
+    //
+    // Lấy hình học tam giác THẬT (đủ cả vị trí + pháp tuyến + chỉ số tam
+    // giác, không chỉ điểm rời rạc như ifcGeometryCache dùng cho OBB) trực
+    // tiếp từ file .ifc gốc qua web-ifc — dùng lại đúng hạ tầng đã có sẵn
+    // (getIfcApi/rawIfcBuffers) từ tính năng Check Va Chạm.
+    // Đọc hình học tam giác THẬT cho 1 NHÓM cấu kiện (globalIdSet) thuộc
+    // CÙNG 1 model, trong 1 lượt StreamAllMeshes duy nhất — dùng chung cho
+    // cả AR "1 cấu kiện" (Set 1 phần tử) và AR "khu vực đang hiện" (Set
+    // nhiều phần tử), tránh phải mở lại file IFC nhiều lần cho từng cấu
+    // kiện (rất chậm nếu khu vực có hàng trăm cấu kiện).
+    // Trả về hình học THÔ (chưa dời gốc toạ độ) — việc dời gốc phải làm
+    // SAU, 1 LẦN DUY NHẤT trên toàn bộ tập hợp gộp, để giữ đúng vị trí
+    // tương đối giữa các cấu kiện với nhau khi xuất nhiều cấu kiện cùng lúc.
+    async function extractMeshForGLB(modelId, globalIdSet) {
+      const buf = rawIfcBuffers.get(modelId);
+      if (!buf) throw new Error("Không có dữ liệu IFC gốc cho model này (model .xkt nâng cao không hỗ trợ AR).");
+
+      const api = await getIfcApi();
+      const data = new Uint8Array(buf.slice(0));
+      const modelID = api.OpenModel(data);
+
+      const positions = [];
+      const normals = [];
+      const indices = [];
+      let baseVertex = 0;
+
+      try {
+        api.StreamAllMeshes(modelID, (mesh) => {
+          const expressID = mesh.expressID;
+          let curGlobalId = null;
+          try {
+            const line = api.GetLine(modelID, expressID);
+            if (line && line.GlobalId && line.GlobalId.value) curGlobalId = line.GlobalId.value;
+          } catch (e) { /* bỏ qua */ }
+
+          if (!curGlobalId || !globalIdSet.has(curGlobalId)) return;
+
+          const geoms = mesh.geometries;
+          const geomCount = geoms.size ? geoms.size() : 0;
+
+          for (let i = 0; i < geomCount; i++) {
+            const g = geoms.get(i);
+            const geometry = api.GetGeometry(modelID, g.geometryExpressID);
+            const verts = api.GetVertexArray(geometry.GetVertexData(), geometry.GetVertexDataSize());
+            const idxArr = api.GetIndexArray(geometry.GetIndexData(), geometry.GetIndexDataSize());
+            const m = g.flatTransformation;
+
+            const vertCount = verts.length / 6; // stride 6: x,y,z,nx,ny,nz
+
+            for (let v = 0; v < vertCount; v++) {
+              const x = verts[v * 6], y = verts[v * 6 + 1], z = verts[v * 6 + 2];
+              const nx = verts[v * 6 + 3], ny = verts[v * 6 + 4], nz = verts[v * 6 + 5];
+
+              let wx = x, wy = y, wz = z;
+              let wnx = nx, wny = ny, wnz = nz;
+              if (m && m.length === 16) {
+                wx = x * m[0] + y * m[4] + z * m[8] + m[12];
+                wy = x * m[1] + y * m[5] + z * m[9] + m[13];
+                wz = x * m[2] + y * m[6] + z * m[10] + m[14];
+                wnx = nx * m[0] + ny * m[4] + nz * m[8];
+                wny = nx * m[1] + ny * m[5] + nz * m[9];
+                wnz = nx * m[2] + ny * m[6] + nz * m[10];
+              }
+              const nlen = Math.sqrt(wnx * wnx + wny * wny + wnz * wnz) || 1;
+
+              positions.push(wx, wy, wz);
+              normals.push(wnx / nlen, wny / nlen, wnz / nlen);
+            }
+            for (let k = 0; k < idxArr.length; k++) {
+              indices.push(idxArr[k] + baseVertex);
+            }
+            baseVertex += vertCount;
+          }
+        });
+      } finally {
+        api.CloseModel(modelID);
+      }
+
+      return { positions, normals, indices };
+    }
+
+    // Dời gốc toạ độ về tâm khối hộp bao (AABB) của TOÀN BỘ hình học đưa
+    // vào — toạ độ dự án dân dụng gốc thường rất lớn (hệ toạ độ nhà nước),
+    // nếu giữ nguyên sẽ mất độ chính xác float32 khi ghi ra glTF và AR đặt
+    // lệch vị trí. Chỉ cần đúng KÍCH THƯỚC THẬT (tỉ lệ 1:1), không cần giữ
+    // toạ độ tuyệt đối. Làm 1 LẦN DUY NHẤT trên tập hợp gộp (không phải
+    // từng cấu kiện riêng) để giữ đúng vị trí tương đối giữa chúng.
+    function centerAndMeasure(positions) {
+      if (positions.length === 0) {
+        throw new Error("Không đọc được hình học tam giác nào.");
+      }
+      let minX = Infinity, minY = Infinity, minZ = Infinity;
+      let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+      for (let i = 0; i < positions.length; i += 3) {
+        minX = Math.min(minX, positions[i]); maxX = Math.max(maxX, positions[i]);
+        minY = Math.min(minY, positions[i + 1]); maxY = Math.max(maxY, positions[i + 1]);
+        minZ = Math.min(minZ, positions[i + 2]); maxZ = Math.max(maxZ, positions[i + 2]);
+      }
+      const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2, cz = (minZ + maxZ) / 2;
+      for (let i = 0; i < positions.length; i += 3) {
+        positions[i] -= cx; positions[i + 1] -= cy; positions[i + 2] -= cz;
+      }
+      return { x: maxX - minX, y: maxY - minY, z: maxZ - minZ };
+    }
+
+    // Giữ tương thích: AR cho ĐÚNG 1 cấu kiện (dùng bởi nút AR trong thanh
+    // công cụ khi chọn 1 cấu kiện).
+    async function extractEntityMeshForGLB(modelId, globalId) {
+      const { positions, normals, indices } = await extractMeshForGLB(modelId, new Set([globalId]));
+      const dimensions = centerAndMeasure(positions);
+      return { positions, normals, indices, dimensions };
+    }
+
+    // AR cho TOÀN BỘ cấu kiện ĐANG HIỂN THỊ trong scene (nhiều model cùng
+    // lúc) — dùng "Cô Lập"/"Ẩn" + Danh Sách Model trước để thu hẹp khu vực
+    // muốn xem AR, vì xuất nguyên cả dự án hạ tầng (hàng chục nghìn cấu
+    // kiện, dài hàng km) vừa không thực tế để xem trong 1 khung AR, vừa có
+    // thể khiến máy xử lý rất chậm hoặc treo.
+    // Gộp hình học cho 1 DANH SÁCH id tuỳ ý (không quan tâm đang ẩn/hiện) —
+    // dùng chung cho cả "AR khu vực đang hiện" (idsList tính từ visibility)
+    // và "AR nhóm đã chọn" (idsList = đúng những gì người dùng tap chọn).
+    async function extractIdsMeshForGLB(idsList, onProgress) {
+      const byModel = new Map(); // modelId -> Set<globalId>
+
+      idsList.forEach((id) => {
+        const entity = viewer.scene.objects[id];
+        const modelId = String(id).split("#")[0];
+        if (!rawIfcBuffers.has(modelId)) return; // model .xkt nâng cao: bỏ qua, không hỗ trợ AR
+        const globalId = (entity && entity.originalSystemId) || id;
+        if (!byModel.has(modelId)) byModel.set(modelId, new Set());
+        byModel.get(modelId).add(globalId);
+      });
+
+      if (byModel.size === 0) {
+        throw new Error("Không có cấu kiện hợp lệ nào để xuất AR (đã ẩn hết, hoặc chỉ có model .xkt nâng cao không hỗ trợ AR).");
+      }
+
+      const allPositions = [];
+      const allNormals = [];
+      const allIndices = [];
+      let baseVertexGlobal = 0;
+      let doneModels = 0;
+      let objectCount = 0;
+
+      for (const [modelId, idSet] of byModel.entries()) {
+        objectCount += idSet.size;
+        if (onProgress) onProgress(doneModels, byModel.size, modelId);
+        const { positions, normals, indices } = await extractMeshForGLB(modelId, idSet);
+
+        for (let i = 0; i < positions.length; i++) allPositions.push(positions[i]);
+        for (let i = 0; i < normals.length; i++) allNormals.push(normals[i]);
+        const vertCountHere = positions.length / 3;
+        for (let k = 0; k < indices.length; k++) allIndices.push(indices[k] + baseVertexGlobal);
+        baseVertexGlobal += vertCountHere;
+        doneModels++;
+      }
+
+      const dimensions = centerAndMeasure(allPositions);
+      return { positions: allPositions, normals: allNormals, indices: allIndices, dimensions, objectCount };
+    }
+
+    // Đóng gói positions/normals/indices thành 1 file GLB (glTF nhị phân)
+    // hợp lệ tối thiểu — 1 mesh, 1 vật liệu màu cam trung tính, đủ để
+    // model-viewer / Scene Viewer / WebXR hiển thị và đặt AR ở tỉ lệ 1:1
+    // (IFC dùng đơn vị mét, đúng luôn với đơn vị mặc định của glTF).
+    // Sau 2 lần đổi máy chủ lưu file vẫn cùng 1 lỗi "Không thể tải vật thể"
+    // (không phải lỗi mạng) -> nhiều khả năng chính file nhị phân .glb tự
+    // đóng gói tay (chunk/padding/offset thủ công) có sai lệch byte ở đâu
+    // đó rất khó soi bằng mắt. Chuyển sang định dạng .gltf (JSON thường +
+    // buffer nhúng base64 ngay trong JSON) — vẫn hiển thị y hệt, vẫn đúng
+    // tỉ lệ 1:1, nhưng bỏ hẳn toàn bộ phần tính offset/padding/chunk nhị
+    // phân dễ sai — chỉ còn encode base64 (khó sai hơn nhiều).
+    function uint8ToBase64(bytes) {
+      let binary = "";
+      const chunkSize = 0x8000;
+      for (let i = 0; i < bytes.length; i += chunkSize) {
+        binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
+      }
+      return btoa(binary);
+    }
+
+    function buildGLTF(positions, normals, indices) {
+      const posArr = new Float32Array(positions);
+      const normArr = new Float32Array(normals);
+      const useShort = positions.length / 3 <= 65535;
+      const idxArr = useShort ? new Uint16Array(indices) : new Uint32Array(indices);
+
+      // Gộp 3 mảng vào 1 buffer duy nhất, đệm 0 giữa các đoạn để mỗi đoạn
+      // bắt đầu ở offset chia hết cho 4 (đúng khuyến nghị của glTF).
+      function pad4(n) { return (4 - (n % 4)) % 4; }
+
+      const posBytes = posArr.buffer.byteLength;
+      const normBytes = normArr.buffer.byteLength;
+      const idxBytes = idxArr.buffer.byteLength;
+      const idxPad = pad4(idxBytes);
+
+      const posOffset = 0;
+      const normOffset = posBytes;
+      const idxOffset = posBytes + normBytes;
+      const totalLen = posBytes + normBytes + idxBytes + idxPad;
+
+      const combined = new Uint8Array(totalLen);
+      combined.set(new Uint8Array(posArr.buffer), posOffset);
+      combined.set(new Uint8Array(normArr.buffer), normOffset);
+      combined.set(new Uint8Array(idxArr.buffer), idxOffset);
+      // phần đệm cuối giữ nguyên giá trị 0 mặc định của Uint8Array, không
+      // cần gán tay
+
+      const base64 = uint8ToBase64(combined);
+
+      let minP = [Infinity, Infinity, Infinity], maxP = [-Infinity, -Infinity, -Infinity];
+      for (let i = 0; i < positions.length; i += 3) {
+        for (let k = 0; k < 3; k++) {
+          minP[k] = Math.min(minP[k], positions[i + k]);
+          maxP[k] = Math.max(maxP[k], positions[i + k]);
+        }
+      }
+
+      const gltf = {
+        asset: { version: "2.0", generator: "CDE BIM Viewer AR export" },
+        scene: 0,
+        scenes: [{ nodes: [0] }],
+        nodes: [{ mesh: 0 }],
+        meshes: [{
+          primitives: [{
+            attributes: { POSITION: 0, NORMAL: 1 },
+            indices: 2,
+            material: 0
+          }]
+        }],
+        materials: [{
+          pbrMetallicRoughness: {
+            baseColorFactor: [0.95, 0.55, 0.15, 1.0],
+            metallicFactor: 0.1,
+            roughnessFactor: 0.8
+          },
+          doubleSided: true
+        }],
+        accessors: [
+          { bufferView: 0, componentType: 5126, count: positions.length / 3, type: "VEC3", min: minP, max: maxP },
+          { bufferView: 1, componentType: 5126, count: normals.length / 3, type: "VEC3" },
+          { bufferView: 2, componentType: useShort ? 5123 : 5125, count: indices.length, type: "SCALAR" }
+        ],
+        bufferViews: [
+          { buffer: 0, byteOffset: posOffset, byteLength: posBytes, target: 34962 },
+          { buffer: 0, byteOffset: normOffset, byteLength: normBytes, target: 34962 },
+          { buffer: 0, byteOffset: idxOffset, byteLength: idxBytes, target: 34963 }
+        ],
+        buffers: [{
+          byteLength: totalLen,
+          uri: "data:application/octet-stream;base64," + base64
+        }]
+      };
+
+      return new Blob([JSON.stringify(gltf)], { type: "model/gltf+json" });
+    }
+
+    // -------------------------------------------------------------
+    // VÌ SAO BẤM "XEM NGOÀI ĐỜI THỰC" CHUYỂN SANG GOOGLE RỒI TỰ TẮT:
+    // Scene Viewer (app AR của Google) chạy như 1 TIẾN TRÌNH RIÊNG, tách
+    // biệt hoàn toàn khỏi app của cậu — nó phải tự TẢI file mô hình bằng
+    // đường link được đưa, KHÔNG có cách nào đọc được link dạng "blob:"
+    // (link đó chỉ có ý nghĩa NỘI BỘ trong đúng trang web đang chạy tạo ra
+    // nó). Máy chủ lưu file tạm dùng thử trước đó (tmpfiles.org) tải được
+    // nhưng Scene Viewer báo "Không thể tải vật thể" — khả năng cao do máy
+    // chủ đó trả sai Content-Type hoặc chặn hotlink. Nên đổi sang dùng 1
+    // máy chủ nhỏ TỰ DỰNG (xem thư mục ar-server/ kèm theo), chỉ làm đúng 1
+    // việc: trả file .glb với đúng header Content-Type: model/gltf-binary.
+    //
+    // ĐIỀN LINK MÁY CHỦ CỦA CẬU SAU KHI DEPLOY VÀO ĐÂY (xem
+    // ar-server/HUONG_DAN_DEPLOY.md để deploy miễn phí trên Render.com):
+    const AR_UPLOAD_SERVER = "https://ar-temp-server.onrender.com";
+
+    // LƯU Ý: bước này gửi hình học 3D của ĐÚNG 1 cấu kiện đang chọn (không
+    // phải cả model) lên máy chủ trên trong ít phút rồi tự xoá — vì máy chủ
+    // này là do chính cậu dựng và kiểm soát, dữ liệu không đi qua bên thứ 3
+    // nào khác.
+    async function uploadGLBForAR(blob, fileName) {
+      if (!AR_UPLOAD_SERVER || AR_UPLOAD_SERVER.includes("YOUR-AR-SERVER")) {
+        throw new Error('Chưa cấu hình máy chủ AR — điền địa chỉ máy chủ vào biến AR_UPLOAD_SERVER trong index.html (xem ar-server/HUONG_DAN_DEPLOY.md).');
+      }
+
+      const formData = new FormData();
+      formData.append("file", blob, fileName || "model.gltf");
+
+      const res = await fetch(AR_UPLOAD_SERVER.replace(/\/+$/, "") + "/upload", {
+        method: "POST",
+        body: formData
+      });
+      if (!res.ok) throw new Error("Máy chủ AR phản hồi lỗi (HTTP " + res.status + "). Nếu dùng gói Free của Render, thử lại sau vài chục giây (máy chủ có thể đang \"thức dậy\").");
+
+      const json = await res.json();
+      if (!json || !json.url) {
+        throw new Error("Không đọc được link tải lên từ máy chủ AR.");
+      }
+      return json.url;
+    }
+
+    // Hiển thị 1 khối hình học (đã build glTF) trong khung AR/3D — dùng
+    // chung cho cả AR "1 cấu kiện" và AR "khu vực đang hiện".
+    async function showMeshInARModal(positions, normals, indices, dimensions, fileNameHint) {
+      const body = document.getElementById("arModalBody");
+
+      const blob = buildGLTF(positions, normals, indices);
+
+      body.innerHTML = `<div id="arLoadingMsg">☁️ Đang tải mô hình lên máy chủ tạm để Scene Viewer đọc được...</div>`;
+      const hostedUrl = await uploadGLBForAR(blob, (fileNameHint || "model") + ".gltf");
+
+      const dimText = `${dimensions.x.toFixed(2)}m × ${dimensions.y.toFixed(2)}m × ${dimensions.z.toFixed(2)}m`;
+
+      body.innerHTML = `
+        <model-viewer id="arModelViewer" src="${hostedUrl}" ar ar-modes="scene-viewer webxr quick-look"
+          ar-scale="fixed" camera-controls auto-rotate shadow-intensity="1" style="width:100%;height:100%;">
+          <button id="arEnterBtn" slot="ar-button" type="button">🕶️ Xem ngoài đời thực (AR)</button>
+        </model-viewer>
+        <div id="arDimBadge">📐 Kích thước thật: ${dimText}</div>
+        <div id="arDiagnosticBox"></div>`;
+
+      wireARDiagnostics();
+
+      // Máy không hỗ trợ AR thật (VD: Windows/Surface Pro) vẫn xem được
+      // mô hình 3D xoay tự do đúng tỉ lệ — chỉ khác là không có camera
+      // thực để đặt vào. Đổi tiêu đề/gợi ý cho đúng ngữ cảnh thay vì nói
+      // "AR" gây hiểu nhầm trên các máy này. canActivateAR chỉ đáng tin
+      // SAU khi model-viewer bắn sự kiện "load" (theo đúng khuyến nghị
+      // của thư viện), không dùng setTimeout đoán chừng.
+      const mvEl = document.getElementById("arModelViewer");
+      if (mvEl) {
+        mvEl.addEventListener("load", () => {
+          const header = document.querySelector("#arModalHeader span");
+          const hintNow = document.getElementById("arModalHint");
+          const arSupported = mvEl.canActivateAR;
+          if (!arSupported && header) {
+            header.textContent = "🔄 Xem Mô Hình 3D — Tỉ lệ 1:1";
+          }
+          if (!arSupported && hintNow) {
+            hintNow.innerHTML = '🖱️ Kéo để xoay, cuộn/chụm để zoom. Máy này không hỗ trợ camera AR thực (chỉ Android/iOS mới có) — nhưng mô hình vẫn đúng kích thước thật 1:1 như số đo hiển thị phía trên.';
+          }
+        }, { once: true });
+      }
+    }
+
+    async function openARForEntity(entity) {
+      if (!entity) { showToast("⚠️ Hãy chọn 1 cấu kiện trên mô hình trước.", "error"); return; }
+
+      const globalId = entity.originalSystemId || entity.id;
+      const modelId = String(entity.id).split("#")[0];
+
+      const modal = document.getElementById("arModal");
+      const body = document.getElementById("arModalBody");
+      const hint = document.getElementById("arModalHint");
+      const header = document.querySelector("#arModalHeader span");
+      if (header) header.textContent = "🕶️ Xem AR — Tỉ lệ 1:1";
+      body.innerHTML = `<div id="arLoadingMsg">⌛ Đang chuẩn bị hình học 3D cho AR...</div>`;
+      if (hint) {
+        hint.innerHTML = '📱 Bấm nút AR trong khung xem để đưa cấu kiện ra ngoài đời thực đúng kích thước thật. Cần có Internet và máy hỗ trợ ARCore (Android) / mở bằng Chrome. Hình học cấu kiện sẽ được tải tạm lên máy chủ AR riêng của cậu (tự xoá sau 30 phút) để Scene Viewer đọc được.';
+      }
+      modal.classList.add("open");
+
+      try {
+        const { positions, normals, indices, dimensions } = await extractEntityMeshForGLB(modelId, globalId);
+        await showMeshInARModal(positions, normals, indices, dimensions, globalId);
+      } catch (err) {
+        console.error(err);
+        body.innerHTML = `<div id="arLoadingMsg" style="color:#d9534f;">❌ Không tạo được mô hình AR: ${err.message || err}</div>`;
+      }
+    }
+
+    // -------------------------------------------------------------
+    // CHẨN ĐOÁN AR — vì sao bấm nút mà "không có phản ứng gì"
+    // -------------------------------------------------------------
+    // model-viewer chỉ tự báo lỗi qua sự kiện "ar-status" (status="failed")
+    // khi CHÍNH trình duyệt/thư viện WebXR từ chối phiên AR. Nhưng lỗi phổ
+    // biến nhất khi đóng gói app Android — WebView không biết cách mở link
+    // "intent://" để bàn giao sang Scene Viewer — xảy ra ở tầng hệ điều
+    // hành, ngoài tầm với của model-viewer, nên KHÔNG có sự kiện nào báo về
+    // cả (im lặng tuyệt đối, đúng như hiện tượng cậu gặp).
+    //
+    // Cách chẩn đoán đáng tin cậy nhất từ phía trang web: dùng Page
+    // Visibility API. Nếu bấm nút AR THẬT SỰ mở được Scene Viewer/WebXR,
+    // trang web sẽ bị đưa xuống nền (document bị "hidden") vì 1 app/luồng
+    // camera khác chiếm toàn màn hình. Nếu sau vài giây trang vẫn "visible"
+    // bình thường => chắc chắn việc mở AR đã thất bại ngay từ bước điều
+    // hướng, không phải do model/thiết bị.
+    function wireARDiagnostics() {
+      const mv = document.getElementById("arModelViewer");
+      const enterBtn = document.getElementById("arEnterBtn");
+      const diagBox = document.getElementById("arDiagnosticBox");
+      if (!mv || !enterBtn) return;
+
+      mv.addEventListener("ar-status", (e) => {
+        if (e.detail && e.detail.status === "failed") {
+          showARDiagnostic(diagBox, "AR báo lỗi trực tiếp từ trình duyệt (thiết bị/trình duyệt không đủ điều kiện chạy AR, hoặc thiếu ARCore).");
+        }
+      });
+
+      enterBtn.addEventListener("click", () => {
+        const startedHidden = document.hidden;
+        const watchdog = setTimeout(() => {
+          document.removeEventListener("visibilitychange", onVisChange);
+          if (!document.hidden && !startedHidden) {
+            // Sau 2.5s trang vẫn hiển thị bình thường -> việc mở AR đã bị
+            // "nuốt" ngay từ bước điều hướng (rất có thể do link intent://
+            // chưa được app Android xử lý).
+            showARDiagnostic(diagBox,
+              'Bấm nút nhưng trang KHÔNG chuyển sang chế độ AR — nhiều khả năng do app Android (WebView) đóng gói chưa xử lý link "intent://" để bàn giao sang Scene Viewer. Đây là lỗi ở phần code Android gốc, không phải ở nội dung trang web này. Cậu thử mở đúng link/app này trực tiếp bằng trình duyệt Chrome xem có bấm AR được không — nếu Chrome bấm được mà app đóng gói không được, thì chắc chắn đúng nguyên nhân này.');
+          }
+        }, 2500);
+
+        function onVisChange() {
+          if (document.hidden) {
+            clearTimeout(watchdog);
+            document.removeEventListener("visibilitychange", onVisChange);
+          }
+        }
+        document.addEventListener("visibilitychange", onVisChange);
+      });
+    }
+
+    function showARDiagnostic(diagBox, message) {
+      if (!diagBox) return;
+      diagBox.innerHTML = `
+        <div style="position:absolute; left:10px; right:10px; bottom:60px; background:#fff3cd;
+          border:1px solid #ffc107; color:#664d03; font-size:11px; padding:10px 12px; border-radius:8px;
+          box-shadow:0 2px 10px rgba(0,0,0,0.2);">
+          ⚠️ ${message}
+        </div>`;
+    }
+
+    // AR cho toàn bộ cấu kiện ĐANG HIỂN THỊ (nhiều cấu kiện/nhiều model cùng
+    // lúc) — dùng "Cô Lập"/"Ẩn"/thanh trong suốt model trước để thu hẹp khu
+    // vực muốn xem, vì xuất nguyên cả dự án hạ tầng dài hàng km vừa không
+    // thực tế để xem gọn trong 1 khung AR, vừa dễ khiến máy xử lý rất chậm.
+    // Chạy chung phần "xuất AR cho 1 danh sách id" — dùng cho cả "khu vực
+    // đang hiện" và "nhóm đã tự chọn" (chỉ khác nguồn idsList + vài dòng chữ).
+    async function runGroupARExport(idsList, titleSuffix, hintText) {
+      if (idsList.length === 0) {
+        showToast("⚠️ Không có cấu kiện nào để xuất AR.", "error");
+        return;
+      }
+
+      if (idsList.length > 300) {
+        const ok = confirm(`Đang chọn ${idsList.length} cấu kiện — số lượng khá lớn, có thể mất vài phút để chuẩn bị và file AR có thể nặng, xử lý chậm trên điện thoại. Vẫn muốn tiếp tục?`);
+        if (!ok) return;
+      }
+
+      const modal = document.getElementById("arModal");
+      const body = document.getElementById("arModalBody");
+      const hint = document.getElementById("arModalHint");
+      const header = document.querySelector("#arModalHeader span");
+      if (header) header.textContent = `🕶️ Xem AR — ${titleSuffix}`;
+      body.innerHTML = `<div id="arLoadingMsg">⌛ Đang chuẩn bị hình học 3D cho ${idsList.length} cấu kiện...</div>`;
+      if (hint) hint.innerHTML = hintText;
+      modal.classList.add("open");
+
+      try {
+        const { positions, normals, indices, dimensions, objectCount } = await extractIdsMeshForGLB(idsList, (done, total, modelId) => {
+          body.innerHTML = `<div id="arLoadingMsg">⌛ Đang đọc hình học model "${modelId}" (${done + 1}/${total})...</div>`;
+        });
+        showToast(`✅ Đã gộp hình học của ${objectCount} cấu kiện.`);
+        await showMeshInARModal(positions, normals, indices, dimensions, "khu_vuc");
+      } catch (err) {
+        console.error(err);
+        body.innerHTML = `<div id="arLoadingMsg" style="color:#d9534f;">❌ Không tạo được mô hình AR: ${err.message || err}</div>`;
+      }
+    }
+
+    async function openARForVisible() {
+      const visibleIds = viewer.scene.objectIds.filter(id => {
+        const e = viewer.scene.objects[id];
+        return e && e.visible && rawIfcBuffers.has(String(id).split("#")[0]);
+      });
+      await runGroupARExport(
+        visibleIds,
+        "Khu Vực Đang Hiện",
+        '📱 Xuất toàn bộ cấu kiện đang hiển thị (dùng "Cô Lập"/"Ẩn" để thu hẹp khu vực trước khi bấm). Cần có Internet và máy hỗ trợ ARCore (Android) / mở bằng Chrome.'
+      );
+    }
+
+    // AR cho ĐÚNG nhóm cấu kiện người dùng tự tap chọn (chế độ "Chọn Nhiều")
+    // — không phụ thuộc đang ẩn/hiện gì, tách hẳn khỏi khái niệm "đang hiện".
+    async function openARForGroup(idsList) {
+      await runGroupARExport(
+        idsList,
+        "Nhóm Đã Chọn",
+        `📱 Xem AR cho đúng ${idsList.length} cấu kiện cậu đã tự chọn (chế độ "Chọn Nhiều"). Cần có Internet và máy hỗ trợ ARCore (Android) / mở bằng Chrome.`
+      );
+    }
+
+    document.getElementById("btnARVisible").addEventListener("click", () => {
+      openARForVisible();
+    });
+
+    document.getElementById("selAR").addEventListener("click", () => {
+      openARForEntity(selectedEntity);
+    });
+
+
+
+    document.getElementById("arModalClose").addEventListener("click", () => {
+      document.getElementById("arModal").classList.remove("open");
+      document.getElementById("arModalBody").innerHTML = `<div id="arLoadingMsg">⌛ Đang chuẩn bị hình học 3D cho AR...</div>`;
+    });
+
+    // Toast thông báo KHÔNG chặn vòng lặp render (khác với alert() làm đứng
+    // hình WebGL cho tới khi người dùng bấm OK)
+    function showToast(message, type) {
+      const el = document.createElement("div");
+      el.style.cssText = `
+        position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
+        background: ${type === "error" ? "#f8d7da" : "#d4edda"};
+        color: ${type === "error" ? "#721c24" : "#155724"};
+        border: 1px solid ${type === "error" ? "#f5c6cb" : "#c3e6cb"};
+        padding: 12px 18px; border-radius: 6px; z-index: 99999;
+        font-size: 13px; white-space: pre-line; max-width: 480px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.15);
+      `;
+      el.textContent = message;
+      document.body.appendChild(el);
+      setTimeout(() => el.remove(), 6000);
+    }
+
+    // Nạp mô hình chỉ từ 1 file .ifc gốc: dựng hình 3D + cây IFC để xem ngay
+    // (WebIFCLoaderPlugin) — hình học tam giác THẬT (không nén GPU) dùng cho
+    // Check Va Chạm chỉ được trích xuất SAU, khi thực sự cần (xem
+    // ensureGeometryCacheForModel), để bước nạp file này nhanh hơn hẳn thay
+    // vì phải parse file IFC những 2 lần liên tiếp như trước.
+    document.getElementById("ifcModelFileInput").addEventListener("change", async (event) => {
+      const files = event.target.files;
+      document.getElementById("loading").style.display = "block";
+
+      for (let file of files) {
+        if (!file.name.toLowerCase().endsWith(".ifc")) {
+          showToast("⚠️ Vui lòng chỉ chọn file .ifc!", "error");
+          continue;
+        }
+
+        let modelId = file.name.replace(/\.[^/.]+$/, "");
+        if (loadedModels.has(modelId)) modelId = `${modelId}_${Date.now()}`;
+
+        try {
+          const arrayBuffer = await file.arrayBuffer();
+          const loader = await getWebIfcLoader();
+
+          // Giữ lại buffer gốc để trích xuất hình học chính xác SAU (lazy),
+          // ngay khi Check Va Chạm cần đến (xem ensureGeometryCacheForModel).
+          rawIfcBuffers.set(modelId, arrayBuffer.slice(0));
+
+          // Dựng hình học hiển thị + metadata/IFC tree từ chính file này.
+          // Bỏ qua IfcSpace/IfcOpeningElement (không hiển thị, không dùng
+          // cho clash) để giảm khối lượng dựng hình -> nạp nhanh hơn.
+          const model = loader.load({
+            id: modelId,
+            ifc: arrayBuffer,
+            edges: true,
+            loadMetadata: true,
+            excludeTypes: ["IfcSpace", "IfcOpeningElement"]
+          });
+
+          model.on("loaded", () => {
+            loadedModels.set(modelId, model);
+            updateModelsUI();
+            viewer.cameraFlight.jumpTo(model);
+          });
+
+          model.on("error", (err) => {
+            console.error(err);
+            showToast(`❌ Không nạp được mô hình từ "${file.name}": ${err && err.message ? err.message : err}`, "error");
+          });
+
+          showToast(`✅ Đã nạp mô hình "${file.name}" — sẵn sàng xem. Dữ liệu chính xác cho Check Va Chạm sẽ được chuẩn bị khi bạn bấm Check Va Chạm.`);
+        } catch (err) {
+          console.error(err);
+          showToast(`❌ Lỗi khi đọc file IFC "${file.name}": ${err.message || err}`, "error");
+        }
+      }
+
+      document.getElementById("loading").style.display = "none";
+      event.target.value = "";
+    });
+
+
+    let coordModeActive = false;
+    let measureModeActive = false;
+    let markupModeActive = false;
+    let coordPointsCount = 0;
+    const pointCoordinatesList = [];
+    const markupList = [];
+
+    let tempMeasureStartPoint = null;
+    const measurementsList = [];
+
+    const canvasEl = document.getElementById("myCanvas");
+
+    // -------------------------------------------------------------
+    // GHI CHÚ QUAN TRỌNG VỀ CẢM ỨNG (Surface Pro / máy tính bảng):
+    // Trước đây dùng sự kiện DOM "click" thô trên canvas để bắt điểm chọn
+    // cho Đo/Tọa Độ/Markup. Trên chuột thì "click" luôn ổn, nhưng trên màn
+    // hình cảm ứng, chính CameraControl của xeokit (xử lý xoay/kéo/zoom
+    // bằng ngón tay) đã gọi preventDefault() trên sự kiện con trỏ của nó để
+    // điều khiển camera mượt — điều này khiến trình duyệt KHÔNG tự phát sinh
+    // sự kiện "click" giả lập sau khi nhấc ngón tay nữa, nên các chế độ
+    // Đo/Tọa Độ/Markup coi như "chết", dù xoay/zoom/chọn cấu kiện (dùng
+    // pipeline pick riêng của cameraControl) vẫn mượt bình thường.
+    //
+    // Cách sửa: tự lắng nghe "pointerdown"/"pointerup" (Pointer Events)
+    // ngay trên canvas thay vì "click" — 2 sự kiện này KHÔNG bị chặn bởi
+    // preventDefault() của thư viện khác, hoạt động thống nhất cho cả
+    // chuột lẫn cảm ứng. Đồng thời tự loại các thao tác "kéo" (pan/xoay,
+    // ngón tay di chuyển nhiều) và cử chỉ nhiều ngón tay (pinch-zoom) để
+    // không bị nhầm là 1 lần "tap chọn điểm".
+    // -------------------------------------------------------------
+    const activePointers = new Map(); // pointerId -> [x, y] lúc pointerdown
+    let gestureIsMultiTouch = false;
+
+    canvasEl.addEventListener("pointerdown", (e) => {
+      activePointers.set(e.pointerId, [e.clientX, e.clientY]);
+      if (activePointers.size > 1) gestureIsMultiTouch = true;
+    });
+
+    canvasEl.addEventListener("pointercancel", (e) => {
+      activePointers.delete(e.pointerId);
+      if (activePointers.size === 0) gestureIsMultiTouch = false;
+    });
+
+    canvasEl.addEventListener("pointerup", (e) => {
+      const downPos = activePointers.get(e.pointerId);
+      activePointers.delete(e.pointerId);
+      const wasMultiTouch = gestureIsMultiTouch;
+      if (activePointers.size === 0) gestureIsMultiTouch = false;
+
+      if (!downPos || wasMultiTouch) return; // bỏ qua cử chỉ nhiều ngón tay
+
+      const dx = e.clientX - downPos[0];
+      const dy = e.clientY - downPos[1];
+      if (Math.sqrt(dx * dx + dy * dy) > 6) return; // đây là thao tác kéo/xoay, không phải tap/click chọn điểm
+
+      const rect = canvasEl.getBoundingClientRect();
+      const canvasPos = [e.clientX - rect.left, e.clientY - rect.top];
+
+      if (measureModeActive) {
+        const hit = viewer.scene.pick({ canvasPos: canvasPos, pickSurface: true });
+
+        if (hit && hit.worldPos) {
+          const currentPoint = [hit.worldPos[0], hit.worldPos[1], hit.worldPos[2]];
+
+          if (!tempMeasureStartPoint) {
+            tempMeasureStartPoint = currentPoint;
+            create3DMarker("start_" + Date.now(), currentPoint, "P1", "#0275d8");
+            document.getElementById("instruction").innerText = "👉 Đã chọn Điểm 1. Click chọn Điểm thứ 2 để đo...";
+          } else {
+            const p1 = tempMeasureStartPoint;
+            const p2 = currentPoint;
+
+            distanceMeasurements.createMeasurement({
+              id: "meas_" + Date.now(),
+              origin: { worldPos: p1 },
+              target: { worldPos: p2 }
+            });
+
+            const dx2 = p2[0] - p1[0];
+            const dy2 = p2[1] - p1[1];
+            const dz2 = p2[2] - p1[2];
+
+            const d3d = Math.sqrt(dx2 * dx2 + dy2 * dy2 + dz2 * dz2);
+            const horizontalDist = Math.sqrt(dx2 * dx2 + dz2 * dz2);
+            const verticalDist = Math.abs(dy2);
+
+            if (d3d > 0.001) {
+              let slopePercent = 0;
+              if (horizontalDist > 0.0001) {
+                slopePercent = ((verticalDist / horizontalDist) * 100).toFixed(2);
+              }
+
+              const midPoint = [(p1[0] + p2[0]) / 2, (p1[1] + p2[1]) / 2, (p1[2] + p2[2]) / 2];
+
+              const newItem = {
+                id: measurementsList.length + 1,
+                length: d3d.toFixed(3),
+                horizontal: horizontalDist.toFixed(3),
+                vertical: verticalDist.toFixed(3),
+                slope: slopePercent,
+                midPoint: midPoint
+              };
+
+              measurementsList.push(newItem);
+              create3DSlopeLabel(newItem);
+              updateMeasureListUI();
+            }
+
+            tempMeasureStartPoint = null;
+            document.getElementById("instruction").innerText = "👉 Đã đo xong! Click 2 điểm mới để đo đoạn tiếp theo.";
+          }
+        }
+      }
+
+      if (coordModeActive) {
+        const hit = viewer.scene.pick({ canvasPos: canvasPos, pickSurface: true });
+        if (hit && hit.worldPos) {
+          coordPointsCount++;
+          const rawPos = hit.worldPos;
+
+          const bimX = Math.abs(rawPos[0]).toFixed(3);
+          const bimY = Math.abs(rawPos[2]).toFixed(3);
+          const bimZ = Math.abs(rawPos[1]).toFixed(3);
+
+          const coordData = { 
+            id: coordPointsCount, 
+            x: bimX, 
+            y: bimY, 
+            z: bimZ,
+            worldPos: rawPos 
+          };
+
+          pointCoordinatesList.push(coordData);
+          create3DCoordTag(coordData);
+          updateCoordListUI();
+        }
+      }
+
+      if (markupModeActive) {
+        const hit = viewer.scene.pick({ canvasPos: canvasPos, pickSurface: true });
+        if (hit && hit.worldPos) {
+          openMarkupCreatePopup(canvasPos, [hit.worldPos[0], hit.worldPos[1], hit.worldPos[2]], hit.entity ? hit.entity.id : null);
+        }
+      }
+    });
+
+    const markers3D = [];
+
+    function create3DMarker(id, worldPos, text, color) {
+      const container = document.getElementById("markerContainer");
+      const marker = document.createElement("div");
+      marker.className = "coord-marker";
+      marker.id = "marker_" + id;
+      marker.innerText = text;
+      marker.style.backgroundColor = color;
+      container.appendChild(marker);
+
+      markers3D.push({ id: "marker_" + id, worldPos: worldPos });
+    }
+
+    function create3DSlopeLabel(item) {
+      const container = document.getElementById("markerContainer");
+      const tag = document.createElement("div");
+      tag.className = "measure-tag-3d";
+      tag.id = "tag_measure_" + item.id;
+      tag.innerHTML = `📏 ${item.length}m | 📐 i=${item.slope}%`;
+      container.appendChild(tag);
+
+      markers3D.push({ id: "tag_measure_" + item.id, worldPos: item.midPoint });
+    }
+
+    function create3DCoordTag(coord) {
+      const container = document.getElementById("markerContainer");
+
+      const dot = document.createElement("div");
+      dot.className = "coord-marker";
+      dot.id = "coord_dot_" + coord.id;
+      dot.innerText = coord.id;
+      dot.style.backgroundColor = "#6f42c1";
+      container.appendChild(dot);
+
+      const tag = document.createElement("div");
+      tag.className = "coord-tag-3d";
+      tag.id = "coord_tag_" + coord.id;
+      tag.innerHTML = `📍 #${coord.id}<br>X: ${coord.x}m<br>Y: ${coord.y}m<br>Z: ${coord.z}m`;
+      container.appendChild(tag);
+
+      markers3D.push({ id: "coord_dot_" + coord.id, worldPos: coord.worldPos });
+      markers3D.push({ id: "coord_tag_" + coord.id, worldPos: coord.worldPos });
+    }
+
+    function create3DMarkupPin(markup) {
+      const container = document.getElementById("markupContainer");
+
+      // "Đám mây" khoanh vùng vị trí markup (kiểu revision cloud CAD/Trimble
+      // Connect) — vẽ TRƯỚC pin để nằm phía dưới (z-index thấp hơn)
+      create3DMarkupCloud(markup);
+
+      const pin = document.createElement("div");
+      pin.className = "markup-pin";
+      pin.id = "markup_pin_" + markup.id;
+      pin.title = markup.text;
+      pin.innerHTML = `<span>🚩</span>`;
+      pin.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const rect = canvasEl.getBoundingClientRect();
+        const canvasPos = viewer.scene.camera.projectWorldPos(markup.worldPos) || [rect.width / 2, rect.height / 2];
+        openMarkupViewPopup(canvasPos, markup);
+      });
+      container.appendChild(pin);
+
+      markers3D.push({ id: "markup_pin_" + markup.id, worldPos: markup.worldPos });
+    }
+
+    // Vẽ hình "đám mây" (revision cloud) — đường viền lượn sóng dạng vòng
+    // cung nối tiếp quanh 1 vòng tròn, đúng kiểu ký hiệu khoanh vùng markup
+    // trong CAD/BIM (AutoCAD revision cloud, Trimble Connect highlight).
+    function buildCloudSvgPath(radius, bumps) {
+      const cx = radius, cy = radius;
+      const angleStep = (2 * Math.PI) / bumps;
+      const bumpRadius = radius * Math.sin(angleStep / 2) * 1.15;
+      let d = "";
+      for (let i = 0; i <= bumps; i++) {
+        const angle = i * angleStep;
+        const x = cx + radius * Math.cos(angle);
+        const y = cy + radius * Math.sin(angle);
+        d += (i === 0 ? `M ${x} ${y} ` : `A ${bumpRadius} ${bumpRadius} 0 0 1 ${x} ${y} `);
+      }
+      return d + "Z";
+    }
+
+    function create3DMarkupCloud(markup) {
+      const container = document.getElementById("markupContainer");
+      const size = 90;
+      const svgNS = "http://www.w3.org/2000/svg";
+
+      const svg = document.createElementNS(svgNS, "svg");
+      svg.setAttribute("width", size);
+      svg.setAttribute("height", size);
+      svg.setAttribute("viewBox", `0 0 ${size} ${size}`);
+      svg.classList.add("markup-cloud");
+      svg.id = "markup_cloud_" + markup.id;
+
+      const path = document.createElementNS(svgNS, "path");
+      path.setAttribute("d", buildCloudSvgPath(size / 2 - 6, 10));
+      path.setAttribute("fill", "rgba(253,126,20,0.16)");
+      path.setAttribute("stroke", "#fd7e14");
+      path.setAttribute("stroke-width", "2.5");
+      svg.appendChild(path);
+
+      container.appendChild(svg);
+      markers3D.push({ id: "markup_cloud_" + markup.id, worldPos: markup.worldPos });
+    }
+
+    // -------------------------------------------------------------
+    // FORM NỔI TẠO / XEM MARKUP (thay cho prompt()/alert() thô) — kiểu
+    // bong bóng chú thích nổi bật giống Trimble Connect, định vị ngay tại
+    // điểm vừa click trên khung nhìn 3D.
+    // -------------------------------------------------------------
+    function positionMarkupPopup(popup, canvasPos) {
+      // Nhất quán với cách các marker khác trong file định vị (gán trực
+      // tiếp canvasPos từ projectWorldPos/click, không cộng thêm
+      // getBoundingClientRect() — canvas trong app này phủ toàn khung nhìn
+      // từ gốc (0,0) nên canvasPos ~ toạ độ trang).
+      let left = canvasPos[0];
+      let top = canvasPos[1];
+      left = Math.max(140, Math.min(left, window.innerWidth - 140));
+      top = Math.max(160, top);
+      popup.style.left = left + "px";
+      popup.style.top = top + "px";
+    }
+
+    function closeMarkupPopup() {
+      const popup = document.getElementById("markupPopup");
+      popup.style.display = "none";
+      popup.innerHTML = "";
+    }
+
+    function openMarkupCreatePopup(canvasPos, worldPos, entityId) {
+      const popup = document.getElementById("markupPopup");
+      popup.innerHTML = `
+        <div class="mp-title">🚩 Markup mới</div>
+        <textarea id="mpNewText" placeholder="Nhập ghi chú tại vị trí này..." autofocus></textarea>
+        <div class="mp-actions">
+          <button class="mp-cancel" type="button">Hủy</button>
+          <button class="mp-save" type="button">💾 Lưu</button>
+        </div>`;
+      positionMarkupPopup(popup, canvasPos);
+      popup.style.display = "block";
+
+      const textarea = document.getElementById("mpNewText");
+      textarea.focus();
+
+      popup.querySelector(".mp-cancel").addEventListener("click", closeMarkupPopup);
+      popup.querySelector(".mp-save").addEventListener("click", () => {
+        const text = textarea.value.trim();
+        if (text === "") { textarea.focus(); return; }
+        const markup = { id: Date.now(), text: text, worldPos: worldPos, entityId: entityId };
+        markupList.push(markup);
+        create3DMarkupPin(markup);
+        updateMarkupListUI();
+        closeMarkupPopup();
+      });
+      // Enter (không giữ Shift) để lưu nhanh, giống chat/comment box
+      textarea.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && !e.shiftKey) {
+          e.preventDefault();
+          popup.querySelector(".mp-save").click();
+        }
+      });
+    }
+
+    function openMarkupViewPopup(canvasPos, markup) {
+      const popup = document.getElementById("markupPopup");
+      popup.innerHTML = `
+        <div class="mp-title">🚩 Markup</div>
+        <div class="mp-note-text"></div>
+        <div class="mp-actions">
+          <button class="mp-delete" type="button">🗑️ Xóa</button>
+          <button class="mp-cancel" type="button">Đóng</button>
+        </div>`;
+      popup.querySelector(".mp-note-text").textContent = markup.text;
+      positionMarkupPopup(popup, canvasPos);
+      popup.style.display = "block";
+
+      popup.querySelector(".mp-cancel").addEventListener("click", closeMarkupPopup);
+      popup.querySelector(".mp-delete").addEventListener("click", () => {
+        window.deleteMarkup(markup.id);
+        closeMarkupPopup();
+      });
+    }
+
+    viewer.scene.on("tick", () => {
+      markers3D.forEach(item => {
+        const el = document.getElementById(item.id);
+        if (el) {
+          const canvasPos = viewer.scene.camera.projectWorldPos(item.worldPos);
+          if (canvasPos) {
+            el.style.left = canvasPos[0] + "px";
+            el.style.top = canvasPos[1] + "px";
+            el.style.display = "block";
+          } else {
+            el.style.display = "none";
+          }
+        }
+      });
+    });
+
+    function updateMeasureListUI() {
+      const listEl = document.getElementById("measureList");
+      if (measurementsList.length === 0) {
+        listEl.innerHTML = `<div style="color:#777;">Click chọn 2 điểm trên mô hình để tính khoảng cách và độ dốc.</div>`;
+        return;
+      }
+      let html = "";
+      measurementsList.forEach(item => {
+        html += `
+          <div class="measure-item">
+            <b>📏 Đoạn #${item.id}</b><br>
+            • Khoảng cách 3D: <b>${item.length}</b>m<br>
+            • Khoảng cách ngang: <b>${item.horizontal}</b>m<br>
+            • Chênh cao: <b>${item.vertical}</b>m<br>
+            <span style="color:#d9534f; font-weight:bold;">👉 Độ dốc: ${item.slope}%</span>
+          </div>`;
+      });
+      listEl.innerHTML = html;
+    }
+
+    function loadXKTModel(src, modelId) {
+      document.getElementById("loading").style.display = "block";
+
+      const modelOptions = { id: modelId, edges: true };
+      if (typeof src === "string") {
+        modelOptions.src = src;
+      } else {
+        modelOptions.xkt = src;
+      }
+
+      const model = xktLoader.load(modelOptions);
+
+      model.on("loaded", () => {
+        document.getElementById("loading").style.display = "none";
+        loadedModels.set(modelId, model);
+        updateModelsUI();
+        viewer.cameraFlight.jumpTo(viewer.scene);
+      });
+
+      model.on("error", (err) => {
+        document.getElementById("loading").style.display = "none";
+        alert(`❌ Không thể tải file [${modelId}]. Vui lòng đảm bảo file chuyển đổi đúng định dạng .XKT!`);
+      });
+    }
+
+    // Đã bỏ auto-load "./model.xkt" lúc khởi động theo yêu cầu — giờ người
+    // dùng chủ động bấm "➕ Thêm Model (.XKT)" để nạp model muốn xem.
+
+    document.getElementById("modelFileInput").addEventListener("change", (event) => {
+      const files = event.target.files;
+      for (let file of files) {
+        if (!file.name.toLowerCase().endsWith(".xkt")) {
+          alert("⚠️ Vui lòng chỉ chọn file có định dạng .xkt!");
+          continue;
+        }
+
+        const reader = new FileReader();
+        const modelId = file.name.replace(/\.[^/.]+$/, "");
+
+        reader.onload = function(e) {
+          const arrayBuffer = e.target.result;
+          loadXKTModel(arrayBuffer, modelId);
+        };
+        reader.readAsArrayBuffer(file);
+      }
+    });
+
+    function getModelObjectIds(modelId) {
+      // Dùng ĐÚNG cách clash scan đang dùng để liệt kê object của 1 model cụ
+      // thể (model.entityIds / model.objects) — đây là danh sách do chính
+      // SceneModel của model đó quản lý nội bộ, không lẫn với model khác dù
+      // các file .ifc có trùng GlobalId gốc (rất hay gặp khi nhiều bộ môn
+      // cùng export từ 1 model gốc). Đây chính là nguồn cấp dữ liệu đã CHỨNG
+      // MINH tách đúng theo từng model (Check Va Chạm dùng y hệt cách này).
+      const model = loadedModels.get(modelId);
+      if (!model) return [];
+      const ids = model.entityIds || Object.keys(model.objects || {});
+      if (ids && ids.length > 0) return ids;
+
+      // Fallback hiếm khi cần tới (model không có .entityIds/.objects, ví dụ
+      // 1 số phiên bản SDK cũ) — tra theo cây metadata riêng của model này.
+      const metaModel = viewer.metaScene ? viewer.metaScene.metaModels[modelId] : null;
+      if (metaModel && metaModel.rootMetaObject && metaModel.rootMetaObject.getObjectIDsInSubtree) {
+        return metaModel.rootMetaObject.getObjectIDsInSubtree();
+      }
+      return [];
+    }
+
+    function updateModelsUI() {
+      document.getElementById("modelCount").innerText = loadedModels.size;
+      const listEl = document.getElementById("modelsList");
+      let html = "";
+      loadedModels.forEach((model, id) => {
+        html += `
+          <div class="model-tag">
+            <div class="model-tag-row">
+              <span>📦 ${id}</span>
+              <input type="checkbox" checked onchange="toggleModelVisibility('${id}', this.checked)">
+            </div>
+            <div class="model-opacity-row">
+              🌫️ <input type="range" min="0" max="100" value="100" oninput="setModelOpacity('${id}', this.value); this.nextElementSibling.innerText = this.value + '%'">
+              <span>100%</span>
+            </div>
+          </div>`;
+      });
+      listEl.innerHTML = html;
+    }
+
+    window.toggleModelVisibility = function(modelId, visible) {
+      const model = loadedModels.get(modelId);
+      if (model) model.visible = visible;
+    };
+
+    window.setModelOpacity = function(modelId, percent) {
+      const ids = getModelObjectIds(modelId);
+      if (ids.length > 0) {
+        viewer.scene.setObjectsOpacity(ids, Number(percent) / 100);
+      }
+    };
+
+    // Tra MetaObject an toàn — thử cả entity.id (có thể đã bị gắn tiền tố
+    // "<modelId>#" do globalizeObjectIds) LẪN entity.originalSystemId (ID
+    // gốc chưa gắn tiền tố), vì các phiên bản/luồng load khác nhau có thể
+    // đánh index metaScene.metaObjects theo 1 trong 2 dạng này.
+    function lookupMetaObject(id, originalId) {
+      if (!viewer.metaScene) return null;
+      return viewer.metaScene.metaObjects[id] || (originalId ? viewer.metaScene.metaObjects[originalId] : null);
+    }
+
+    viewer.cameraControl.on("picked", (pickResult) => {
+      if (measureModeActive || coordModeActive || markupModeActive) return;
+
+      if (multiSelectMode) {
+        handleMultiSelectPick(pickResult);
+        return;
+      }
+
+      if (pickResult && pickResult.entity) {
+        if (selectedEntity) selectedEntity.selected = false;
+
+        selectedEntity = pickResult.entity;
+        selectedEntity.selected = true;
+
+        document.getElementById("bcfTarget").value = selectedEntity.id;
+
+        const metaObject = lookupMetaObject(selectedEntity.id, selectedEntity.originalSystemId);
+        let html = `<div class="pset-header">THÔNG TIN CHUNG</div><table class="prop-table">`;
+        html += `<tr><th>ID Cấu Kiện</th><td>${selectedEntity.id}</td></tr>`;
+
+        if (metaObject) {
+          html += `<tr><th>Tên IFC</th><td>${metaObject.name || 'N/A'}</td></tr>`;
+          html += `<tr><th>Loại IFC</th><td><span style="color:#007acc; font-weight:600;">${metaObject.type || 'N/A'}</span></td></tr></table>`;
+
+          if (metaObject.propertySets) {
+            metaObject.propertySets.forEach(pset => {
+              html += `<div class="pset-header">${pset.name}</div><table class="prop-table">`;
+              if (pset.properties) {
+                pset.properties.forEach(p => {
+                  html += `<tr><th>${p.name}</th><td>${p.value !== undefined ? p.value : ''}</td></tr>`;
+                });
+              }
+              html += `</table>`;
+            });
+          }
+        } else {
+          html += `</table>`;
+        }
+        document.getElementById("infoContent").innerHTML = html;
+        document.getElementById("infoPanel").style.display = "block";
+
+        openSelectionToolbar(selectedEntity, metaObject);
+      }
+    });
+
+    viewer.cameraControl.on("pickedNothing", () => {
+      if (measureModeActive || coordModeActive || markupModeActive || multiSelectMode) return;
+      if (selectedEntity) {
+        selectedEntity.selected = false;
+        selectedEntity = null;
+      }
+      closeSelectionToolbar();
+    });
+
+    // -------------------------------------------------------------
+    // CHỌN NHIỀU CẤU KIỆN CÙNG LÚC (kiểu Ctrl+Click nhưng dùng chạm/click
+    // thường cho tiện trên cả cảm ứng lẫn chuột) — bật chế độ này rồi tap
+    // lần lượt từng cấu kiện muốn gộp nhóm; tap lại 1 cấu kiện đã chọn để
+    // bỏ nó ra khỏi nhóm. Dùng để Cô Lập / Xem AR cho ĐÚNG tập hợp cấu kiện
+    // tự chọn, thay vì chỉ 1 cấu kiện hoặc "mọi thứ đang hiện" như trước.
+    // -------------------------------------------------------------
+    function handleMultiSelectPick(pickResult) {
+      if (!pickResult || !pickResult.entity) return;
+      const entity = pickResult.entity;
+      const id = entity.id;
+
+      if (multiSelectedIds.has(id)) {
+        multiSelectedIds.delete(id);
+        entity.selected = false;
+      } else {
+        multiSelectedIds.add(id);
+        entity.selected = true;
+      }
+      updateMultiSelectBar();
+    }
+
+    function updateMultiSelectBar() {
+      const bar = document.getElementById("multiSelectBar");
+      const countEl = document.getElementById("multiSelectCount");
+      if (!bar || !countEl) return;
+      countEl.textContent = multiSelectedIds.size;
+      bar.classList.toggle("open", multiSelectMode);
+    }
+
+    function clearMultiSelection() {
+      multiSelectedIds.forEach(id => {
+        const e = viewer.scene.objects[id];
+        if (e) e.selected = false;
+      });
+      multiSelectedIds.clear();
+      updateMultiSelectBar();
+    }
+
+    document.getElementById("btnMultiSelect").addEventListener("click", () => {
+      multiSelectMode = !multiSelectMode;
+      const btn = document.getElementById("btnMultiSelect");
+      const instr = document.getElementById("instruction");
+
+      if (multiSelectMode) {
+        btn.classList.add("active");
+        instr.innerText = "👉 Tap/click từng cấu kiện để thêm vào nhóm — tap lại để bỏ ra khỏi nhóm";
+        instr.style.display = "block";
+
+        coordModeActive = false; document.getElementById("btnCoord").classList.remove("active");
+        measureModeActive = false; document.getElementById("btnMeasure").classList.remove("active");
+        markupModeActive = false; document.getElementById("btnMarkup").classList.remove("active");
+
+        if (selectedEntity) { selectedEntity.selected = false; selectedEntity = null; }
+        closeSelectionToolbar();
+      } else {
+        btn.classList.remove("active");
+        instr.style.display = "none";
+      }
+      updateMultiSelectBar();
+    });
+
+    document.getElementById("multiSelClear").addEventListener("click", () => {
+      clearMultiSelection();
+    });
+
+    document.getElementById("multiSelIsolate").addEventListener("click", () => {
+      if (multiSelectedIds.size === 0) { showToast("⚠️ Chưa chọn cấu kiện nào.", "error"); return; }
+      const ids = [...multiSelectedIds];
+      viewer.scene.setObjectsVisible(viewer.scene.objectIds, false);
+      viewer.scene.setObjectsVisible(ids, true);
+      viewer.cameraFlight.flyTo({ aabb: getCombinedAABB(ids), duration: 0.6 });
+    });
+
+    document.getElementById("multiSelAR").addEventListener("click", () => {
+      if (multiSelectedIds.size === 0) { showToast("⚠️ Chưa chọn cấu kiện nào.", "error"); return; }
+      openARForGroup([...multiSelectedIds]);
+    });
+
+    function getCombinedAABB(ids) {
+      let minX = Infinity, minY = Infinity, minZ = Infinity;
+      let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+      ids.forEach(id => {
+        const e = viewer.scene.objects[id];
+        if (!e || !e.aabb) return;
+        const a = e.aabb;
+        minX = Math.min(minX, a[0]); minY = Math.min(minY, a[1]); minZ = Math.min(minZ, a[2]);
+        maxX = Math.max(maxX, a[3]); maxY = Math.max(maxY, a[4]); maxZ = Math.max(maxZ, a[5]);
+      });
+      return [minX, minY, minZ, maxX, maxY, maxZ];
+    }
+
+    // -------------------------------------------------------------
+    // THANH CÔNG CỤ KHI CHỌN 1 CẤU KIỆN (kiểu Trimble Connect): zoom đến,
+    // cắt tại vị trí đó, ẩn, cô lập (chỉ hiện mình nó), hiện lại tất cả,
+    // và 1 thanh trượt chỉnh độ trong suốt riêng cho đúng cấu kiện đang chọn.
+    // -------------------------------------------------------------
+    function openSelectionToolbar(entity, metaObject) {
+      const bar = document.getElementById("selectionToolbar");
+      const label = document.getElementById("selLabel");
+      const opacitySlider = document.getElementById("selOpacity");
+      const opacityVal = document.getElementById("selOpacityVal");
+
+      label.innerText = (metaObject && metaObject.name) ? metaObject.name : entity.id;
+      label.title = entity.id;
+
+      const currentOpacity = (typeof entity.opacity === "number") ? entity.opacity : 1;
+      opacitySlider.value = Math.round(currentOpacity * 100);
+      opacityVal.innerText = opacitySlider.value + "%";
+
+      bar.classList.add("open");
+      updateSelHideLabel();
+    }
+
+    function closeSelectionToolbar() {
+      document.getElementById("selectionToolbar").classList.remove("open");
+    }
+
+    document.getElementById("selZoom").addEventListener("click", () => {
+      if (!selectedEntity) return;
+      viewer.cameraFlight.flyTo({ aabb: selectedEntity.aabb || selectedEntity.worldAABB, duration: 0.6, fitFov: 35 });
+    });
+
+    document.getElementById("selClip").addEventListener("click", () => {
+      if (!selectedEntity) return;
+      const aabb = selectedEntity.aabb || selectedEntity.worldAABB;
+      if (!aabb) return;
+      const center = [(aabb[0] + aabb[3]) / 2, (aabb[1] + aabb[4]) / 2, (aabb[2] + aabb[5]) / 2];
+      const plane = sectionPlanes.createSectionPlane({ pos: center, dir: [0, -1, 0] });
+      sectionPlanes.showControl(plane.id);
+    });
+
+    // Nút Ẩn/Hiện: bấm để TOGGLE hiện/ẩn đúng cấu kiện đang chọn (tiện bấm
+    // lặp đi lặp lại để kiểm tra từng cấu kiện) — không đóng thanh công cụ.
+    document.getElementById("selHide").addEventListener("click", () => {
+      if (!selectedEntity) return;
+      selectedEntity.visible = !selectedEntity.visible;
+      updateSelHideLabel();
+      // Không đóng thanh công cụ nữa — chỉ đóng khi bấm ✕ (selClose), để
+      // người dùng còn thao tác tiếp (VD: bấm lại để hiện, hoặc chọn khác)
+    });
+
+    function updateSelHideLabel() {
+      const btn = document.getElementById("selHide");
+      if (!btn || !selectedEntity) return;
+      btn.innerHTML = selectedEntity.visible ? "🙈 Ẩn" : "👁️ Hiện";
+    }
+
+    document.getElementById("selIsolate").addEventListener("click", () => {
+      if (!selectedEntity) return;
+      const id = selectedEntity.id;
+      viewer.scene.setObjectsVisible(viewer.scene.objectIds, false);
+      viewer.scene.setObjectsVisible([id], true);
+      viewer.cameraFlight.flyTo({ aabb: selectedEntity.aabb || selectedEntity.worldAABB, duration: 0.6 });
+    });
+
+    function resetAllView() {
+      viewer.scene.setObjectsVisible(viewer.scene.objectIds, true);
+      viewer.scene.setObjectsOpacity(viewer.scene.objectIds, 1);
+      document.querySelectorAll("#modelsList input[type='range']").forEach(r => {
+        r.value = 100;
+        if (r.nextElementSibling) r.nextElementSibling.innerText = "100%";
+      });
+      const opacitySlider = document.getElementById("selOpacity");
+      const opacityVal = document.getElementById("selOpacityVal");
+      opacitySlider.value = 100;
+      opacityVal.innerText = "100%";
+    }
+
+    document.getElementById("selShowAll").addEventListener("click", resetAllView);
+
+    // Nút Reset riêng: chỉ hiện lại tất cả + xóa mờ/ẩn/cô lập trên toàn scene,
+    // KHÔNG đóng thanh công cụ và KHÔNG bỏ chọn cấu kiện đang chọn — để có
+    // thể tiếp tục bấm qua cấu kiện khác ngay mà không phải mở lại thanh.
+    // Thanh công cụ chỉ đóng khi bấm ✕ (selClose) hoặc click ra ngoài mô hình.
+    document.getElementById("selReset").addEventListener("click", () => {
+      resetAllView();
+    });
+
+    document.getElementById("selOpacity").addEventListener("input", (e) => {
+      if (!selectedEntity) return;
+      const val = Number(e.target.value);
+      document.getElementById("selOpacityVal").innerText = val + "%";
+      selectedEntity.opacity = val / 100;
+    });
+
+    document.getElementById("selClose").addEventListener("click", () => {
+      if (selectedEntity) selectedEntity.selected = false;
+      selectedEntity = null;
+      closeSelectionToolbar();
+    });
+
+    function updateCoordListUI() {
+      const listEl = document.getElementById("coordList");
+      if (pointCoordinatesList.length === 0) {
+        listEl.innerHTML = `<div style="color:#777;">Click chọn điểm trên mô hình để lấy tọa độ.</div>`;
+        return;
+      }
+      let html = "";
+      pointCoordinatesList.forEach(item => {
+        html += `<div class="coord-item"><b>📍 Điểm #${item.id}</b><br>X: <b>${item.x}</b>m | Y: <b>${item.y}</b>m | Cao độ (Z): <b>${item.z}</b>m</div>`;
+      });
+      listEl.innerHTML = html;
+    }
+
+    function updateMarkupListUI() {
+      const listEl = document.getElementById("markupList");
+      if (!listEl) return;
+      if (markupList.length === 0) {
+        listEl.innerHTML = `<div style="color:#777;">Chưa có markup nào.</div>`;
+        return;
+      }
+      let html = "";
+      markupList.forEach((m, idx) => {
+        html += `
+          <div class="markup-item" onclick="zoomToMarkup(${m.id})">
+            <span class="markup-del" onclick="event.stopPropagation(); deleteMarkup(${m.id})">✕</span>
+            <b>📝 Markup #${idx + 1}</b><br>${m.text}
+          </div>`;
+      });
+      listEl.innerHTML = html;
+    }
+
+    window.deleteMarkup = function(id) {
+      const idx = markupList.findIndex(m => m.id === id);
+      if (idx === -1) return;
+      markupList.splice(idx, 1);
+      const pinEl = document.getElementById("markup_pin_" + id);
+      if (pinEl) pinEl.remove();
+      const cloudEl = document.getElementById("markup_cloud_" + id);
+      if (cloudEl) cloudEl.remove();
+      const mIdx = markers3D.findIndex(item => item.id === "markup_pin_" + id);
+      if (mIdx !== -1) markers3D.splice(mIdx, 1);
+      const cIdx = markers3D.findIndex(item => item.id === "markup_cloud_" + id);
+      if (cIdx !== -1) markers3D.splice(cIdx, 1);
+      updateMarkupListUI();
+    };
+
+    window.zoomToMarkup = function(id) {
+      const m = markupList.find(m => m.id === id);
+      if (!m) return;
+      viewer.cameraFlight.flyTo({ aabb: [
+        m.worldPos[0] - 1, m.worldPos[1] - 1, m.worldPos[2] - 1,
+        m.worldPos[0] + 1, m.worldPos[1] + 1, m.worldPos[2] + 1
+      ], duration: 0.8 });
+    };
+
+    document.getElementById("btnCoord").addEventListener("click", () => {
+      coordModeActive = !coordModeActive;
+      const btn = document.getElementById("btnCoord");
+      const instr = document.getElementById("instruction");
+      const panel = document.getElementById("coordPanel");
+
+      if (coordModeActive) {
+        btn.classList.add("active");
+        instr.innerText = "👉 Click chọn điểm bất kỳ trên mô hình để lấy tọa độ XYZ";
+        instr.style.display = "block";
+        panel.style.display = "block";
+
+        measureModeActive = false;
+        document.getElementById("btnMeasure").classList.remove("active");
+        markupModeActive = false;
+        document.getElementById("btnMarkup").classList.remove("active");
+      } else {
+        btn.classList.remove("active");
+        instr.style.display = "none";
+      }
+    });
+
+    document.getElementById("btnMeasure").addEventListener("click", () => {
+      measureModeActive = !measureModeActive;
+      const btn = document.getElementById("btnMeasure");
+      const panel = document.getElementById("measurePanel");
+      const instr = document.getElementById("instruction");
+
+      if (measureModeActive) {
+        btn.classList.add("active");
+        instr.innerText = "👉 Click chọn Điểm 1 trên mô hình...";
+        instr.style.display = "block";
+        panel.style.display = "block";
+
+        coordModeActive = false;
+        document.getElementById("btnCoord").classList.remove("active");
+        markupModeActive = false;
+        document.getElementById("btnMarkup").classList.remove("active");
+      } else {
+        btn.classList.remove("active");
+        instr.style.display = "none";
+        tempMeasureStartPoint = null;
+      }
+    });
+
+    document.getElementById("btnMarkup").addEventListener("click", () => {
+      markupModeActive = !markupModeActive;
+      const btn = document.getElementById("btnMarkup");
+      const panel = document.getElementById("markupPanel");
+      const instr = document.getElementById("instruction");
+
+      if (markupModeActive) {
+        btn.classList.add("active");
+        instr.innerText = "👉 Click vào mô hình để ghim 1 markup + nhập ghi chú";
+        instr.style.display = "block";
+        panel.style.display = "block";
+
+        coordModeActive = false;
+        document.getElementById("btnCoord").classList.remove("active");
+        measureModeActive = false;
+        document.getElementById("btnMeasure").classList.remove("active");
+      } else {
+        btn.classList.remove("active");
+        instr.style.display = "none";
+      }
+    });
+
+    document.getElementById("btnZoomAll").addEventListener("click", () => {
+      viewer.cameraFlight.flyTo(viewer.scene);
+    });
+
+    document.getElementById("btnZoomAll2").addEventListener("click", () => {
+      viewer.cameraFlight.flyTo(viewer.scene);
+    });
+
+    // -------------------------------------------------------------
+    // RIBBON: chuyển tab (Trang Chủ / Kiểm Tra / Điều Hướng) — kiểu
+    // Navisworks/Office. Mỗi tab chỉ đổi panel nào đang hiện, không đụng gì
+    // tới các nút bên trong (id giữ nguyên, mọi handler cũ vẫn hoạt động).
+    // -------------------------------------------------------------
+    document.querySelectorAll(".ribbon-tab").forEach(tabBtn => {
+      tabBtn.addEventListener("click", () => {
+        document.querySelectorAll(".ribbon-tab").forEach(b => b.classList.remove("active"));
+        document.querySelectorAll(".ribbon-panel").forEach(p => p.classList.remove("active"));
+        tabBtn.classList.add("active");
+        document.getElementById(tabBtn.dataset.panel).classList.add("active");
+      });
+    });
+
+    // -------------------------------------------------------------
+    // ĐI BỘ (WALK) — kiểu công cụ Walk của Navisworks: giữ nguyên chiều cao
+    // mắt, di chuyển bằng WASD/phím mũi tên trên mặt phẳng ngang, nhìn
+    // quanh bằng cách kéo chuột/ngón tay — khác hẳn Orbit (xoay quanh 1
+    // điểm mô hình). xeokit hỗ trợ sẵn qua cameraControl.navMode =
+    // "firstPerson" + constrainVertical để khoá không "bay" lên xuống.
+    // -------------------------------------------------------------
+    document.getElementById("btnNavOrbit").addEventListener("click", () => {
+      viewer.cameraControl.navMode = "orbit";
+      viewer.cameraControl.constrainVertical = false;
+      document.getElementById("btnNavOrbit").classList.add("btn-primary");
+      document.getElementById("btnNavWalk").classList.remove("btn-primary");
+      document.getElementById("walkPad").classList.remove("open");
+    });
+
+    document.getElementById("btnNavWalk").addEventListener("click", () => {
+      viewer.cameraControl.navMode = "firstPerson";
+      viewer.cameraControl.constrainVertical = true; // giữ nguyên chiều cao mắt, không bị "bay" khi nhìn lên/xuống
+      document.getElementById("btnNavWalk").classList.add("btn-primary");
+      document.getElementById("btnNavOrbit").classList.remove("btn-primary");
+      document.getElementById("walkPad").classList.add("open");
+
+      // Hạ camera xuống gần mặt đất bên dưới vị trí hiện tại (nếu bắn tia
+      // xuống trúng mô hình), ở độ cao mắt người ~1.7m — để bắt đầu "đi bộ"
+      // đúng cảm giác thay vì lơ lửng trên cao như khi đang Orbit.
+      try {
+        const eye = viewer.camera.eye.slice();
+        const look = viewer.camera.look.slice();
+        const hit = viewer.scene.pick({
+          pickSurface: true,
+          origin: eye,
+          direction: [0, -1, 0]
+        });
+        if (hit && hit.worldPos) {
+          const groundY = hit.worldPos[1];
+          const eyeHeight = 1.7;
+          const dy = (groundY + eyeHeight) - eye[1];
+          viewer.camera.eye = [eye[0], eye[1] + dy, eye[2]];
+          viewer.camera.look = [look[0], look[1] + dy, look[2]];
+        }
+      } catch (e) {
+        console.warn("Không tự hạ được camera xuống mặt đất, giữ nguyên vị trí hiện tại:", e);
+      }
+
+      showToast('🚶 Chế độ Đi Bộ: dùng W/A/S/D, phím mũi tên, hoặc nút ảo ở góc dưới bên trái để di chuyển. Kéo chuột/ngón tay để nhìn quanh.');
+    });
+
+    // -------------------------------------------------------------
+    // Nút ảo Đi Bộ (D-pad) — vì WASD chỉ có trên bàn phím thật, trên
+    // điện thoại/tablet cảm ứng cần nút chạm để di chuyển. Giữ nút để đi
+    // liên tục (pointerdown → true, pointerup/leave/cancel → false), 1
+    // vòng lặp riêng (scene "tick") sẽ tự di chuyển camera mỗi khung hình
+    // khi có hướng đang được giữ — không đụng gì đến việc NHÌN quanh bằng
+    // kéo tay (vẫn do xeokit tự xử lý qua navMode "firstPerson").
+    // -------------------------------------------------------------
+    const walkMove = { forward: false, back: false, left: false, right: false };
+    const WALK_SPEED = 2.2; // mét / giây, xấp xỉ tốc độ đi bộ thật
+
+    function bindWalkButton(elId, key) {
+      const el = document.getElementById(elId);
+      const setState = (val) => {
+        walkMove[key] = val;
+        el.classList.toggle("pressed", val);
+      };
+      el.addEventListener("pointerdown", (e) => { e.preventDefault(); setState(true); el.setPointerCapture(e.pointerId); });
+      el.addEventListener("pointerup", () => setState(false));
+      el.addEventListener("pointercancel", () => setState(false));
+      el.addEventListener("pointerleave", () => setState(false));
+    }
+    bindWalkButton("walkUp", "forward");
+    bindWalkButton("walkDown", "back");
+    bindWalkButton("walkLeft", "left");
+    bindWalkButton("walkRight", "right");
+
+    let walkLastTickTime = null;
+    viewer.scene.on("tick", () => {
+      if (viewer.cameraControl.navMode !== "firstPerson") { walkLastTickTime = null; return; }
+
+      const now = performance.now();
+      if (walkLastTickTime === null) { walkLastTickTime = now; return; }
+      const dt = Math.min((now - walkLastTickTime) / 1000, 0.1); // chặn dt bất thường khi tab bị ẩn/lag
+      walkLastTickTime = now;
+
+      if (!walkMove.forward && !walkMove.back && !walkMove.left && !walkMove.right) return;
+
+      const camera = viewer.camera;
+      const eye = camera.eye;
+      const look = camera.look;
+
+      // Hướng "tiến" chiếu xuống mặt phẳng ngang (bỏ thành phần Y) để đi bộ
+      // không bị chúi lên/xuống khi đang ngước nhìn lên hay cúi xuống.
+      let fx = look[0] - eye[0], fz = look[2] - eye[2];
+      const flen = Math.sqrt(fx * fx + fz * fz) || 1;
+      fx /= flen; fz /= flen;
+      // Hướng "phải" = forward × up (up = [0,1,0]) trong hệ toạ độ Y-up
+      const rx = -fz, rz = fx;
+
+      let dx = 0, dz = 0;
+      if (walkMove.forward) { dx += fx; dz += fz; }
+      if (walkMove.back) { dx -= fx; dz -= fz; }
+      if (walkMove.right) { dx += rx; dz += rz; }
+      if (walkMove.left) { dx -= rx; dz -= rz; }
+
+      const dlen = Math.sqrt(dx * dx + dz * dz);
+      if (dlen > 0.0001) {
+        dx = (dx / dlen) * WALK_SPEED * dt;
+        dz = (dz / dlen) * WALK_SPEED * dt;
+        camera.eye = [eye[0] + dx, eye[1], eye[2] + dz];
+        camera.look = [look[0] + dx, look[1], look[2] + dz];
+      }
+    });
+
+    // Thu gọn/mở toolbar chính trên điện thoại — chỉ hiện nút này ở màn
+    // hình nhỏ (xem CSS @media), giúp lấy lại không gian xem mô hình.
+    document.getElementById("toolbarToggle").addEventListener("click", () => {
+      const toolbar = document.getElementById("toolbar");
+      const btn = document.getElementById("toolbarToggle");
+      toolbar.classList.toggle("collapsed");
+      btn.innerHTML = toolbar.classList.contains("collapsed") ? "☰" : "✕";
+    });
+
+    // "Nạp Mô Hình Mới (Reset)" — tải lại toàn bộ trang thay vì tự dọn tay
+    // từng phần (model, cache, WebGL context...). Đây là cách AN TOÀN NHẤT:
+    // gỡ 1 viewer WebGL rồi dựng lại y hệt trong cùng 1 trang rất dễ rò rỉ
+    // bộ nhớ / context WebGL (trình duyệt giới hạn số WebGL context sống
+    // cùng lúc) nếu dọn không sạch tuyệt đối. Tải lại trang đảm bảo sạch
+    // 100%, và vì các thư viện đã nằm sẵn trong ./libs/ (không cần tải lại
+    // qua mạng), việc tải lại diễn ra gần như tức thì.
+    document.getElementById("btnResetApp").addEventListener("click", () => {
+      const ok = confirm("Thao tác này sẽ xóa hết mô hình đang mở, đo đạc, markup... để nạp mô hình mới từ đầu. Cậu chắc chắn muốn tiếp tục?");
+      if (ok) location.reload();
+    });
+
+    window.toggleClashPanel = function() {
+      const panel = document.getElementById("clashPanel");
+      if (panel) {
+        panel.style.display = (panel.style.display === "none" || panel.style.display === "") ? "block" : "none";
+      }
+    };
+
+    document.getElementById("btnClash").addEventListener("click", () => {
+      toggleClashPanel();
+    });
+
+   // -------------------------------------------------------------
+// 1. HÀM BÓC TÁCH KHUNG BAO CHÍNH XÁC TỪ ĐỈNH MESH (Mô phỏng Trimble Engine)
+// -------------------------------------------------------------
+function getExactMeshWorldAABB(entity) {
+  let minX = Infinity, minY = Infinity, minZ = Infinity;
+  let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+  let hasVertices = false;
+
+  const meshes = entity.meshInstances || (entity._meshInstances ? entity._meshInstances : []);
+
+  for (let meshInst of meshes) {
+    const geom = meshInst.geometry || (meshInst.mesh ? meshInst.mesh.geometry : null);
+    if (!geom || !geom.positions) continue;
+
+    const positions = geom.positions;
+    const decodeMat = geom.quantizedPositionsDecodeMatrix;
+    const wMat = meshInst.worldMatrix || entity.worldMatrix;
+    const rtc = (meshInst.model && meshInst.model.rtcCenter) ? meshInst.model.rtcCenter : [0, 0, 0];
+
+    // Lấy mẫu đỉnh Mesh thực tế (bỏ qua các điểm thừa)
+    const stride = Math.max(3, Math.floor(positions.length / 300) * 3);
+
+    for (let i = 0; i < positions.length; i += stride) {
+      let qx = positions[i], qy = positions[i + 1], qz = positions[i + 2];
+      let x = qx, y = qy, z = qz;
+
+      // Dequantize tọa độ WebGL Xeokit
+      if (decodeMat) {
+        x = qx * decodeMat[0] + decodeMat[12];
+        y = qy * decodeMat[5] + decodeMat[13];
+        z = qz * decodeMat[10] + decodeMat[14];
+      }
+
+      // Biến đổi sang World Space
+      if (wMat) {
+        let wx = x * wMat[0] + y * wMat[4] + z * wMat[8] + wMat[12];
+        let wy = x * wMat[1] + y * wMat[5] + z * wMat[9] + wMat[13];
+        let wz = x * wMat[2] + y * wMat[6] + z * wMat[10] + wMat[14];
+        x = wx; y = wy; z = wz;
+      }
+
+      // Cộng gốc tọa độ RTC
+      x += rtc[0]; y += rtc[1]; z += rtc[2];
+
+      // Bỏ qua các điểm rác nằm bất thường tại gốc (0,0,0) của file IFC
+      if (Math.abs(x) < 0.0001 && Math.abs(y) < 0.0001 && Math.abs(z) < 0.0001) continue;
+
+      if (x < minX) minX = x; if (x > maxX) maxX = x;
+      if (y < minY) minY = y; if (y > maxY) maxY = y;
+      if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
+      hasVertices = true;
+    }
+  }
+
+  if (hasVertices && isFinite(minX)) {
+    return [minX, minY, minZ, maxX, maxY, maxZ];
+  }
+
+  return entity.worldAABB || entity.aabb;
+}
+
+// -------------------------------------------------------------
+// 2. HIGHLIGHT & FLY-TO CHUẨN XÁC
+// -------------------------------------------------------------
+window.highlightClashPair = function(idA, idB) {
+  if (!viewer || !viewer.scene) return;
+  const scene = viewer.scene;
+
+  scene.setObjectsXRayed(scene.objectIds, true);
+  scene.setObjectsHighlighted(scene.objectIds, false);
+  scene.setObjectsSelected(scene.objectIds, false);
+  scene.setObjectsColorized(scene.objectIds, null);
+
+  scene.setObjectsXRayed([idA, idB], false);
+  scene.setObjectsVisible([idA, idB], true);
+
+  scene.setObjectsColorized([idA], [1.0, 0.0, 0.0]); // Đỏ
+  scene.setObjectsColorized([idB], [0.0, 1.0, 0.0]); // Xanh lá
+
+  const entityA = scene.objects[idA];
+  const entityB = scene.objects[idB];
+
+  if (entityA && entityB) {
+    const aabbA = getExactMeshWorldAABB(entityA);
+    const aabbB = getExactMeshWorldAABB(entityB);
+
+    const unionAABB = [
+      Math.min(aabbA[0], aabbB[0]), Math.min(aabbA[1], aabbB[1]), Math.min(aabbA[2], aabbB[2]),
+      Math.max(aabbA[3], aabbB[3]), Math.max(aabbA[4], aabbB[4]), Math.max(aabbA[5], aabbB[5])
+    ];
+
+    viewer.cameraFlight.flyTo({
+      aabb: unionAABB,
+      duration: 0.8,
+      fitFov: 35
+    });
+  }
+};
+
+// -------------------------------------------------------------
+// 1B. TÍNH OBB (Oriented Bounding Box) BẰNG PCA — KHUNG BAO BÁM ĐÚNG
+//     HƯỚNG THỰC CỦA CẤU KIỆN, KHÔNG PHỤ THUỘC SỐ MESH CON BÊN TRONG
+//     ENTITY (khắc phục lỗi ống/dầm/thanh giằng nằm chéo bị AABB
+//     "phình to" gây va chạm ảo, đồng thời không bỏ sót va chạm thật
+//     ở các entity ghép từ nhiều mesh có ma trận riêng khác nhau)
+// -------------------------------------------------------------
+function getObjectOBB(entity) {
+  // ƯU TIÊN 1: Nếu đã nạp file .IFC gốc và có dữ liệu THẬT cho GlobalId này,
+  // dùng thẳng — chính xác tuyệt đối, không phụ thuộc xeokit có đọc được
+  // geometry hay không. Dùng entity.originalSystemId (GlobalId GỐC, chưa bị
+  // globalize) vì entity.id giờ có dạng "<modelId>#<globalId>" sau khi bật
+  // globalizeObjectIds — ifcGeometryCache vẫn lưu theo GlobalId gốc.
+  const rawId = entity.originalSystemId || entity.id;
+  const ifcEntry = ifcGeometryCache.get(rawId);
+  if (ifcEntry && ifcEntry.points && ifcEntry.points.length >= 3) {
+    return computeOBBFromPoints(ifcEntry.points);
+  }
+
+  // ƯU TIÊN 2: Thử đọc trực tiếp từ xeokit (chỉ có tác dụng với model KHÔNG
+  // phải SceneModel GPU-only, ví dụ scene graph Mesh thường)
+  const meshes = entity.meshInstances || (entity._meshInstances ? entity._meshInstances : []);
+  const pts = [];
+
+  // Lấy đúng toạ độ WORLD-SPACE của từng mesh con — mỗi mesh dùng ĐÚNG ma
+  // trận riêng của nó (meshInst.worldMatrix), giống hệt cách hàm
+  // getExactMeshWorldAABB (đã chạy đúng) đang làm.
+  for (let meshInst of meshes) {
+    const geom = meshInst.geometry || (meshInst.mesh ? meshInst.mesh.geometry : null);
+    if (!geom || !geom.positions) continue;
+
+    const positions = geom.positions;
+    const decodeMat = geom.quantizedPositionsDecodeMatrix;
+    const wMat = meshInst.worldMatrix || entity.worldMatrix;
+    const rtc = (meshInst.model && meshInst.model.rtcCenter) ? meshInst.model.rtcCenter : [0, 0, 0];
+    const stride = Math.max(3, Math.floor(positions.length / 300) * 3);
+
+    for (let i = 0; i < positions.length; i += stride) {
+      let x = positions[i], y = positions[i + 1], z = positions[i + 2];
+
+      if (decodeMat) {
+        x = x * decodeMat[0] + decodeMat[12];
+        y = y * decodeMat[5] + decodeMat[13];
+        z = z * decodeMat[10] + decodeMat[14];
+      }
+      if (wMat) {
+        const wx = x * wMat[0] + y * wMat[4] + z * wMat[8] + wMat[12];
+        const wy = x * wMat[1] + y * wMat[5] + z * wMat[9] + wMat[13];
+        const wz = x * wMat[2] + y * wMat[6] + z * wMat[10] + wMat[14];
+        x = wx; y = wy; z = wz;
+      }
+      x += rtc[0]; y += rtc[1]; z += rtc[2];
+
+      if (Math.abs(x) < 0.0001 && Math.abs(y) < 0.0001 && Math.abs(z) < 0.0001) continue;
+      pts.push([x, y, z]);
+    }
+  }
+
+  if (pts.length < 3) return null;
+  return computeOBBFromPoints(pts);
+}
+
+// Tính OBB bằng PCA (Principal Component Analysis) từ 1 tập điểm world-space
+// bất kỳ — dùng chung cho cả nguồn IFC thật lẫn nguồn xeokit (khi đọc được).
+function computeOBBFromPoints(pts) {
+  // BƯỚC 1: Tính tâm (centroid)
+  let mx = 0, my = 0, mz = 0;
+  for (const p of pts) { mx += p[0]; my += p[1]; mz += p[2]; }
+  const n = pts.length;
+  mx /= n; my /= n; mz /= n;
+
+  // BƯỚC 2: Ma trận hiệp phương sai (covariance matrix) 3x3
+  let cxx = 0, cxy = 0, cxz = 0, cyy = 0, cyz = 0, czz = 0;
+  for (const p of pts) {
+    const dx = p[0] - mx, dy = p[1] - my, dz = p[2] - mz;
+    cxx += dx * dx; cxy += dx * dy; cxz += dx * dz;
+    cyy += dy * dy; cyz += dy * dz; czz += dz * dz;
+  }
+  cxx /= n; cxy /= n; cxz /= n; cyy /= n; cyz /= n; czz /= n;
+
+  // BƯỚC 3: Jacobi eigenvalue — tìm 3 trục chính (vector riêng) của
+  // ma trận hiệp phương đối xứng 3x3 -> đây chính là hướng thực của
+  // hình học (VD: dọc theo trục ống trụ dài)
+  const A = [[cxx, cxy, cxz], [cxy, cyy, cyz], [cxz, cyz, czz]];
+  const V = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+  for (let iter = 0; iter < 50; iter++) {
+    let p = 0, q = 1, maxVal = Math.abs(A[0][1]);
+    if (Math.abs(A[0][2]) > maxVal) { maxVal = Math.abs(A[0][2]); p = 0; q = 2; }
+    if (Math.abs(A[1][2]) > maxVal) { maxVal = Math.abs(A[1][2]); p = 1; q = 2; }
+    if (maxVal < 1e-9) break;
+
+    const theta = (A[q][q] - A[p][p]) / (2 * A[p][q]);
+    const t = Math.sign(theta || 1) / (Math.abs(theta) + Math.sqrt(theta * theta + 1));
+    const c = 1 / Math.sqrt(t * t + 1);
+    const s = t * c;
+    const App = A[p][p], Aqq = A[q][q], Apq = A[p][q];
+    A[p][p] = App - t * Apq;
+    A[q][q] = Aqq + t * Apq;
+    A[p][q] = 0; A[q][p] = 0;
+
+    for (let k = 0; k < 3; k++) {
+      if (k !== p && k !== q) {
+        const Akp = A[k][p], Akq = A[k][q];
+        A[k][p] = A[p][k] = c * Akp - s * Akq;
+        A[k][q] = A[q][k] = s * Akp + c * Akq;
+      }
+    }
+    for (let k = 0; k < 3; k++) {
+      const Vkp = V[k][p], Vkq = V[k][q];
+      V[k][p] = c * Vkp - s * Vkq;
+      V[k][q] = s * Vkp + c * Vkq;
+    }
+  }
+
+  const norm = (v) => { const l = Math.hypot(v[0], v[1], v[2]) || 1; return [v[0] / l, v[1] / l, v[2] / l]; };
+  const ax0 = norm([V[0][0], V[1][0], V[2][0]]);
+  const ax1 = norm([V[0][1], V[1][1], V[2][1]]);
+  const ax2 = norm([V[0][2], V[1][2], V[2][2]]);
+
+  // BƯỚC 4: Chiếu toàn bộ điểm lên 3 trục chính để lấy kích thước thật
+  let min0 = Infinity, max0 = -Infinity, min1 = Infinity, max1 = -Infinity, min2 = Infinity, max2 = -Infinity;
+  for (const p of pts) {
+    const dx = p[0] - mx, dy = p[1] - my, dz = p[2] - mz;
+    const proj0 = dx * ax0[0] + dy * ax0[1] + dz * ax0[2];
+    const proj1 = dx * ax1[0] + dy * ax1[1] + dz * ax1[2];
+    const proj2 = dx * ax2[0] + dy * ax2[1] + dz * ax2[2];
+    if (proj0 < min0) min0 = proj0; if (proj0 > max0) max0 = proj0;
+    if (proj1 < min1) min1 = proj1; if (proj1 > max1) max1 = proj1;
+    if (proj2 < min2) min2 = proj2; if (proj2 > max2) max2 = proj2;
+  }
+
+  const c0 = (min0 + max0) / 2, c1 = (min1 + max1) / 2, c2 = (min2 + max2) / 2;
+  const h0 = (max0 - min0) / 2, h1 = (max1 - min1) / 2, h2 = (max2 - min2) / 2;
+
+  const centerWorld = [
+    mx + c0 * ax0[0] + c1 * ax1[0] + c2 * ax2[0],
+    my + c0 * ax0[1] + c1 * ax1[1] + c2 * ax2[1],
+    mz + c0 * ax0[2] + c1 * ax1[2] + c2 * ax2[2]
+  ];
+
+  return {
+    center: centerWorld,
+    axes: [ax0, ax1, ax2],
+    halfSizes: [h0, h1, h2]
+  };
+}
+
+// -------------------------------------------------------------
+// 1C. SAT TEST GIỮA 2 OBB (thuật toán chuẩn — Separating Axis Theorem,
+//     15 trục kiểm tra: 3 trục A + 3 trục B + 9 trục tích chéo cạnh)
+//     Đây là kỹ thuật narrow-phase mà các engine BIM/CAD (Navisworks,
+//     Trimble Connect...) dùng SAU bước lọc AABB sơ bộ.
+// -------------------------------------------------------------
+function obbClashTest(obbA, obbB, tolerance) {
+  const EA = obbA.axes, EB = obbB.axes;
+  const HA = obbA.halfSizes, HB = obbB.halfSizes;
+  const tol = tolerance || 0;
+
+  const dot = (v1, v2) => v1[0] * v2[0] + v1[1] * v2[1] + v1[2] * v2[2];
+
+  const T = [
+    obbB.center[0] - obbA.center[0],
+    obbB.center[1] - obbA.center[1],
+    obbB.center[2] - obbA.center[2]
+  ];
+
+  const R = [[0,0,0],[0,0,0],[0,0,0]];
+  const AbsR = [[0,0,0],[0,0,0],[0,0,0]];
+  for (let i = 0; i < 3; i++) {
+    for (let j = 0; j < 3; j++) {
+      R[i][j] = dot(EA[i], EB[j]);
+      AbsR[i][j] = Math.abs(R[i][j]) + 1e-8;
+    }
+  }
+
+  const t = [dot(T, EA[0]), dot(T, EA[1]), dot(T, EA[2])];
+  let minOverlap = Infinity;
+
+  // 3 trục của A
+  for (let i = 0; i < 3; i++) {
+    const ra = HA[i] + tol;
+    const rb = HB[0]*AbsR[i][0] + HB[1]*AbsR[i][1] + HB[2]*AbsR[i][2];
+    const overlap = ra + rb - Math.abs(t[i]);
+    if (overlap <= 0) return { clash: false, depth: 0 };
+    minOverlap = Math.min(minOverlap, overlap);
+  }
+
+  // 3 trục của B
+  for (let j = 0; j < 3; j++) {
+    const ra = HA[0]*AbsR[0][j] + HA[1]*AbsR[1][j] + HA[2]*AbsR[2][j];
+    const rb = HB[j] + tol;
+    const tt = t[0]*R[0][j] + t[1]*R[1][j] + t[2]*R[2][j];
+    const overlap = ra + rb - Math.abs(tt);
+    if (overlap <= 0) return { clash: false, depth: 0 };
+    minOverlap = Math.min(minOverlap, overlap);
+  }
+
+  // 9 trục tích chéo Ai x Bj
+  for (let i = 0; i < 3; i++) {
+    const i1 = (i + 1) % 3, i2 = (i + 2) % 3;
+    for (let j = 0; j < 3; j++) {
+      const j1 = (j + 1) % 3, j2 = (j + 2) % 3;
+      const ra = HA[i1]*AbsR[i2][j] + HA[i2]*AbsR[i1][j];
+      const rb = HB[j1]*AbsR[i][j2] + HB[j2]*AbsR[i][j1];
+      const proj = t[i2]*R[i1][j] - t[i1]*R[i2][j];
+      const overlap = ra + rb + tol - Math.abs(proj);
+      if (overlap <= 0) return { clash: false, depth: 0 };
+      // Trục chéo không phản ánh trực tiếp độ ăn sâu nên không tính vào minOverlap
+    }
+  }
+
+  return { clash: true, depth: minOverlap };
+}
+
+// -------------------------------------------------------------
+// 1D. KIỂM TRA VA CHẠM BẰNG RAY-PICKING THẬT CỦA XEOKIT (dùng khi KHÔNG
+//     đọc được vertex thô — đúng trường hợp model .XKT/SceneModel lưu
+//     geometry trên GPU, JS không đọc trực tiếp được, theo tài liệu chính
+//     thức xeokit-sdk). Kỹ thuật: bắn tia từ 1 điểm mẫu, đếm số lần xuyên
+//     qua bề mặt 1 vật — số lần LẺ nghĩa là điểm đó nằm BÊN TRONG khối đặc.
+//     Nếu 1 điểm nằm bên trong CẢ HAI vật cùng lúc -> va chạm thật 100%.
+// -------------------------------------------------------------
+const RAY_DIR = (() => {
+  // Hướng tia cố định, KHÔNG dùng đúng trục X/Y/Z để tránh trường hợp tia
+  // đi sượt (grazing) trùng mặt phẳng của các cấu kiện BIM (đa số vuông góc trục)
+  const v = [1, 1.31, 0.77];
+  const l = Math.hypot(v[0], v[1], v[2]);
+  return [v[0] / l, v[1] / l, v[2] / l];
+})();
+
+function countRayHits(origin, direction, entityId, maxHits) {
+  let count = 0;
+  let curOrigin = [origin[0], origin[1], origin[2]];
+  const eps = 1e-4;
+  for (let h = 0; h < maxHits; h++) {
+    let pickResult;
+    try {
+      pickResult = viewer.scene.pick({
+        pickSurface: true,
+        origin: curOrigin,
+        direction: direction,
+        includeEntities: [entityId]
+      });
+    } catch (e) {
+      break;
+    }
+    if (!pickResult || !pickResult.worldPos) break;
+    count++;
+    curOrigin = [
+      pickResult.worldPos[0] + direction[0] * eps,
+      pickResult.worldPos[1] + direction[1] * eps,
+      pickResult.worldPos[2] + direction[2] * eps
+    ];
+  }
+  return count;
+}
+
+function isPointInsideEntity(point, entityId) {
+  return (countRayHits(point, RAY_DIR, entityId, 8) % 2) === 1;
+}
+
+function computeOverlapBox(aabbA, aabbB, tolerance) {
+  const minX = Math.max(aabbA[0] - tolerance, aabbB[0] - tolerance);
+  const minY = Math.max(aabbA[1] - tolerance, aabbB[1] - tolerance);
+  const minZ = Math.max(aabbA[2] - tolerance, aabbB[2] - tolerance);
+  const maxX = Math.min(aabbA[3] + tolerance, aabbB[3] + tolerance);
+  const maxY = Math.min(aabbA[4] + tolerance, aabbB[4] + tolerance);
+  const maxZ = Math.min(aabbA[5] + tolerance, aabbB[5] + tolerance);
+  if (maxX <= minX || maxY <= minY || maxZ <= minZ) return null;
+  return [minX, minY, minZ, maxX, maxY, maxZ];
+}
+
+// Lấy mẫu 1 lưới điểm trong vùng AABB giao nhau của 2 vật, kiểm tra xem có
+// điểm nào nằm bên trong CẢ HAI vật không. gridRes = số điểm mẫu / trục.
+function rayClashTest(idA, idB, aabbA, aabbB, tolerance, gridRes) {
+  const box = computeOverlapBox(aabbA, aabbB, tolerance);
+  if (!box) return { clash: false, tested: 0 };
+
+  const res = gridRes || 3;
+  const stepX = (box[3] - box[0]) / (res + 1);
+  const stepY = (box[4] - box[1]) / (res + 1);
+  const stepZ = (box[5] - box[2]) / (res + 1);
+  let tested = 0;
+
+  for (let i = 1; i <= res; i++) {
+    for (let j = 1; j <= res; j++) {
+      for (let k = 1; k <= res; k++) {
+        const p = [box[0] + stepX * i, box[1] + stepY * j, box[2] + stepZ * k];
+        tested++;
+        if (isPointInsideEntity(p, idA) && isPointInsideEntity(p, idB)) {
+          return { clash: true, point: p, tested: tested };
+        }
+      }
+    }
+  }
+  return { clash: false, tested: tested };
+}
+
+// -------------------------------------------------------------
+// THUẬT TOÁN CHECK VA CHẠM THỰC TẾ (TRIỆT TIÊU 100% LỖI ẢO XEOKIT)
+// -------------------------------------------------------------
+window.runClashNow = async function() {
+  const modeEl = document.getElementById("clashMode");
+  const tolEl = document.getElementById("clashTolerance");
+  const resultsEl = document.getElementById("clashResults");
+
+  if (!resultsEl) return;
+
+  const mode = modeEl ? modeEl.value : "all";
+  const userTol = tolEl ? parseFloat(tolEl.value) : 0;
+  const tolerance = isNaN(userTol) ? 0 : userTol;
+
+  resultsEl.innerHTML = "<div style='color:#0275d8; font-weight:bold; padding:8px;'>⌛ Đang chuẩn bị dữ liệu hình học chính xác...</div>";
+
+  // Trích xuất hình học chính xác (nếu chưa có) cho từng model TRƯỚC khi
+  // quét — chạy tuần tự vì dùng chung 1 IfcAPI (WASM). Đây là bước từng
+  // chạy ngay lúc nạp file; giờ dời tới đây để bước "Nạp Mô Hình" nhanh
+  // hơn, đổi lại lần Check Va Chạm đầu tiên sẽ mất thêm chút thời gian.
+  for (const modelId of loadedModels.keys()) {
+    try {
+      await ensureGeometryCacheForModel(modelId);
+    } catch (e) {
+      console.warn(`Không trích xuất được hình học chính xác cho model "${modelId}":`, e);
+    }
+  }
+
+  resultsEl.innerHTML = "<div style='color:#0275d8; font-weight:bold; padding:8px;'>⌛ Đang phân tích khoảng cách đâm xuyên thực tế...</div>";
+
+  setTimeout(() => {
+    const NON_GEOMETRY_TYPES = [
+      "IFCSITE", "IFCBUILDING", "IFCBUILDINGSTOREY", 
+      "IFCSPACE", "IFCPROJECT", "IFCZONE", "IFCGRID"
+    ];
+
+    const validObjects = [];
+
+    // BƯỚC 1: LẤY KHUNG BAO CHUẨN TỪ SCENE OBJECTS
+    loadedModels.forEach((model, modelId) => {
+      const entityIds = model.entityIds || Object.keys(model.objects || {});
+
+      entityIds.forEach(id => {
+        const entity = viewer.scene.objects[id];
+        if (!entity || !entity.visible) return;
+
+        const meta = lookupMetaObject(id, entity.originalSystemId);
+        if (meta && meta.type) {
+          if (NON_GEOMETRY_TYPES.includes(meta.type.toUpperCase())) return;
+        }
+
+        // Lấy AABB thực tế của Xeokit
+        const aabb = entity.worldAABB || entity.aabb;
+        if (!aabb) return;
+
+        const dx = Math.abs(aabb[3] - aabb[0]);
+        const dy = Math.abs(aabb[4] - aabb[1]);
+        const dz = Math.abs(aabb[5] - aabb[2]);
+
+        // Bỏ qua các đối tượng không có thể tích hoặc bị dẹt hoàn toàn
+        if (dx <= 0.001 || dy <= 0.001 || dz <= 0.001) return;
+
+        // Bỏ qua các đối tượng bị phình to ảo (> 50m)
+        if (dx > 50.0 || dy > 50.0 || dz > 50.0) return;
+
+        const centerX = (aabb[0] + aabb[3]) / 2;
+        const centerY = (aabb[1] + aabb[4]) / 2;
+        const centerZ = (aabb[2] + aabb[5]) / 2;
+
+        // Tính thêm OBB (khung bao theo đúng hướng xoay thực) — dùng làm
+        // bước quyết định cuối cùng (narrow-phase) thay vì chỉ AABB
+        const obb = getObjectOBB(entity);
+
+        validObjects.push({
+          id: id,
+          entity: entity,
+          aabb: aabb,
+          obb: obb,
+          center: [centerX, centerY, centerZ],
+          size: [dx, dy, dz],
+          modelId: modelId
+        });
+      });
+    });
+
+    // Ngưỡng epsilon tối thiểu CHỈ để lọc nhiễu số học dấu phẩy động —
+    // KHÔNG dùng "tolerance" ở đây, vì tolerance đã được cộng vào bên trong
+    // obbClashTest() để mở rộng vùng clearance. Nếu lấy minDepth = tolerance
+    // thì các cặp "cách nhau đúng trong khoảng clearance" sẽ luôn bị loại
+    // (overlap sau khi nới rộng tối đa cũng chỉ bằng tolerance) — đây chính
+    // là lỗi khiến 2 vật ở sát/trong khoảng clearance không được báo.
+    const EPSILON = 0.001; // 1mm, chỉ để chống nhiễu số học
+
+    const realClashes = [];
+    const detectedPairs = new Set();
+
+    // BƯỚC 2: LỌC SƠ BỘ BẰNG AABB (broad-phase) RỒI QUYẾT ĐỊNH BẰNG OBB (narrow-phase)
+    for (let i = 0; i < validObjects.length; i++) {
+      for (let j = i + 1; j < validObjects.length; j++) {
+        const a = validObjects[i];
+        const b = validObjects[j];
+
+        if (mode === "between_models" && a.modelId === b.modelId) continue;
+
+        const pairKey = a.id < b.id ? `${a.id}_${b.id}` : `${b.id}_${a.id}`;
+        if (detectedPairs.has(pairKey)) continue;
+
+        // 1. Lọc nhanh theo Khoảng cách Tâm 3D (broad-phase, chỉ để loại
+        //    nhanh các cặp chắc chắn ở xa nhau — KHÔNG dùng để kết luận va chạm).
+        //    Dùng bán kính hình cầu ngoại tiếp THẬT (nửa đường chéo AABB),
+        //    không phải nửa cạnh dài nhất — tránh loại nhầm các vật hình khối
+        //    (box/junction) mà trước đây bị ước lượng bán kính quá nhỏ.
+        const radiusA = Math.hypot(a.size[0], a.size[1], a.size[2]) / 2;
+        const radiusB = Math.hypot(b.size[0], b.size[1], b.size[2]) / 2;
+
+        const dist3D = Math.hypot(
+          a.center[0] - b.center[0],
+          a.center[1] - b.center[1],
+          a.center[2] - b.center[2]
+        );
+
+        if (dist3D > (radiusA + radiusB + tolerance)) continue;
+
+        // 2. QUYẾT ĐỊNH CUỐI CÙNG:
+        //    - Nếu lấy được geometry thô (obb tồn tại) -> dùng OBB + SAT
+        //      test (bám đúng hướng xoay thực, xử lý đúng ống/dầm nằm chéo).
+        //    - Nếu KHÔNG lấy được geometry (model .XKT/SceneModel lưu trên
+        //      GPU, JS không đọc được vertex) -> dùng ray-picking thật của
+        //      xeokit để kiểm tra điểm nằm trong CẢ HAI khối đặc cùng lúc.
+        let clashDetected = false;
+        let realPenetration = 0;
+
+        if (a.obb && b.obb) {
+          const result = obbClashTest(a.obb, b.obb, tolerance);
+          if (result.clash && result.depth > EPSILON) {
+            clashDetected = true;
+            realPenetration = result.depth - tolerance;
+          }
+        } else {
+          const result = rayClashTest(a.id, b.id, a.aabb, b.aabb, tolerance, 3);
+          if (result.clash) {
+            clashDetected = true;
+            // Ray-sampling chỉ xác nhận CÓ giao nhau thật, không đo được
+            // chính xác độ ăn sâu -> quy ước hiển thị bằng giá trị tolerance
+            realPenetration = tolerance;
+          }
+        }
+
+        if (clashDetected) {
+          detectedPairs.add(pairKey);
+
+          realClashes.push({
+            idA: a.id,
+            idB: b.id,
+            modelA: a.modelId,
+            modelB: b.modelId,
+            realPenetration: realPenetration,
+            isHardClash: realPenetration > EPSILON
+          });
+        }
+      }
+    }
+
+    // BƯỚC 3: XUẤT KẾT QUẢ
+    window.lastClashResults = {
+      timestamp: new Date(),
+      mode: mode,
+      tolerance: tolerance,
+      clashes: realClashes.map(c => ({
+        ...c,
+        labelA: getEntityLabel(c.idA),
+        labelB: getEntityLabel(c.idB)
+      }))
+    };
+
+    if (realClashes.length === 0) {
+      resultsEl.innerHTML = `
+        <div style='color:#155724; padding:12px; background:#d4edda; border:1px solid #c3e6cb; border-radius:6px;'>
+          <b style="font-size:14px;">✅ HOÀN TOÀN KHÔNG CÓ VA CHẠM!</b><br>
+          <span style="font-size:12px; color:#155724;">Đã lọc sạch toàn bộ va chạm khoảng cách xa.</span>
+        </div>`;
+    } else {
+      const hardCount = realClashes.filter(c => c.isHardClash).length;
+      const softCount = realClashes.length - hardCount;
+      let html = `
+        <div style="margin-bottom:8px; font-size:12px; color:#333;">
+          🔍 Tìm thấy <b style="color:red;">${realClashes.length} va chạm</b>
+          (${hardCount} đâm xuyên thật, ${softCount} trong ngưỡng clearance):
+        </div>`;
+
+      realClashes.forEach((c, idx) => {
+        const label = c.isHardClash
+          ? `💥 Va chạm #${idx + 1} (Ăn sâu ~${c.realPenetration.toFixed(3)}m)`
+          : `⚠️ Va chạm #${idx + 1} (Cách nhau ~${Math.abs(c.realPenetration).toFixed(3)}m, trong ngưỡng clearance)`;
+        const boxColor = c.isHardClash ? "#d9534f" : "#e0a800";
+        const bgColor = c.isHardClash ? "#fff0f0" : "#fff8e6";
+        html += `
+          <div style="border:1px solid ${boxColor}; padding:8px; margin-bottom:6px; border-radius:4px; cursor:pointer; background:${bgColor};" onclick="highlightClashPair('${c.idA}', '${c.idB}')">
+            <b style="color:${boxColor};">${label}:</b><br>
+            <span style="color:#d9534f; font-weight:bold;">🔴 [${c.modelA}]</span> ${getEntityLabel(c.idA)}<br>
+            <span style="color:#28a745; font-weight:bold;">🟢 [${c.modelB}]</span> ${getEntityLabel(c.idB)}
+          </div>`;
+      });
+      resultsEl.innerHTML = html;
+    }
+  }, 50);
+};
+
+// Lấy tên hiển thị dễ đọc cho 1 cấu kiện (ưu tiên Tên/Loại IFC từ metadata,
+// fallback về ID kỹ thuật nếu model không có metadata) — dùng cho danh sách
+// kết quả va chạm và các báo cáo xuất ra (HTML/Excel/PDF).
+function getEntityLabel(id) {
+  const entity = viewer.scene.objects[id];
+  const meta = lookupMetaObject(id, entity ? entity.originalSystemId : null);
+  if (meta) {
+    const name = meta.name || id;
+    return meta.type ? `${name} (${meta.type})` : name;
+  }
+  return id;
+}
+
+// -------------------------------------------------------------
+// XUẤT BÁO CÁO VA CHẠM — HTML / EXCEL / PDF (giống báo cáo Clash
+// Detective của Navisworks) — dùng dữ liệu vừa lưu ở window.lastClashResults
+// -------------------------------------------------------------
+window.exportClashReport = function(type) {
+  const data = window.lastClashResults;
+  if (!data || !data.clashes) {
+    alert("⚠️ Chưa có kết quả Check Va Chạm nào để xuất. Vui lòng bấm \"Bắt Đầu Quét Va Chạm\" trước.");
+    return;
+  }
+
+  const rows = data.clashes.map((c, idx) => ({
+    stt: idx + 1,
+    trangThai: c.isHardClash ? "Đâm xuyên thật" : "Trong ngưỡng clearance",
+    doAmSau_m: c.isHardClash ? c.realPenetration.toFixed(3) : ("cách " + Math.abs(c.realPenetration).toFixed(3)),
+    modelA: c.modelA,
+    cauKienA: c.labelA || c.idA,
+    idA: c.idA,
+    modelB: c.modelB,
+    cauKienB: c.labelB || c.idB,
+    idB: c.idB
+  }));
+
+  const dateStr = data.timestamp.toLocaleString("vi-VN");
+  const modeLabel = data.mode === "between_models" ? "Va chạm GIỮA các Mô Hình khác nhau" : "Tất cả cấu kiện trong Scene";
+
+  if (type === "excel") {
+    const ws = XLSX.utils.json_to_sheet(rows, {
+      header: ["stt", "trangThai", "doAmSau_m", "modelA", "cauKienA", "idA", "modelB", "cauKienB", "idB"]
+    });
+    XLSX.utils.sheet_add_aoa(ws, [[
+      "STT", "Trạng Thái", "Độ Ăn Sâu (m)", "Model A", "Cấu Kiện A", "ID Cấu Kiện A", "Model B", "Cấu Kiện B", "ID Cấu Kiện B"
+    ]], { origin: "A1" });
+    ws["!cols"] = [{ wch: 5 }, { wch: 20 }, { wch: 14 }, { wch: 16 }, { wch: 30 }, { wch: 24 }, { wch: 16 }, { wch: 30 }, { wch: 24 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Bao Cao Va Cham");
+    XLSX.writeFile(wb, `BaoCaoVaCham_${Date.now()}.xlsx`);
+    return;
+  }
+
+  if (type === "pdf") {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ orientation: "landscape" });
+    doc.setFontSize(14);
+    doc.text("BAO CAO KIEM TRA VA CHAM (CLASH REPORT)", 14, 15);
+    doc.setFontSize(9);
+    doc.text(`Thoi gian: ${dateStr}  |  Che do: ${modeLabel}  |  Clearance: ${data.tolerance}m  |  Tong so va cham: ${rows.length}`, 14, 22);
+    doc.autoTable({
+      startY: 27,
+      head: [["STT", "Trang thai", "An sau (m)", "Model A", "Cau kien A", "Model B", "Cau kien B"]],
+      body: rows.map(r => [r.stt, r.trangThai, r.doAmSau_m, r.modelA, r.cauKienA, r.modelB, r.cauKienB]),
+      styles: { fontSize: 8, cellPadding: 2 },
+      headStyles: { fillColor: [217, 83, 79] },
+      columnStyles: { 0: { cellWidth: 10 } }
+    });
+    doc.save(`BaoCaoVaCham_${Date.now()}.pdf`);
+    return;
+  }
+
+  // Mặc định: HTML — trang báo cáo độc lập, mở được trực tiếp trên trình
+  // duyệt hoặc gửi cho người không cài phần mềm BIM nào cả.
+  const tableRows = rows.map(r => `
+    <tr class="${r.trangThai === 'Đâm xuyên thật' ? 'hard' : 'soft'}">
+      <td>${r.stt}</td>
+      <td>${r.trangThai}</td>
+      <td>${r.doAmSau_m}</td>
+      <td>${r.modelA}</td>
+      <td>${r.cauKienA}</td>
+      <td>${r.modelB}</td>
+      <td>${r.cauKienB}</td>
+    </tr>`).join("");
+
+  const htmlDoc = `<!DOCTYPE html>
+<html lang="vi"><head><meta charset="UTF-8">
+<title>Báo Cáo Va Chạm — ${dateStr}</title>
+<style>
+  body { font-family: 'Segoe UI', Tahoma, sans-serif; margin: 24px; color: #222; }
+  h1 { color: #d9534f; font-size: 20px; }
+  .meta { font-size: 13px; color: #555; margin-bottom: 16px; }
+  table { border-collapse: collapse; width: 100%; font-size: 12px; }
+  th, td { border: 1px solid #ddd; padding: 6px 8px; text-align: left; }
+  th { background: #f1f3f5; }
+  tr.hard { background: #fff0f0; }
+  tr.soft { background: #fff8e6; }
+</style></head>
+<body>
+  <h1>📋 Báo Cáo Kiểm Tra Va Chạm (Clash Report)</h1>
+  <div class="meta">
+    Thời gian: <b>${dateStr}</b> &nbsp;|&nbsp;
+    Chế độ: <b>${modeLabel}</b> &nbsp;|&nbsp;
+    Clearance: <b>${data.tolerance}m</b> &nbsp;|&nbsp;
+    Tổng số va chạm: <b>${rows.length}</b>
+  </div>
+  <table>
+    <thead><tr>
+      <th>STT</th><th>Trạng Thái</th><th>Ăn Sâu (m)</th>
+      <th>Model A</th><th>Cấu Kiện A</th><th>Model B</th><th>Cấu Kiện B</th>
+    </tr></thead>
+    <tbody>${tableRows}</tbody>
+  </table>
+</body></html>`;
+
+  const blob = new Blob([htmlDoc], { type: "text/html;charset=utf-8" });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = `BaoCaoVaCham_${Date.now()}.html`;
+  link.click();
+};
+
+// -------------------------------------------------------------
+// CÔNG CỤ DEBUG: PHÂN TÍCH CHI TIẾT 1 CẶP VẬT THỂ CỤ THỂ
+// Giúp xác định chính xác lý do vì sao 1 cặp cụ thể KHÔNG được báo
+// va chạm (do khác model bị lọc? do broad-phase loại sớm? do OBB/SAT
+// tính không đâm xuyên?) thay vì phải đoán mò qua ảnh chụp màn hình.
+// -------------------------------------------------------------
+window.assignDebugSlot = function(slot) {
+  if (!selectedEntity) {
+    alert("Bạn cần click chọn 1 vật thể trong scene trước!");
+    return;
+  }
+  document.getElementById("debugId" + slot).value = selectedEntity.id;
+};
+
+// Bản debug của obbClashTest — không early-return, ghi lại overlap
+// của TẤT CẢ 15 trục để biết chính xác trục nào gây tách rời (nếu có)
+function obbClashTestDebug(obbA, obbB, tolerance) {
+  const EA = obbA.axes, EB = obbB.axes;
+  const HA = obbA.halfSizes, HB = obbB.halfSizes;
+  const tol = tolerance || 0;
+  const dot = (v1, v2) => v1[0]*v2[0] + v1[1]*v2[1] + v1[2]*v2[2];
+
+  const T = [
+    obbB.center[0] - obbA.center[0],
+    obbB.center[1] - obbA.center[1],
+    obbB.center[2] - obbA.center[2]
+  ];
+
+  const R = [[0,0,0],[0,0,0],[0,0,0]];
+  const AbsR = [[0,0,0],[0,0,0],[0,0,0]];
+  for (let i = 0; i < 3; i++)
+    for (let j = 0; j < 3; j++) {
+      R[i][j] = dot(EA[i], EB[j]);
+      AbsR[i][j] = Math.abs(R[i][j]) + 1e-8;
+    }
+
+  const t = [dot(T, EA[0]), dot(T, EA[1]), dot(T, EA[2])];
+  const axisLog = [];
+  let separated = false;
+  let minOverlap = Infinity;
+
+  for (let i = 0; i < 3; i++) {
+    const ra = HA[i] + tol;
+    const rb = HB[0]*AbsR[i][0] + HB[1]*AbsR[i][1] + HB[2]*AbsR[i][2];
+    const overlap = ra + rb - Math.abs(t[i]);
+    axisLog.push(`  Trục A${i}: overlap=${overlap.toFixed(4)}m ${overlap <= 0 ? "❌ TÁCH RỜI" : "✅"}`);
+    if (overlap <= 0) separated = true;
+    minOverlap = Math.min(minOverlap, overlap);
+  }
+
+  for (let j = 0; j < 3; j++) {
+    const ra = HA[0]*AbsR[0][j] + HA[1]*AbsR[1][j] + HA[2]*AbsR[2][j];
+    const rb = HB[j] + tol;
+    const tt = t[0]*R[0][j] + t[1]*R[1][j] + t[2]*R[2][j];
+    const overlap = ra + rb - Math.abs(tt);
+    axisLog.push(`  Trục B${j}: overlap=${overlap.toFixed(4)}m ${overlap <= 0 ? "❌ TÁCH RỜI" : "✅"}`);
+    if (overlap <= 0) separated = true;
+    minOverlap = Math.min(minOverlap, overlap);
+  }
+
+  for (let i = 0; i < 3; i++) {
+    const i1 = (i+1)%3, i2 = (i+2)%3;
+    for (let j = 0; j < 3; j++) {
+      const j1 = (j+1)%3, j2 = (j+2)%3;
+      const ra = HA[i1]*AbsR[i2][j] + HA[i2]*AbsR[i1][j];
+      const rb = HB[j1]*AbsR[i][j2] + HB[j2]*AbsR[i][j1];
+      const proj = t[i2]*R[i1][j] - t[i1]*R[i2][j];
+      const overlap = ra + rb + tol - Math.abs(proj);
+      axisLog.push(`  Trục chéo A${i}xB${j}: overlap=${overlap.toFixed(4)}m ${overlap <= 0 ? "❌ TÁCH RỜI" : "✅"}`);
+      if (overlap <= 0) separated = true;
+    }
+  }
+
+  return { clash: !separated, depth: minOverlap, log: axisLog };
+}
+
+window.debugClashPair = function() {
+  const idA = document.getElementById("debugIdA").value;
+  const idB = document.getElementById("debugIdB").value;
+  const outEl = document.getElementById("debugClashOutput");
+  outEl.style.display = "block";
+
+  if (!idA || !idB) {
+    outEl.textContent = "⚠️ Chưa chọn đủ 2 vật thể. Click chọn vật trong scene rồi bấm Gán A / Gán B.";
+    return;
+  }
+
+  const entityA = viewer.scene.objects[idA];
+  const entityB = viewer.scene.objects[idB];
+  if (!entityA || !entityB) {
+    outEl.textContent = "⚠️ Không tìm thấy entity trong scene (có thể đã bị ẩn/xoá).";
+    return;
+  }
+
+  // Tìm modelId của mỗi entity
+  let modelIdA = "?", modelIdB = "?";
+  loadedModels.forEach((model, mid) => {
+    const ids = model.entityIds || Object.keys(model.objects || {});
+    if (ids.includes(idA)) modelIdA = mid;
+    if (ids.includes(idB)) modelIdB = mid;
+  });
+
+  const tolEl = document.getElementById("clashTolerance");
+  const tolerance = parseFloat(tolEl.value) || 0;
+  const modeEl = document.getElementById("clashMode");
+  const mode = modeEl.value;
+
+  let lines = [];
+  lines.push(`Vật A: ${idA}`);
+  lines.push(`Vật B: ${idB}`);
+  lines.push(`Model A: ${modelIdA} | Model B: ${modelIdB}`);
+  lines.push(`Cùng model? ${modelIdA === modelIdB ? "CÓ" : "KHÔNG"}`);
+  lines.push(`Chế độ check hiện tại: ${mode}`);
+
+  if (mode === "between_models" && modelIdA === modelIdB) {
+    lines.push("");
+    lines.push("🚫 BỊ LOẠI NGAY TỪ ĐẦU: 2 vật cùng 1 model, nhưng chế độ");
+    lines.push("   check đang để 'Va chạm GIỮA các Mô Hình khác nhau'.");
+    lines.push("   => Đổi dropdown 'Chế độ check' sang 'Tất cả cấu kiện");
+    lines.push("      trong Scene' để 2 vật này được so sánh.");
+    outEl.textContent = lines.join("\n");
+    return;
+  }
+
+  const aabbA = entityA.worldAABB || entityA.aabb;
+  const aabbB = entityB.worldAABB || entityB.aabb;
+  lines.push("");
+  lines.push(`AABB A: [${aabbA.map(v=>v.toFixed(3)).join(", ")}]`);
+  lines.push(`AABB B: [${aabbB.map(v=>v.toFixed(3)).join(", ")}]`);
+
+  const sizeA = [Math.abs(aabbA[3]-aabbA[0]), Math.abs(aabbA[4]-aabbA[1]), Math.abs(aabbA[5]-aabbA[2])];
+  const sizeB = [Math.abs(aabbB[3]-aabbB[0]), Math.abs(aabbB[4]-aabbB[1]), Math.abs(aabbB[5]-aabbB[2])];
+  const centerA = [(aabbA[0]+aabbA[3])/2, (aabbA[1]+aabbA[4])/2, (aabbA[2]+aabbA[5])/2];
+  const centerB = [(aabbB[0]+aabbB[3])/2, (aabbB[1]+aabbB[4])/2, (aabbB[2]+aabbB[5])/2];
+  const radiusA = Math.hypot(sizeA[0], sizeA[1], sizeA[2]) / 2;
+  const radiusB = Math.hypot(sizeB[0], sizeB[1], sizeB[2]) / 2;
+  const dist3D = Math.hypot(centerA[0]-centerB[0], centerA[1]-centerB[1], centerA[2]-centerB[2]);
+  const broadPhasePass = dist3D <= (radiusA + radiusB + tolerance);
+
+  lines.push("");
+  lines.push(`--- BROAD-PHASE (lọc sơ bộ AABB) ---`);
+  lines.push(`Khoảng cách tâm: ${dist3D.toFixed(4)}m`);
+  lines.push(`Bán kính A + B + tolerance: ${(radiusA+radiusB+tolerance).toFixed(4)}m`);
+  lines.push(broadPhasePass ? "✅ QUA broad-phase, tiếp tục kiểm tra OBB" : "❌ BỊ LOẠI ở broad-phase (2 vật quá xa nhau theo AABB)");
+
+  if (!broadPhasePass) {
+    outEl.textContent = lines.join("\n");
+    return;
+  }
+
+  const hasIfcA = ifcGeometryCache.has(entityA.originalSystemId || idA);
+  const hasIfcB = ifcGeometryCache.has(entityB.originalSystemId || idB);
+  lines.push("");
+  lines.push(`Nguồn hình học A: ${hasIfcA ? "📐 IFC gốc (chính xác)" : "xeokit / ray-picking"}`);
+  lines.push(`Nguồn hình học B: ${hasIfcB ? "📐 IFC gốc (chính xác)" : "xeokit / ray-picking"}`);
+
+  const obbA = getObjectOBB(entityA);
+  const obbB = getObjectOBB(entityB);
+
+  if (!obbA || !obbB) {
+    lines.push("");
+    lines.push("⚠️ Không đọc được vertex thô (model .XKT lưu geometry trên");
+    lines.push("   GPU, JS không đọc trực tiếp được — đây là giới hạn kiến");
+    lines.push("   trúc của xeokit, không phải lỗi code).");
+    lines.push("   => Tự động chuyển sang RAY-PICKING thật của xeokit để");
+    lines.push("      kiểm tra điểm nằm trong CẢ HAI khối đặc cùng lúc.");
+
+    const rayResult = rayClashTest(idA, idB, aabbA, aabbB, tolerance, 3);
+    lines.push("");
+    lines.push(`--- RAY-PICKING TEST (lấy mẫu ${rayResult.tested || 0} điểm trong vùng giao AABB) ---`);
+    if (rayResult.clash) {
+      lines.push(`✅ Tìm thấy điểm nằm bên trong CẢ HAI vật tại: [${rayResult.point.map(v=>v.toFixed(3)).join(", ")}]`);
+      lines.push("=> KẾT LUẬN: CÓ va chạm thật 100% (đã xác nhận bằng ray-picking thực)");
+      lines.push("   => SẼ được báo là va chạm 💥");
+    } else {
+      lines.push("❌ Không tìm thấy điểm nào nằm trong cả 2 vật cùng lúc.");
+      lines.push("=> KẾT LUẬN: KHÔNG va chạm (trong phạm vi lưới điểm đã lấy mẫu).");
+      lines.push("   Lưu ý: đây là phép lấy mẫu (sampling) — nếu chỗ giao nhau");
+      lines.push("   rất nhỏ/mảnh, thử tăng độ phân giải lưới hoặc kiểm tra lại");
+      lines.push("   bằng công cụ Đo Kích Thước tại đúng điểm nghi ngờ.");
+    }
+    outEl.textContent = lines.join("\n");
+    return;
+  }
+
+  lines.push("");
+  lines.push(`--- OBB (PCA) ---`);
+  lines.push(`Tâm A: [${obbA.center.map(v=>v.toFixed(3)).join(", ")}]  HalfSize A: [${obbA.halfSizes.map(v=>v.toFixed(3)).join(", ")}]`);
+  lines.push(`Tâm B: [${obbB.center.map(v=>v.toFixed(3)).join(", ")}]  HalfSize B: [${obbB.halfSizes.map(v=>v.toFixed(3)).join(", ")}]`);
+
+  const result = obbClashTestDebug(obbA, obbB, tolerance);
+  lines.push("");
+  lines.push(`--- SAT TEST (15 trục, tolerance=${tolerance}m) ---`);
+  lines = lines.concat(result.log);
+
+  lines.push("");
+  const realPenetration = result.depth - tolerance;
+  lines.push(`=> KẾT LUẬN: ${result.clash ? "CÓ giao nhau (SAT không tìm được trục tách rời)" : "KHÔNG giao nhau (có ít nhất 1 trục tách rời)"}`);
+  if (result.clash) {
+    lines.push(`   Ăn sâu thực (đã trừ tolerance): ${realPenetration.toFixed(4)}m`);
+    lines.push(`   => ${realPenetration > 0.001 ? "SẼ được báo là va chạm 💥" : "Chỉ trong ngưỡng clearance (không tính là đâm xuyên thật)"}`);
+  }
+
+  outEl.textContent = lines.join("\n");
+};
+
+
+    // BCF Export
+    document.getElementById("btnBCF").addEventListener("click", () => {
+      document.getElementById("bcfPanel").style.display = "block";
+    });
+
+    document.getElementById("exportBcfBtn").addEventListener("click", async () => {
+      const title = document.getElementById("bcfTitle").value || "Sự cố BIM CDE";
+      const desc = document.getElementById("bcfDescription").value || "Cần kiểm tra lại va chạm thiết kế.";
+      const targetId = selectedEntity ? selectedEntity.id : "N/A";
+
+      const eye = viewer.camera.eye;
+      const look = viewer.camera.look;
+      const up = viewer.camera.up;
+
+      const zip = new JSZip();
+      const topicGuid = generateUUID();
+      const folder = zip.folder(topicGuid);
+
+      const markupContent = `<?xml version="1.0" encoding="UTF-8"?>
+<Markup>
+  <Topic Guid="${topicGuid}" TopicType="Comment" TopicStatus="Open">
+    <Title>${title}</Title>
+    <Description>${desc}</Description>
+    <CreationDate>${new Date().toISOString()}</CreationDate>
+  </Topic>
+  <Viewpoints Guid="${generateUUID()}"><Viewpoint>viewpoint.bcfv</Viewpoint></Viewpoints>
+</Markup>`;
+
+      const viewpointContent = `<?xml version="1.0" encoding="UTF-8"?>
+<VisualizationInfo Guid="${generateUUID()}">
+  <Components><Selection><Component IfcGuid="${targetId}" /></Selection></Components>
+  <PerspectiveCamera>
+    <CameraViewPointX>${eye[0]}</CameraViewPointX><CameraViewPointY>${eye[1]}</CameraViewPointY><CameraViewPointZ>${eye[2]}</CameraViewPointZ>
+    <CameraDirectionX>${look[0] - eye[0]}</CameraDirectionX><CameraDirectionY>${look[1] - eye[1]}</CameraDirectionY><CameraDirectionZ>${look[2] - eye[2]}</CameraDirectionZ>
+    <CameraUpVectorX>${up[0]}</CameraUpVectorX><CameraUpVectorY>${up[1]}</CameraUpVectorY><CameraUpVectorZ>${up[2]}</CameraUpVectorZ>
+  </PerspectiveCamera>
+</VisualizationInfo>`;
+
+      folder.file("markup.bcf", markupContent);
+      folder.file("viewpoint.bcfv", viewpointContent);
+      zip.file("bcf.version", `<?xml version="1.0" encoding="UTF-8"?><Version VersionId="2.1"/>`);
+
+      const blob = await zip.generateAsync({ type: "blob" });
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = `CDE_Issue_${title.replace(/\s+/g, '_')}.bcfzip`;
+      link.click();
+
+      alert("🎉 Đã xuất thành công file BCFzip!");
+    });
+
+    function generateUUID() {
+      return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+        var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+      });
+    }
+
+    // -------------------------------------------------------------
+    // Đổi màu nền khung nhìn 3D — mỗi người dùng tự chọn màu hợp mắt mình,
+    // lựa chọn được lưu lại trên trình duyệt (localStorage) cho lần sau.
+    // -------------------------------------------------------------
+    const BG_PRESETS = [
+      { name: "Trắng",     hex: "#ffffff" },
+      { name: "Xám nhạt",  hex: "#e9ecef" },
+      { name: "Xám",       hex: "#c9ced3" },
+      { name: "Xanh nhạt", hex: "#dbe9f6" },
+      { name: "Be",        hex: "#f2ede3" },
+      { name: "Xám đậm",   hex: "#4a4f55" },
+      { name: "Đen",       hex: "#1a1d21" },
+    ];
+
+    function hexToRgbFloat(hex) {
+      const v = hex.replace("#", "");
+      return [
+        parseInt(v.substring(0, 2), 16) / 255,
+        parseInt(v.substring(2, 4), 16) / 255,
+        parseInt(v.substring(4, 6), 16) / 255
+      ];
+    }
+
+    function applyBackgroundColor(hex, save) {
+      viewer.scene.canvas.backgroundColor = hexToRgbFloat(hex);
+      document.querySelectorAll("#bgSwatches .swatch").forEach(el => {
+        el.classList.toggle("selected", el.dataset.hex === hex);
+      });
+      document.getElementById("bgColorCustom").value = hex;
+      if (save) {
+        try { localStorage.setItem("cde_bg_color", hex); } catch (e) { /* ignore */ }
+      }
+    }
+
+    (function initBgColorPicker() {
+      const swatchesEl = document.getElementById("bgSwatches");
+      BG_PRESETS.forEach(preset => {
+        const sw = document.createElement("div");
+        sw.className = "swatch";
+        sw.style.background = preset.hex;
+        sw.title = preset.name;
+        sw.dataset.hex = preset.hex;
+        sw.addEventListener("click", (e) => {
+          e.stopPropagation();
+          applyBackgroundColor(preset.hex, true);
+        });
+        swatchesEl.appendChild(sw);
+      });
+
+      document.getElementById("bgColorCustom").addEventListener("input", (e) => {
+        applyBackgroundColor(e.target.value, true);
+      });
+      document.getElementById("bgColorCustom").addEventListener("click", (e) => e.stopPropagation());
+
+      let savedHex = "#ffffff";
+      try { savedHex = localStorage.getItem("cde_bg_color") || savedHex; } catch (e) { /* ignore */ }
+      applyBackgroundColor(savedHex, false);
+
+      const btnBgColor = document.getElementById("btnBgColor");
+      const panel = document.getElementById("bgColorPanel");
+      btnBgColor.addEventListener("click", (e) => {
+        e.stopPropagation();
+        panel.classList.toggle("open");
+      });
+      document.addEventListener("click", () => panel.classList.remove("open"));
+      panel.addEventListener("click", (e) => e.stopPropagation());
+    })();
+
+    document.getElementById("btnTree").addEventListener("click", () => {
+      const p = document.getElementById("treePanel");
+      p.style.display = p.style.display === "block" ? "none" : "block";
+    });
+
+    document.getElementById("btnModelsList").addEventListener("click", () => {
+      const p = document.getElementById("modelsPanel");
+      p.style.display = p.style.display === "block" ? "none" : "block";
+    });
+
+    document.getElementById("btnSection").addEventListener("click", () => {
+      const plane = sectionPlanes.createSectionPlane({
+        pos: [(viewer.scene.aabb[0]+viewer.scene.aabb[3])/2, (viewer.scene.aabb[1]+viewer.scene.aabb[4])/2, (viewer.scene.aabb[2]+viewer.scene.aabb[5])/2],
+        dir: [0, -1, 0]
+      });
+      sectionPlanes.showControl(plane.id);
+    });
+
+    document.getElementById("clearBtn").addEventListener("click", () => {
+      distanceMeasurements.clear();
+      sectionPlanes.clear();
+      sectionPlanes.hideControl();
+      
+      coordPointsCount = 0;
+      pointCoordinatesList.length = 0;
+      measurementsList.length = 0;
+      tempMeasureStartPoint = null;
+
+      // Xóa pin markup khỏi khung nhìn (danh sách ghi chú markup vẫn giữ
+      // nguyên trong panel "Danh Sách Markup", chỉ gỡ marker 3D khỏi vị trí
+      // đã đánh dấu để đồng bộ với các marker đo/tọa độ khác đang bị xóa)
+      markers3D.length = 0;
+      document.getElementById("markerContainer").innerHTML = "";
+      document.getElementById("markupContainer").innerHTML = "";
+      markupList.length = 0;
+      updateMarkupListUI();
+
+      updateCoordListUI();
+      updateMeasureListUI();
+      
+      coordModeActive = false;
+      measureModeActive = false;
+      markupModeActive = false;
+      multiSelectMode = false;
+      clearMultiSelection();
+      document.getElementById("btnCoord").classList.remove("active");
+      document.getElementById("btnMeasure").classList.remove("active");
+      document.getElementById("btnMarkup").classList.remove("active");
+      document.getElementById("btnMultiSelect").classList.remove("active");
+
+      document.getElementById("instruction").style.display = "none";
+      viewer.scene.setObjectsXRayed(viewer.scene.objectIds, false);
+      viewer.scene.setObjectsHighlighted(viewer.scene.objectIds, false);
+      viewer.scene.setObjectsSelected(viewer.scene.objectIds, false);
+      viewer.scene.setObjectsColorized(viewer.scene.objectIds, null);
+
+      // Trả lại trạng thái hiện/ẩn + độ trong suốt về mặc định — dọn dẹp
+      // mọi thay đổi từ "Cô Lập" / "Ẩn" / slider trong suốt (cấu kiện lẫn
+      // cả model) để người dùng luôn có 1 nút "reset sạch" duy nhất.
+      viewer.scene.setObjectsVisible(viewer.scene.objectIds, true);
+      viewer.scene.setObjectsOpacity(viewer.scene.objectIds, 1);
+      document.querySelectorAll("#modelsList input[type='range']").forEach(r => {
+        r.value = 100;
+        if (r.nextElementSibling) r.nextElementSibling.innerText = "100%";
+      });
+
+      selectedEntity = null;
+      closeSelectionToolbar();
+    });
+
+    // Kéo di chuyển panel: trước đây chỉ dùng mousedown/mousemove/mouseup
+    // (thuần chuột) nên trên màn hình cảm ứng không kéo được. Đổi sang
+    // Pointer Events (pointerdown/pointermove/pointerup) — thống nhất cho
+    // cả chuột, cảm ứng và bút cảm ứng — kèm setPointerCapture để việc kéo
+    // luôn mượt và không bị "tuột" ngón tay ra khỏi phần tiêu đề.
+    function makePanelDraggable(headerElement) {
+      const panel = headerElement.parentElement;
+      let startX = 0, startY = 0, startTop = 0, startLeft = 0;
+      let dragging = false;
+
+      headerElement.style.touchAction = "none";
+      headerElement.addEventListener("pointerdown", dragPointerDown);
+
+      function dragPointerDown(e) {
+        if (e.target.tagName === 'BUTTON' || e.target.tagName === 'SPAN') return;
+        e.preventDefault();
+        dragging = true;
+        startX = e.clientX;
+        startY = e.clientY;
+        startTop = panel.offsetTop;
+        startLeft = panel.offsetLeft;
+        headerElement.setPointerCapture(e.pointerId);
+        headerElement.addEventListener("pointermove", elementDrag);
+        headerElement.addEventListener("pointerup", closeDragElement);
+        headerElement.addEventListener("pointercancel", closeDragElement);
+      }
+
+      function elementDrag(e) {
+        if (!dragging) return;
+        e.preventDefault();
+        const dx = e.clientX - startX;
+        const dy = e.clientY - startY;
+
+        panel.style.top = (startTop + dy) + "px";
+        panel.style.left = (startLeft + dx) + "px";
+        panel.style.right = 'auto';
+      }
+
+      function closeDragElement(e) {
+        dragging = false;
+        try { headerElement.releasePointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+        headerElement.removeEventListener("pointermove", elementDrag);
+        headerElement.removeEventListener("pointerup", closeDragElement);
+        headerElement.removeEventListener("pointercancel", closeDragElement);
+      }
+    }
+
+    document.querySelectorAll('.panel-header').forEach(header => {
+      makePanelDraggable(header);
+    });
+  </script>
+  <!-- CDE: dang nhap + quan ly file theo ISO 19650 -->
+  <script src="./cde-auth.js"></script>
+</body>
+</html>
