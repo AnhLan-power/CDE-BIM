@@ -88,7 +88,11 @@ function injectCdeUI() {
       if (isSignup) {
         const fullName = document.getElementById("cdeFullName").value.trim() || email;
         const { error } = await sb.auth.signUp({
-          email, password, options: { data: { full_name: fullName } }
+          email, password,
+          options: {
+            data: { full_name: fullName },
+            emailRedirectTo: window.location.origin + window.location.pathname
+          }
         });
         if (error) throw error;
         errBox.style.color = "#5cb85c";
@@ -252,9 +256,12 @@ function renderDriveLinkBox() {
           <button id="cdeOpenDrive">🔗 Mở trên Google Drive</button>
           ${isBimManager ? `<button id="cdeEditDrive">✏ Sửa link</button>` : ""}
         </div>
-      </div>`;
+      </div>
+      <button class="btn" style="width:100%;margin:6px 0;" id="cdeListDriveFiles">📄 Tải danh sách file (nạp thẳng vào Viewer)</button>
+      <div id="cdeDriveFileList"></div>`;
     document.getElementById("cdeOpenDrive").addEventListener("click", () => window.open(url, "_blank"));
     if (isBimManager) document.getElementById("cdeEditDrive").addEventListener("click", () => showDriveLinkForm(col, url));
+    document.getElementById("cdeListDriveFiles").addEventListener("click", listDriveFilesViaApi);
     return;
   }
 
@@ -286,6 +293,111 @@ async function saveDriveLink(col) {
 
   activeProjectDriveLinks[col] = val;
   renderDriveLinkBox();
+}
+
+/* ---------------------------------------------------------------------
+   3c. NẠP FILE TRỰC TIẾP TỪ DRIVE VÀO VIEWER (Cách B — qua Edge Function)
+   Yêu cầu đã deploy function "drive-proxy" (xem HUONG_DAN_CACH_B.md).
+   Chỉ hoạt động với file .ifc/.xkt/.glb — các loại khác dùng nút Tải xuống.
+   --------------------------------------------------------------------- */
+async function listDriveFilesViaApi() {
+  const listBox = document.getElementById("cdeDriveFileList");
+  listBox.innerHTML = "Đang tải danh sách file từ Drive...";
+
+  const { data, error } = await sb.functions.invoke("drive-proxy", {
+    body: { action: "list", projectId: activeProjectId, status: activeStatusTab }
+  });
+
+  if (error) {
+    listBox.innerHTML = `<div style="color:#d9534f">${error.message || error}</div>`;
+    return;
+  }
+  if (!data || data.length === 0) {
+    listBox.innerHTML = `<div style="color:#999">Thư mục này chưa có file nào.</div>`;
+    return;
+  }
+
+  listBox.innerHTML = "";
+  data.forEach(f => listBox.appendChild(buildDriveFileCard(f)));
+}
+
+function buildDriveFileCard(f) {
+  const card = document.createElement("div");
+  card.className = "cde-file-card";
+  const sizeKb = f.size ? (f.size / 1024).toFixed(0) + " KB" : "";
+  card.innerHTML = `
+    <div class="fname">${f.name}</div>
+    <div class="meta">${sizeKb} · sửa lúc ${f.modifiedTime ? new Date(f.modifiedTime).toLocaleString("vi-VN") : "-"}</div>
+    <div class="actions"></div>`;
+
+  const actionsEl = card.querySelector(".actions");
+  const ext = (f.name.split(".").pop() || "").toLowerCase();
+
+  if (["ifc", "xkt", "glb"].includes(ext)) {
+    const btnOpen = document.createElement("button");
+    btnOpen.innerText = "👁 Nạp vào Viewer";
+    btnOpen.addEventListener("click", () => openDriveFileInViewer(f));
+    actionsEl.appendChild(btnOpen);
+  }
+
+  const btnDownload = document.createElement("button");
+  btnDownload.innerText = "⬇ Tải xuống";
+  btnDownload.addEventListener("click", () => downloadDriveFile(f));
+  actionsEl.appendChild(btnDownload);
+
+  return card;
+}
+
+async function fetchDriveFileBlob(f) {
+  const { data: sessionData } = await sb.auth.getSession();
+  const token = sessionData?.session?.access_token;
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/drive-proxy`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${token}`,
+      "apikey": SUPABASE_ANON_KEY
+    },
+    body: JSON.stringify({ action: "download", projectId: activeProjectId, status: activeStatusTab, fileId: f.id })
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || ("Lỗi tải file (HTTP " + res.status + ")"));
+  }
+  return res.blob();
+}
+
+async function downloadDriveFile(f) {
+  try {
+    const blob = await fetchDriveFileBlob(f);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = f.name; a.click();
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    alert(e.message);
+  }
+}
+
+// Nạp file Drive thẳng vào viewer hiện có, tận dụng lại input file gốc của
+// app (không đụng vào logic loader IFC/XKT đã có sẵn).
+async function openDriveFileInViewer(f) {
+  try {
+    const blob = await fetchDriveFileBlob(f);
+    const ext = (f.name.split(".").pop() || "").toLowerCase();
+    const targetInputId = ext === "ifc" ? "ifcModelFileInput" : "modelFileInput";
+    const input = document.getElementById(targetInputId);
+    if (!input) { alert("Không tìm thấy input nạp file phù hợp cho ." + ext); return; }
+
+    const file = new File([blob], f.name);
+    const dt = new DataTransfer();
+    dt.items.add(file);
+    input.files = dt.files;
+    input.dispatchEvent(new Event("change"));
+    document.getElementById("cdeFilesPanel").style.display = "none";
+  } catch (e) {
+    alert(e.message);
+  }
 }
 
 /* ---------------------------------------------------------------------
