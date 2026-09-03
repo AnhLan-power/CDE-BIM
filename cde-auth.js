@@ -63,6 +63,7 @@ function injectCdeUI() {
     <div style="margin:8px 0;">
       <select id="cdeProjectSelect"></select>
     </div>
+    <div id="cdeDriveConnectBox"></div>
     <div class="cde-status-tabs" id="cdeStatusTabs"></div>
     <div id="cdeFilesList"></div>
     <div id="cdeMembersBox" style="display:none;"></div>`;
@@ -206,8 +207,75 @@ function renderStatusTabs() {
     tabsEl.appendChild(tab);
   });
   renderMembersButton();
+  renderDriveConnectionStatus();
   loadActiveProjectDriveLinks();
 }
+
+/* ---------------------------------------------------------------------
+   3a2. KẾT NỐI GOOGLE DRIVE CÁ NHÂN CỦA BIM MANAGER
+   BIM Manager đăng nhập Google 1 lần, hệ thống dùng "vé thông hành" đó
+   (refresh token, lưu an toàn ở backend) để cả nhóm xem/nạp file trực
+   tiếp — quyền ai xem được gì vẫn do vai trò ISO 19650 trong app quyết
+   định, không phải theo chia sẻ thủ công trên Drive nữa.
+   --------------------------------------------------------------------- */
+const GOOGLE_OAUTH_CLIENT_ID = "1059326356978-r60548d88469ll4287v80187fnd1rnds.apps.googleusercontent.com";
+
+async function renderDriveConnectionStatus() {
+  const box = document.getElementById("cdeDriveConnectBox");
+  if (!box) return;
+
+  if (activeRole !== "bim_manager") { box.innerHTML = ""; return; }
+
+  const { data, error } = await sb.rpc("get_drive_connection_status", { p_project_id: activeProjectId });
+  const status = data && data[0];
+
+  if (error) { box.innerHTML = ""; return; }
+
+  if (status && status.connected) {
+    box.innerHTML = `
+      <div class="cde-file-card" style="margin-bottom:10px;">
+        <div class="fname">🟢 Đã kết nối Google Drive</div>
+        <div class="meta">${status.google_email || ""}</div>
+        <div class="actions"><button id="cdeReconnectDrive">🔄 Kết nối lại (đổi tài khoản khác)</button></div>
+      </div>`;
+    document.getElementById("cdeReconnectDrive").addEventListener("click", startGoogleDriveConnect);
+  } else {
+    box.innerHTML = `
+      <div class="cde-file-card" style="margin-bottom:10px;">
+        <div class="fname">🔴 Chưa kết nối Google Drive</div>
+        <div class="actions"><button id="cdeConnectDrive">🔗 Kết nối Google Drive</button></div>
+      </div>`;
+    document.getElementById("cdeConnectDrive").addEventListener("click", startGoogleDriveConnect);
+  }
+}
+
+function startGoogleDriveConnect() {
+  const redirectUri = `${SUPABASE_URL}/functions/v1/drive-oauth-callback`;
+  const params = new URLSearchParams({
+    client_id: GOOGLE_OAUTH_CLIENT_ID,
+    redirect_uri: redirectUri,
+    response_type: "code",
+    access_type: "offline",
+    prompt: "consent",
+    scope: "https://www.googleapis.com/auth/drive.readonly",
+    state: activeProjectId
+  });
+  window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
+}
+
+// Nếu vừa quay lại từ Google (URL có ?drive_connect=...), hiện thông báo kết quả
+(function checkDriveConnectResult() {
+  const params = new URLSearchParams(window.location.search);
+  const result = params.get("drive_connect");
+  if (!result) return;
+  if (result === "success") {
+    alert("✅ Kết nối Google Drive thành công!");
+  } else {
+    alert("❌ Kết nối Google Drive thất bại: " + (params.get("msg") || "Lỗi không rõ"));
+  }
+  // Xoá query string khỏi URL cho sạch
+  window.history.replaceState({}, "", window.location.pathname);
+})();
 
 /* ---------------------------------------------------------------------
    3b. LIÊN KẾT THƯ MỤC GOOGLE DRIVE THEO TỪNG TRẠNG THÁI (Cách A)
