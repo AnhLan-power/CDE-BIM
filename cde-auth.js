@@ -377,7 +377,14 @@ async function listDriveFilesViaApi() {
   });
 
   if (error) {
-    listBox.innerHTML = `<div style="color:#d9534f">${error.message || error}</div>`;
+    let detail = error.message || String(error);
+    try {
+      if (error.context && typeof error.context.json === "function") {
+        const body = await error.context.json();
+        if (body && body.error) detail = body.error;
+      }
+    } catch (e) { /* giữ nguyên detail mặc định nếu không đọc được */ }
+    listBox.innerHTML = `<div style="color:#d9534f">${detail}</div>`;
     return;
   }
   if (!data || data.length === 0) {
