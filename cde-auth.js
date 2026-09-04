@@ -432,7 +432,7 @@ function buildDriveFileCard(f) {
     actionsEl.appendChild(btnOpen);
   }
  
-  if (["pdf", "jpg", "jpeg", "png", "gif", "webp"].includes(ext)) {
+  if (["pdf", "jpg", "jpeg", "png", "gif", "webp", "docx", "xlsx", "xls"].includes(ext)) {
     const btnPreview = document.createElement("button");
     btnPreview.innerText = "👁 Xem trước";
     btnPreview.addEventListener("click", () => previewDriveFile(f, btnPreview));
@@ -482,20 +482,56 @@ function previewDriveFile(f, btn) {
   if (btn) { btn.disabled = true; btn.innerText = "⏳ Đang tải..."; }
  
   fetchDriveFileBlob(f)
-    .then(blob => {
-      const url = URL.createObjectURL(blob);
-      cdeCurrentPreviewUrl = url;
- 
+    .then(async blob => {
       const ext = (f.name.split(".").pop() || "").toLowerCase();
       const bodyEl = document.getElementById("cdePreviewBody");
+      document.getElementById("cdePreviewTitle").innerText = f.name;
+ 
       if (ext === "pdf") {
+        const url = URL.createObjectURL(blob);
+        cdeCurrentPreviewUrl = url;
         bodyEl.innerHTML = `<iframe src="${url}" style="width:100%;height:100%;border:none;"></iframe>`;
-      } else {
-        bodyEl.innerHTML = `<img src="${url}" style="max-width:100%;max-height:100%;object-fit:contain;">`;
+        document.getElementById("cdePreviewNewTab").href = url;
+        document.getElementById("cdePreviewNewTab").style.display = "inline";
+ 
+      } else if (["jpg", "jpeg", "png", "gif", "webp"].includes(ext)) {
+        const url = URL.createObjectURL(blob);
+        cdeCurrentPreviewUrl = url;
+        bodyEl.innerHTML = `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;"><img src="${url}" style="max-width:100%;max-height:100%;object-fit:contain;"></div>`;
+        document.getElementById("cdePreviewNewTab").href = url;
+        document.getElementById("cdePreviewNewTab").style.display = "inline";
+ 
+      } else if (ext === "docx") {
+        document.getElementById("cdePreviewNewTab").style.display = "none";
+        const arrayBuffer = await blob.arrayBuffer();
+        const result = await mammoth.convertToHtml({ arrayBuffer });
+        bodyEl.innerHTML = `<div style="background:#fff;max-width:800px;width:100%;height:100%;overflow:auto;padding:30px;box-sizing:border-box;font-family:'Segoe UI',Tahoma,sans-serif;line-height:1.6;">${result.value}</div>`;
+ 
+      } else if (["xlsx", "xls"].includes(ext)) {
+        document.getElementById("cdePreviewNewTab").style.display = "none";
+        const arrayBuffer = await blob.arrayBuffer();
+        const workbook = XLSX.read(arrayBuffer, { type: "array" });
+        const tabsHtml = workbook.SheetNames.map((name, i) =>
+          `<button class="cde-xlsx-tab" data-sheet="${i}" style="padding:5px 10px;margin-right:4px;border:1px solid #ccc;border-radius:6px 6px 0 0;background:${i === 0 ? "#fff" : "#e9ecef"};cursor:pointer;">${name}</button>`
+        ).join("");
+        bodyEl.innerHTML = `
+          <div style="background:#fff;width:100%;height:100%;overflow:auto;padding:10px;box-sizing:border-box;">
+            <div style="margin-bottom:6px;">${tabsHtml}</div>
+            <div id="cdeXlsxTableWrap" style="overflow:auto;"></div>
+          </div>`;
+        const renderSheet = (idx) => {
+          const html = XLSX.utils.sheet_to_html(workbook.Sheets[workbook.SheetNames[idx]]);
+          document.getElementById("cdeXlsxTableWrap").innerHTML = html;
+          document.querySelectorAll(".cde-xlsx-tab").forEach((btn, i) => {
+            btn.style.background = i === idx ? "#fff" : "#e9ecef";
+          });
+        };
+        bodyEl.querySelectorAll(".cde-xlsx-tab").forEach(btn => {
+          btn.addEventListener("click", () => renderSheet(parseInt(btn.dataset.sheet)));
+        });
+        renderSheet(0);
       }
  
-      document.getElementById("cdePreviewTitle").innerText = f.name;
-      document.getElementById("cdePreviewNewTab").href = url;
       document.getElementById("cdePreviewOverlay").classList.remove("hidden");
     })
     .catch(e => alert(e.message))
