@@ -786,6 +786,12 @@
       transparent: false,
       backgroundColor: [1, 1, 1] 
     });
+    // Module này chạy trong <script type="module">, biến khai báo trong đây
+    // bị cô lập, KHÔNG tự thấy được từ các <script> thường bên ngoài (như
+    // cde-auth.js, cde-timeline.js). Đưa thẳng ra window để 2 file đó dùng
+    // được viewer thật (Set/Map là kiểu tham chiếu nên luôn đồng bộ; biến
+    // boolean multiSelectMode không tự đồng bộ kiểu này, xem thêm bên dưới).
+    window.viewer = viewer;
 
     const xktLoader = new XKTLoaderPlugin(viewer);
     // WebIFCLoaderPlugin dựng luôn phần hình học + metadata trực tiếp từ file
@@ -803,6 +809,7 @@
     let selectedEntity = null;
     let multiSelectMode = false;
     const multiSelectedIds = new Set();
+    window.multiSelectedIds = multiSelectedIds; // Set = kiểu tham chiếu, luôn đồng bộ tự động
 
     // Cache hình học THẬT lấy trực tiếp từ file .IFC gốc qua web-ifc (WASM),
     // KHÔNG qua xeokit -> không bị giới hạn GPU-only. Key = GlobalId (trùng
@@ -1482,6 +1489,7 @@
       document.body.appendChild(el);
       setTimeout(() => el.remove(), 6000);
     }
+    window.showToast = showToast; // để cde-auth.js/cde-timeline.js (ngoài module) gọi được
 
     // Nạp mô hình chỉ từ 1 file .ifc gốc: dựng hình 3D + cây IFC để xem ngay
     // (WebIFCLoaderPlugin) — hình học tam giác THẬT (không nén GPU) dùng cho

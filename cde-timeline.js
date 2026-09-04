@@ -147,7 +147,7 @@ async function deleteTimelineTask(taskId) {
    4. GẮN CẤU KIỆN 3D ĐÃ CHỌN VÀO TASK (dùng lại cơ chế "Chọn Nhiều" có sẵn)
    --------------------------------------------------------------------- */
 async function attachSelectedElementsToTask(taskId) {
-  if (typeof multiSelectMode === "undefined" || !multiSelectMode || multiSelectedIds.size === 0) {
+  if (typeof multiSelectedIds === "undefined" || multiSelectedIds.size === 0) {
     alert("Bấm nút 'Chọn Nhiều' trên thanh công cụ, chọn các cấu kiện trong mô hình 3D trước, rồi mới bấm nút này.");
     return;
   }
