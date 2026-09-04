@@ -69,6 +69,23 @@ function injectCdeUI() {
     <div id="cdeMembersBox" style="display:none;"></div>`;
   document.body.appendChild(panel);
  
+  const previewOverlay = document.createElement("div");
+  previewOverlay.id = "cdePreviewOverlay";
+  previewOverlay.className = "hidden";
+  previewOverlay.innerHTML = `
+    <div id="cdePreviewBox">
+      <div id="cdePreviewHeader">
+        <span id="cdePreviewTitle">—</span>
+        <span>
+          <a id="cdePreviewNewTab" href="#" target="_blank">↗ Mở tab mới</a>
+          <span id="cdePreviewClose" style="cursor:pointer;margin-left:14px;">✕</span>
+        </span>
+      </div>
+      <div id="cdePreviewBody"></div>
+    </div>`;
+  document.body.appendChild(previewOverlay);
+  document.getElementById("cdePreviewClose").addEventListener("click", closePreviewModal);
+ 
   let isSignup = false;
   document.getElementById("cdeSwitchMode").addEventListener("click", () => {
     isSignup = !isSignup;
@@ -449,27 +466,39 @@ async function fetchDriveFileBlob(f) {
   return res.blob();
 }
  
-// Xem trước PDF/ảnh ngay trong tab mới, dùng trình xem có sẵn của trình
-// duyệt. Mở tab trống NGAY LÚC BẤM (trước khi tải xong) để tránh bị trình
-// duyệt chặn popup — vì popup chỉ được phép mở trong lúc xử lý click trực
-// tiếp, không phải sau khi fetch xong (bất đồng bộ).
-function previewDriveFile(f, btn) {
-  const newTab = window.open("", "_blank");
-  if (newTab) newTab.document.write("Đang tải xem trước, vui lòng đợi...");
+// Xem trước PDF/ảnh ngay trong app bằng 1 cửa sổ nổi (modal) — vẫn có nút
+// "Mở tab mới" cho ai thích xem full màn hình / dùng trình xem PDF riêng
+// của trình duyệt.
+let cdeCurrentPreviewUrl = null;
  
+function closePreviewModal() {
+  document.getElementById("cdePreviewOverlay").classList.add("hidden");
+  document.getElementById("cdePreviewBody").innerHTML = "";
+  if (cdeCurrentPreviewUrl) { URL.revokeObjectURL(cdeCurrentPreviewUrl); cdeCurrentPreviewUrl = null; }
+}
+ 
+function previewDriveFile(f, btn) {
   const originalText = btn ? btn.innerText : "";
   if (btn) { btn.disabled = true; btn.innerText = "⏳ Đang tải..."; }
  
   fetchDriveFileBlob(f)
     .then(blob => {
       const url = URL.createObjectURL(blob);
-      if (newTab) newTab.location.href = url;
-      else window.open(url, "_blank");
+      cdeCurrentPreviewUrl = url;
+ 
+      const ext = (f.name.split(".").pop() || "").toLowerCase();
+      const bodyEl = document.getElementById("cdePreviewBody");
+      if (ext === "pdf") {
+        bodyEl.innerHTML = `<iframe src="${url}" style="width:100%;height:100%;border:none;"></iframe>`;
+      } else {
+        bodyEl.innerHTML = `<img src="${url}" style="max-width:100%;max-height:100%;object-fit:contain;">`;
+      }
+ 
+      document.getElementById("cdePreviewTitle").innerText = f.name;
+      document.getElementById("cdePreviewNewTab").href = url;
+      document.getElementById("cdePreviewOverlay").classList.remove("hidden");
     })
-    .catch(e => {
-      if (newTab) newTab.close();
-      alert(e.message);
-    })
+    .catch(e => alert(e.message))
     .finally(() => {
       if (btn) { btn.disabled = false; btn.innerText = originalText; }
     });
@@ -551,4 +580,3 @@ window.toggleCdeFilesPanel = function () {
 };
  
 injectCdeUI();
- 

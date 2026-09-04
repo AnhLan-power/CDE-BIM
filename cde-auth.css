@@ -5,7 +5,7 @@
   backdrop-filter: blur(4px);
 }
 #cdeAuthOverlay.hidden { display: none; }
-
+ 
 #cdeAuthBox {
   background: #fff; border-radius: 14px; padding: 28px 30px; width: 340px;
   box-shadow: 0 10px 40px rgba(0,0,0,0.25); font-family: 'Segoe UI', Tahoma, sans-serif;
@@ -23,7 +23,7 @@
 #cdeAuthBox .btn-full:hover { background: #025aa5; }
 #cdeAuthBox .switch-mode { text-align: center; margin-top: 12px; font-size: 12px; color: #0275d8; cursor: pointer; }
 #cdeAuthBox .cde-error { color: #d9534f; font-size: 12px; margin-top: 8px; min-height: 14px; }
-
+ 
 #cdeUserBadge {
   position: absolute; top: 15px; right: 15px; z-index: 150;
   background: rgba(255,255,255,0.95); border: 1px solid #e0e0e0; border-radius: 20px;
@@ -34,7 +34,7 @@
   background: #e3f2fd; color: #0275d8; padding: 2px 8px; border-radius: 10px; font-weight: 600; font-size: 10px;
   text-transform: uppercase;
 }
-
+ 
 /* Panel quản lý file CDE */
 #cdeFilesPanel { right: 15px; width: 400px; }
 .cde-status-tabs { display: flex; gap: 4px; margin-bottom: 10px; }
@@ -47,7 +47,7 @@
 .cde-status-tab[data-status="SHARED"].active { background: #f0ad4e; border-color: #f0ad4e; }
 .cde-status-tab[data-status="PUBLISHED"].active { background: #5cb85c; border-color: #5cb85c; }
 .cde-status-tab[data-status="ARCHIVED"].active { background: #4a4f55; border-color: #4a4f55; }
-
+ 
 .cde-file-card {
   border: 1px solid #e5e5e5; border-radius: 8px; padding: 10px; margin-bottom: 8px; font-size: 11px;
 }
@@ -63,6 +63,29 @@
   width: 100%; padding: 7px 8px; margin: 4px 0; border: 1px solid #dcdfe3;
   border-radius: 6px; box-sizing: border-box; font-size: 11px;
 }
-
+ 
+/* Modal xem trước PDF/ảnh */
+#cdePreviewOverlay {
+  position: fixed; inset: 0; background: rgba(20, 24, 28, 0.75);
+  display: flex; align-items: center; justify-content: center; z-index: 2100;
+  padding: 30px; box-sizing: border-box;
+}
+#cdePreviewOverlay.hidden { display: none; }
+#cdePreviewBox {
+  background: #fff; border-radius: 10px; width: 100%; height: 100%;
+  max-width: 1000px; display: flex; flex-direction: column; overflow: hidden;
+  box-shadow: 0 10px 40px rgba(0,0,0,0.35);
+}
+#cdePreviewHeader {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 16px; border-bottom: 1px solid #eee; font-family: 'Segoe UI', Tahoma, sans-serif;
+  font-size: 13px; font-weight: 600; color: #1a252f;
+}
+#cdePreviewHeader a { color: #0275d8; text-decoration: none; font-weight: 500; font-size: 12px; }
+#cdePreviewBody {
+  flex: 1; display: flex; align-items: center; justify-content: center;
+  overflow: auto; background: #525659; padding: 10px; box-sizing: border-box;
+}
+ 
 #cdeUploadBox { border-top: 1px solid #eee; margin-top: 10px; padding-top: 10px; }
 #cdeUploadBox input, #cdeUploadBox select { font-size: 11px; padding: 5px; }
