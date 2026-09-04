@@ -415,6 +415,13 @@ function buildDriveFileCard(f) {
     actionsEl.appendChild(btnOpen);
   }
  
+  if (["pdf", "jpg", "jpeg", "png", "gif", "webp"].includes(ext)) {
+    const btnPreview = document.createElement("button");
+    btnPreview.innerText = "👁 Xem trước";
+    btnPreview.addEventListener("click", () => previewDriveFile(f, btnPreview));
+    actionsEl.appendChild(btnPreview);
+  }
+ 
   const btnDownload = document.createElement("button");
   btnDownload.innerText = "⬇ Tải xuống";
   btnDownload.addEventListener("click", () => downloadDriveFile(f, btnDownload));
@@ -440,6 +447,32 @@ async function fetchDriveFileBlob(f) {
     throw new Error(err.error || ("Lỗi tải file (HTTP " + res.status + ")"));
   }
   return res.blob();
+}
+ 
+// Xem trước PDF/ảnh ngay trong tab mới, dùng trình xem có sẵn của trình
+// duyệt. Mở tab trống NGAY LÚC BẤM (trước khi tải xong) để tránh bị trình
+// duyệt chặn popup — vì popup chỉ được phép mở trong lúc xử lý click trực
+// tiếp, không phải sau khi fetch xong (bất đồng bộ).
+function previewDriveFile(f, btn) {
+  const newTab = window.open("", "_blank");
+  if (newTab) newTab.document.write("Đang tải xem trước, vui lòng đợi...");
+ 
+  const originalText = btn ? btn.innerText : "";
+  if (btn) { btn.disabled = true; btn.innerText = "⏳ Đang tải..."; }
+ 
+  fetchDriveFileBlob(f)
+    .then(blob => {
+      const url = URL.createObjectURL(blob);
+      if (newTab) newTab.location.href = url;
+      else window.open(url, "_blank");
+    })
+    .catch(e => {
+      if (newTab) newTab.close();
+      alert(e.message);
+    })
+    .finally(() => {
+      if (btn) { btn.disabled = false; btn.innerText = originalText; }
+    });
 }
  
 async function downloadDriveFile(f, btn) {
@@ -518,3 +551,4 @@ window.toggleCdeFilesPanel = function () {
 };
  
 injectCdeUI();
+ 
