@@ -1,3 +1,4 @@
 /* Panel Tiến Độ Thi Công — tái sử dụng .cde-file-card, .actions, .btn... từ cde-auth.css */
 #timelinePanel { left: 15px; width: 380px; }
 #sunAnalysisPanel { left: 15px; width: 380px; }
+#daylightPanel { left: 15px; width: 380px; }
