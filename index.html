@@ -515,6 +515,7 @@
             <button class="btn" id="btnModelsList">📁 Danh Sách Model (<span id="modelCount">0</span>)</button>
             <button class="btn" onclick="toggleCdeFilesPanel()" title="Quản lý file theo CDE ISO 19650">📁 CDE</button>
             <button class="btn" onclick="toggleTimelinePanel()" title="Tiến độ thi công 4D">📅 Tiến Độ</button>
+            <button class="btn" onclick="toggleSunAnalysisPanel()" title="Phân tích số giờ nắng">☀️ Giờ Nắng</button>
             <label for="modelFileInput" class="btn" id="btnAddXkt" title="Nâng cao: chỉ dùng khi bạn đã có sẵn file .xkt convert trước, phù hợp model rất lớn">⚙️ XKT (nâng cao)</label>
             <input type="file" id="modelFileInput" accept=".xkt" multiple>
             <button class="btn btn-danger" id="btnResetApp" title="Xóa hết model đang mở, tải lại app từ đầu để nạp mô hình mới">♻️ Nạp Mô Hình Mới</button>
@@ -3746,5 +3747,6 @@ window.debugClashPair = function() {
   <!-- CDE: dang nhap + quan ly file theo ISO 19650 -->
   <script src="./cde-auth.js"></script>
   <script src="./cde-timeline.js"></script>
+  <script src="./cde-sun-analysis.js"></script>
 </body>
 </html>
