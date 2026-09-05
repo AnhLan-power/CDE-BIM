@@ -9,6 +9,7 @@
 let timelineTasks = [];               // cache danh sách task của dự án đang chọn
 let timelineTaskElements = {};        // { task_id: [globalId, ...] }
 let timelineSelectedTaskId = null;    // task đang được chọn để gắn cấu kiện
+let timelineEditingTaskId = null;     // task đang mở form sửa
 let timelinePlaying = false;
 let timelinePlayTimer = null;
 
@@ -143,6 +144,26 @@ async function deleteTimelineTask(taskId) {
   await refreshTimelinePanel();
 }
 
+async function saveEditedTask(taskId) {
+  const name = document.getElementById("tlEditName").value.trim();
+  const type = document.getElementById("tlEditType").value;
+  const start = document.getElementById("tlEditStart").value;
+  const end = document.getElementById("tlEditEnd").value;
+
+  if (!name || !start || !end) { alert("Điền đủ tên, ngày bắt đầu và kết thúc."); return; }
+  if (end < start) { alert("Ngày kết thúc phải sau ngày bắt đầu."); return; }
+
+  const { error } = await sb.from("project_tasks").update({
+    name, task_type: type,
+    planned_start: start, planned_end: end,
+    color: TASK_TYPE_COLORS[type]
+  }).eq("id", taskId);
+  if (error) { alert("Lỗi lưu chỉnh sửa: " + error.message); return; }
+
+  timelineEditingTaskId = null;
+  await refreshTimelinePanel();
+}
+
 /* ---------------------------------------------------------------------
    4. GẮN CẤU KIỆN 3D ĐÃ CHỌN VÀO TASK (dùng lại cơ chế "Chọn Nhiều" có sẵn)
    --------------------------------------------------------------------- */
@@ -199,6 +220,32 @@ function renderTaskList() {
     const card = document.createElement("div");
     card.className = "cde-file-card";
     if (isSelected) card.style.border = "2px solid #0275d8";
+
+    if (timelineEditingTaskId === t.id) {
+      // --- Form sửa ---
+      card.innerHTML = `
+        <div class="fname" style="margin-bottom:6px;">✏ Sửa công việc</div>
+        <input type="text" id="tlEditName" value="${t.name.replace(/"/g, "&quot;")}">
+        <select id="tlEditType" style="width:100%;padding:7px 8px;margin:4px 0;border:1px solid #dcdfe3;border-radius:6px;font-size:11px;">
+          <option value="construction" ${t.task_type === "construction" ? "selected" : ""}>Thi công (xây mới)</option>
+          <option value="demolition" ${t.task_type === "demolition" ? "selected" : ""}>Tháo dỡ</option>
+          <option value="temporary" ${t.task_type === "temporary" ? "selected" : ""}>Tạm thời (dàn giáo, cốp pha...)</option>
+        </select>
+        <div style="display:flex;gap:6px;">
+          <input type="date" id="tlEditStart" value="${t.planned_start}" style="flex:1;">
+          <input type="date" id="tlEditEnd" value="${t.planned_end}" style="flex:1;">
+        </div>
+        <div class="actions" style="margin-top:6px;">
+          <button id="tlEditSave">💾 Lưu</button>
+          <button id="tlEditCancel">Huỷ</button>
+        </div>`;
+      box.appendChild(card);
+      document.getElementById("tlEditSave").addEventListener("click", () => saveEditedTask(t.id));
+      document.getElementById("tlEditCancel").addEventListener("click", () => { timelineEditingTaskId = null; renderTaskList(); });
+      return;
+    }
+
+    // --- Hiển thị bình thường ---
     card.innerHTML = `
       <div class="fname">${t.name} <span style="font-weight:400;color:#888;">(${TASK_TYPE_LABELS[t.task_type]})</span></div>
       <div class="meta">${t.planned_start} → ${t.planned_end} · ${elemCount} cấu kiện gắn</div>
@@ -215,6 +262,11 @@ function renderTaskList() {
     actionsEl.appendChild(btnSelect);
 
     if (canEditTasks()) {
+      const btnEdit = document.createElement("button");
+      btnEdit.innerText = "✏ Sửa";
+      btnEdit.addEventListener("click", () => { timelineEditingTaskId = t.id; renderTaskList(); });
+      actionsEl.appendChild(btnEdit);
+
       const btnAttach = document.createElement("button");
       btnAttach.innerText = "🔗 Gắn cấu kiện đã chọn";
       btnAttach.addEventListener("click", () => attachSelectedElementsToTask(t.id));
@@ -257,6 +309,9 @@ function renderSimulateBox() {
         <input type="range" id="tlDateSlider" min="0" max="${totalDays}" value="0" style="flex:1;">
       </div>
       <div style="text-align:center;font-size:12px;font-weight:700;" id="tlDateLabel">${formatDateVN(minDate)}</div>
+      <div style="display:flex;gap:10px;justify-content:center;font-size:10px;margin-top:6px;color:#666;">
+        <span>🟢 Đang thi công</span><span>🔴 Đang tháo dỡ</span><span>🟠 Tạm thời</span>
+      </div>
       <div class="actions" style="margin-top:6px;">
         <button id="tlResetVisBtn">↺ Hiện lại tất cả (thoát mô phỏng)</button>
       </div>
@@ -298,16 +353,20 @@ function toggleTimelinePlay(minDate, totalDays) {
   }
 }
 
-// Áp dụng ẩn/hiện lên viewer 3D theo ngày đang chọn trên thanh trượt.
-// - construction: hiện từ ngày bắt đầu trở đi (xây xong thì tồn tại luôn)
-// - demolition: hiện trong khoảng [bắt đầu, kết thúc), sau đó biến mất (đã tháo dỡ)
-// - temporary: chỉ hiện trong đúng khoảng [bắt đầu, kết thúc]
+// Áp dụng ẩn/hiện + TÔ MÀU lên viewer 3D theo ngày đang chọn trên thanh
+// trượt, giống màu mặc định của Navisworks TimeLiner:
+// - Đang thi công (trong khoảng bắt đầu-kết thúc): tô XANH LÁ
+// - Đang tháo dỡ (trong khoảng bắt đầu-kết thúc): tô ĐỎ
+// - Tạm thời (trong khoảng bắt đầu-kết thúc): tô CAM
+// - Đã xong việc (construction): về màu gốc bình thường
+// - Tháo dỡ/tạm thời xong: ẩn đi
+// - Construction chưa tới ngày bắt đầu: ẩn đi (chưa xây)
+// - Demolition/temporary chưa tới ngày bắt đầu: hiện bình thường (chưa đụng tới)
 function applyTimelineDate(currentDate) {
   const idsToShow = [];
   const idsToHide = [];
+  const colorizeInstructions = []; // { ids: [...], color: [r,g,b] | null }
 
-  // Map GlobalId -> danh sách object id thật đang có trong viewer (có thể
-  // khác GlobalId gốc do bị globalize thành "<modelId>#<globalId>")
   const globalIdToViewerIds = {};
   viewer.scene.objectIds.forEach(id => {
     const e = viewer.scene.objects[id];
@@ -322,19 +381,37 @@ function applyTimelineDate(currentDate) {
 
     const start = new Date(t.planned_start);
     const end = new Date(t.planned_end);
-    let visible;
-    if (t.task_type === "construction") visible = currentDate >= start;
-    else if (t.task_type === "demolition") visible = currentDate >= start && currentDate < end;
-    else visible = currentDate >= start && currentDate <= end;
+    let visible = true;
+    let color = null; // null = trả về màu gốc
 
-    globalIds.forEach(gid => {
-      const viewerIds = globalIdToViewerIds[gid] || [];
-      (visible ? idsToShow : idsToHide).push(...viewerIds);
-    });
+    if (t.task_type === "construction") {
+      if (currentDate < start) { visible = false; }
+      else if (currentDate < end) { visible = true; color = [0.25, 0.85, 0.35]; } // đang thi công - xanh lá
+      else { visible = true; color = null; } // đã xây xong - màu gốc
+    } else if (t.task_type === "demolition") {
+      if (currentDate < start) { visible = true; color = null; } // chưa tháo - màu gốc
+      else if (currentDate < end) { visible = true; color = [0.95, 0.3, 0.3]; } // đang tháo dỡ - đỏ
+      else { visible = false; } // đã tháo dỡ xong - ẩn
+    } else { // temporary
+      if (currentDate < start) { visible = false; }
+      else if (currentDate <= end) { visible = true; color = [0.95, 0.65, 0.15]; } // đang tồn tại tạm - cam
+      else { visible = false; } // đã dỡ ra
+    }
+
+    const viewerIds = globalIds.flatMap(gid => globalIdToViewerIds[gid] || []);
+    (visible ? idsToShow : idsToHide).push(...viewerIds);
+    colorizeInstructions.push({ ids: viewerIds, color });
   });
 
   if (idsToHide.length) viewer.scene.setObjectsVisible(idsToHide, false);
   if (idsToShow.length) viewer.scene.setObjectsVisible(idsToShow, true);
+
+  colorizeInstructions.forEach(({ ids, color }) => {
+    ids.forEach(id => {
+      const e = viewer.scene.objects[id];
+      if (e) e.colorize = color;
+    });
+  });
 }
 
 function resetTimelineVisibility() {
@@ -343,6 +420,10 @@ function resetTimelineVisibility() {
   const btn = document.getElementById("tlPlayBtn");
   if (btn) btn.innerText = "▶ Chạy";
   viewer.scene.setObjectsVisible(viewer.scene.objectIds, true);
+  viewer.scene.objectIds.forEach(id => {
+    const e = viewer.scene.objects[id];
+    if (e) e.colorize = null;
+  });
 }
 
 /* ---------------------------------------------------------------------
