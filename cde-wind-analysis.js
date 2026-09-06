@@ -15,7 +15,8 @@
 
 let windAreaPoints = [];
 let windCalibrating = false;
-let windLastGrid = null; // { minX, minZ, dx, dz, n, mag: Float32Array, solid: Uint8Array, maxSpeed }
+let windSlices = []; // [{ analysisY, minX, minZ, maxX, maxZ, n, mag, solid, maxSpeed, freestream }, ...]
+let windActiveSliceIdx = 0;
 
 function injectWindUI() {
   const panel = document.createElement("div");
@@ -28,7 +29,7 @@ function injectWindUI() {
       <span style="cursor:pointer" onclick="document.getElementById('windPanel').style.display='none'">✕</span>
     </div>
     <div style="font-size:10px;color:#888;background:#fdecea;padding:6px 8px;border-radius:6px;margin-bottom:8px;">
-      ⚠️ Mô phỏng lát cắt ngang 2D đơn giản hoá — KHÔNG PHẢI CFD kỹ thuật thật. Chỉ dùng để so sánh tương đối giữa các khu vực/phương án, không dùng cho báo cáo tuân thủ tiêu chuẩn.
+      ⚠️ Mô phỏng NHIỀU LÁT CẮT NGANG 2D độc lập (mỗi độ cao tính riêng, không liên kết dòng chảy giữa các lát cắt) — vẫn KHÔNG PHẢI CFD 3D thật, chỉ giúp thấy xu hướng thay đổi theo chiều cao. Không dùng cho báo cáo tuân thủ tiêu chuẩn.
     </div>
     <div id="windAreaBox"></div>
     <div id="windParamsBox"></div>
@@ -95,8 +96,18 @@ function renderWindParamsBox() {
       <div class="fname">🌬️ Thông số gió</div>
       <label style="font-size:10px;color:#888;">Hướng gió thổi tới (độ, 0=từ hướng Bắc thổi tới, đo theo hướng Bắc đã hiệu chỉnh ở panel ☀️ Giờ Nắng)</label>
       <input type="number" id="windDirDeg" value="0" min="0" max="359">
-      <label style="font-size:10px;color:#888;">Độ cao khảo sát so với điểm click (m, vd mức người đi bộ)</label>
-      <input type="number" id="windHeightOffset" value="1.5" step="0.1">
+      <div style="display:flex;gap:6px;">
+        <div style="flex:1;">
+          <label style="font-size:10px;color:#888;">Độ cao thấp nhất (m, so với điểm click)</label>
+          <input type="number" id="windHeightMin" value="1.5" step="0.1">
+        </div>
+        <div style="flex:1;">
+          <label style="font-size:10px;color:#888;">Độ cao cao nhất (m)</label>
+          <input type="number" id="windHeightMax" value="10" step="0.5">
+        </div>
+      </div>
+      <label style="font-size:10px;color:#888;">Số lát cắt theo độ cao (nhiều hơn = thấy rõ xu hướng theo chiều cao hơn nhưng chạy lâu hơn theo đúng số lần đó)</label>
+      <input type="number" id="windSliceCount" min="1" max="8" value="3">
       <div style="display:flex;gap:6px;">
         <div style="flex:1;">
           <label style="font-size:10px;color:#888;">Độ phân giải lưới</label>
@@ -234,14 +245,15 @@ async function runWindSimulation() {
   if (windAreaPoints.length !== 2) { alert("Chọn vùng khảo sát (2 điểm góc) trước."); return; }
 
   const btn = document.getElementById("windRunBtn");
-  btn.disabled = true; btn.innerText = "⏳ Đang dựng lưới vật cản...";
+  btn.disabled = true;
 
   const [p1, p2] = windAreaPoints;
   const minX = Math.min(p1[0], p2[0]), maxX = Math.max(p1[0], p2[0]);
   const minZ = Math.min(p1[2], p2[2]), maxZ = Math.max(p1[2], p2[2]);
   const baseY = (p1[1] + p2[1]) / 2;
-  const heightOffset = parseFloat(document.getElementById("windHeightOffset").value) || 1.5;
-  const analysisY = baseY + heightOffset;
+  const heightMin = parseFloat(document.getElementById("windHeightMin").value) || 1.5;
+  const heightMax = parseFloat(document.getElementById("windHeightMax").value) || 10;
+  const sliceCount = Math.max(1, Math.min(8, parseInt(document.getElementById("windSliceCount").value) || 3));
   const n = Math.max(20, Math.min(100, parseInt(document.getElementById("windGridRes").value) || 50));
   const iterations = Math.max(30, Math.min(400, parseInt(document.getElementById("windIterations").value) || 150));
   const dirDeg = parseFloat(document.getElementById("windDirDeg").value) || 0;
@@ -259,15 +271,29 @@ async function runWindSimulation() {
   const windDirX = north[0] * Math.cos(rad) + east[0] * Math.sin(rad);
   const windDirZ = north[2] * Math.cos(rad) + east[2] * Math.sin(rad);
 
-  const solid = await buildObstacleGrid(minX, maxX, minZ, maxZ, analysisY, n);
+  const heights = sliceCount === 1
+    ? [heightMin]
+    : Array.from({ length: sliceCount }, (_, k) => heightMin + (heightMax - heightMin) * (k / (sliceCount - 1)));
 
-  btn.innerText = "⏳ Đang giải mô phỏng (có thể mất vài giây)...";
-  await new Promise(r => setTimeout(r, 30));
+  windSlices = [];
+  for (let s = 0; s < heights.length; s++) {
+    const analysisY = baseY + heights[s];
+    btn.innerText = `⏳ Lát cắt ${s + 1}/${heights.length}: dựng lưới vật cản...`;
+    await new Promise(r => setTimeout(r, 0));
+    const solid = await buildObstacleGrid(minX, maxX, minZ, maxZ, analysisY, n);
 
-  const { mag, maxSpeed } = runStableFluids(n, solid, windDirX, windDirZ, 5 /* tốc độ tự do quy ước */, iterations);
+    btn.innerText = `⏳ Lát cắt ${s + 1}/${heights.length}: đang giải mô phỏng...`;
+    await new Promise(r => setTimeout(r, 30));
+    const { mag, maxSpeed } = runStableFluids(n, solid, windDirX, windDirZ, 5, iterations);
 
-  windLastGrid = { minX, minZ, maxX, maxZ, analysisY, n, mag, solid, maxSpeed, freestream: 5 };
-  buildWindOverlay(windLastGrid);
+    windSlices.push({
+      heightLabel: heights[s].toFixed(1),
+      minX, minZ, maxX, maxZ, analysisY, n, mag, solid, maxSpeed, freestream: 5
+    });
+  }
+
+  windActiveSliceIdx = 0;
+  buildWindOverlay(windSlices[0]);
   renderWindResultBox();
 
   btn.disabled = false; btn.innerText = "▶ Chạy mô phỏng";
@@ -313,13 +339,19 @@ function buildWindOverlay(grid) {
 
 function clearWindOverlay() {
   window.removeWindOverlayMesh();
-  windLastGrid = null;
+  windSlices = [];
   renderWindResultBox();
 }
 
 function renderWindResultBox() {
   const box = document.getElementById("windResultBox");
-  if (!windLastGrid) { box.innerHTML = ""; return; }
+  if (!windSlices || windSlices.length === 0) { box.innerHTML = ""; return; }
+
+  const current = windSlices[windActiveSliceIdx];
+  const sliderHtml = windSlices.length > 1 ? `
+    <label style="font-size:10px;color:#888;">Chọn độ cao xem (${windSlices.length} lát cắt)</label>
+    <input type="range" id="windSliceSlider" min="0" max="${windSlices.length - 1}" value="${windActiveSliceIdx}" style="width:100%;">
+  ` : "";
 
   box.innerHTML = `
     <div class="cde-file-card">
@@ -327,9 +359,19 @@ function renderWindResultBox() {
       <div style="display:flex;gap:10px;font-size:10px;margin:6px 0;color:#666;">
         <span>🔵 Êm / bị che</span><span>🟢 ~Gió tự do</span><span>🔴 Tăng tốc (hiệu ứng Venturi)</span>
       </div>
-      <div class="meta">Lưới ${windLastGrid.n}×${windLastGrid.n}, cao độ khảo sát: ${windLastGrid.analysisY.toFixed(2)}</div>
+      ${sliderHtml}
+      <div class="meta" style="text-align:center;font-weight:700;margin-top:4px;" id="windCurrentHeightLabel">Độ cao: ${current.heightLabel} m (lưới ${current.n}×${current.n})</div>
       <button class="btn" style="width:100%;margin-top:6px;" id="windClearBtn">↺ Xoá lớp phủ</button>
     </div>`;
+
+  if (windSlices.length > 1) {
+    document.getElementById("windSliceSlider").addEventListener("input", (e) => {
+      windActiveSliceIdx = parseInt(e.target.value);
+      const slice = windSlices[windActiveSliceIdx];
+      buildWindOverlay(slice);
+      document.getElementById("windCurrentHeightLabel").innerText = `Độ cao: ${slice.heightLabel} m (lưới ${slice.n}×${slice.n})`;
+    });
+  }
   document.getElementById("windClearBtn").addEventListener("click", clearWindOverlay);
 }
 
