@@ -3,13 +3,14 @@
    Yêu cầu: đã include <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
    và file cde-auth.css TRƯỚC file này trong index.html.
    ===================================================================== */
- 
+
 // !!! ĐIỀN THÔNG TIN DỰ ÁN SUPABASE CỦA CẬU VÀO ĐÂY !!!
 const SUPABASE_URL = "https://znzakqzdezxzqzfplmgv.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpuemFrcXpkZXp4enF6ZnBsbWd2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc4MTQyNzAsImV4cCI6MjEwMzM5MDI3MH0.aV5YaOLxTySiB26ror4CRzJvQsjANNI1DwbtbxcNe4A";
- 
+
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
- 
+window.sb = sb; // để module chính (viewer, markup, check va chạm) dùng được Supabase
+
 const ROLE_LABELS = {
   bim_manager: "BIM Manager",
   task_team_manager: "Task Team Manager",
@@ -17,16 +18,16 @@ const ROLE_LABELS = {
   approver: "Approver",
   viewer: "Viewer"
 };
- 
+
 const STATUS_LABELS = { WIP: "WIP", SHARED: "Shared", PUBLISHED: "Published", ARCHIVED: "Archived" };
- 
+
 let currentUser = null;
 let currentProfile = null;
 let currentProjects = [];   // [{project_id, name, role}]
 let activeProjectId = null;
 let activeRole = null;
 let activeStatusTab = "WIP";
- 
+
 /* ---------------------------------------------------------------------
    1. DỰNG GIAO DIỆN (chèn vào DOM khi file này chạy)
    --------------------------------------------------------------------- */
@@ -45,13 +46,13 @@ function injectCdeUI() {
       <div class="switch-mode" id="cdeSwitchMode">Chưa có tài khoản? Đăng ký</div>
     </div>`;
   document.body.appendChild(overlay);
- 
+
   const badge = document.createElement("div");
   badge.id = "cdeUserBadge";
   badge.style.display = "none";
   badge.innerHTML = `<span id="cdeUserName">—</span><span class="role-chip" id="cdeRoleChip">—</span>`;
   document.body.appendChild(badge);
- 
+
   const panel = document.createElement("div");
   panel.className = "panel";
   panel.id = "cdeFilesPanel";
@@ -68,7 +69,7 @@ function injectCdeUI() {
     <div id="cdeFilesList"></div>
     <div id="cdeMembersBox" style="display:none;"></div>`;
   document.body.appendChild(panel);
- 
+
   const previewOverlay = document.createElement("div");
   previewOverlay.id = "cdePreviewOverlay";
   previewOverlay.className = "hidden";
@@ -85,7 +86,7 @@ function injectCdeUI() {
     </div>`;
   document.body.appendChild(previewOverlay);
   document.getElementById("cdePreviewClose").addEventListener("click", closePreviewModal);
- 
+
   let isSignup = false;
   document.getElementById("cdeSwitchMode").addEventListener("click", () => {
     isSignup = !isSignup;
@@ -94,14 +95,14 @@ function injectCdeUI() {
     document.getElementById("cdeSwitchMode").innerText = isSignup ? "Đã có tài khoản? Đăng nhập" : "Chưa có tài khoản? Đăng ký";
     document.getElementById("cdeAuthError").innerText = "";
   });
- 
+
   document.getElementById("cdeSubmitBtn").addEventListener("click", async () => {
     const email = document.getElementById("cdeEmail").value.trim();
     const password = document.getElementById("cdePassword").value;
     const errBox = document.getElementById("cdeAuthError");
     errBox.innerText = "";
     if (!email || !password) { errBox.innerText = "Nhập đầy đủ email và mật khẩu."; return; }
- 
+
     try {
       if (isSignup) {
         const fullName = document.getElementById("cdeFullName").value.trim() || email;
@@ -124,12 +125,12 @@ function injectCdeUI() {
       errBox.innerText = e.message || "Có lỗi xảy ra.";
     }
   });
- 
+
   badge.addEventListener("click", async () => {
     if (confirm("Đăng xuất?")) { await sb.auth.signOut(); }
   });
 }
- 
+
 /* ---------------------------------------------------------------------
    2. QUẢN LÝ PHIÊN ĐĂNG NHẬP
    --------------------------------------------------------------------- */
@@ -146,21 +147,21 @@ sb.auth.onAuthStateChange(async (event, session) => {
     document.getElementById("cdeFilesPanel").style.display = "none";
   }
 });
- 
+
 async function loadProfileAndProjects() {
   const { data: profile } = await sb.from("profiles").select("*").eq("id", currentUser.id).single();
   currentProfile = profile;
   document.getElementById("cdeUserName").innerText = profile?.full_name || currentUser.email;
- 
+
   const { data: memberships } = await sb
     .from("project_members")
     .select("project_id, role, projects(name)")
     .eq("user_id", currentUser.id);
- 
+
   currentProjects = (memberships || []).map(m => ({
     project_id: m.project_id, role: m.role, name: m.projects?.name || "(dự án)"
   }));
- 
+
   const sel = document.getElementById("cdeProjectSelect");
   sel.innerHTML = "";
   if (currentProjects.length === 0) {
@@ -183,12 +184,14 @@ async function loadProfileAndProjects() {
     activeProjectId = currentProjects[0].project_id;
     activeRole = currentProjects[0].role;
   }
- 
+
   sel.addEventListener("change", onProjectChange);
   document.getElementById("cdeRoleChip").innerText = activeRole ? ROLE_LABELS[activeRole] : "—";
+  window.activeProjectId = activeProjectId; // module chính (markup, va chạm) đọc qua đây
+  if (window.loadProjectMarkups) window.loadProjectMarkups();
   if (activeProjectId) renderStatusTabs();
 }
- 
+
 async function onProjectChange(e) {
   const val = e.target.value;
   if (val === "__new__") {
@@ -206,9 +209,11 @@ async function onProjectChange(e) {
     activeRole = currentProjects.find(p => p.project_id === val)?.role;
   }
   document.getElementById("cdeRoleChip").innerText = ROLE_LABELS[activeRole] || "—";
+  window.activeProjectId = activeProjectId; // module chính (markup, va chạm) đọc qua đây
+  if (window.loadProjectMarkups) window.loadProjectMarkups();
   renderStatusTabs();
 }
- 
+
 /* ---------------------------------------------------------------------
    3. TAB TRẠNG THÁI CDE (WIP / Shared / Published / Archived)
    --------------------------------------------------------------------- */
@@ -227,7 +232,7 @@ function renderStatusTabs() {
   renderDriveConnectionStatus();
   loadActiveProjectDriveLinks();
 }
- 
+
 /* ---------------------------------------------------------------------
    3a2. KẾT NỐI GOOGLE DRIVE CÁ NHÂN CỦA BIM MANAGER
    BIM Manager đăng nhập Google 1 lần, hệ thống dùng "vé thông hành" đó
@@ -236,18 +241,18 @@ function renderStatusTabs() {
    định, không phải theo chia sẻ thủ công trên Drive nữa.
    --------------------------------------------------------------------- */
 const GOOGLE_OAUTH_CLIENT_ID = "1059326356978-r60548d88469ll4287v80187fnd1rnds.apps.googleusercontent.com";
- 
+
 async function renderDriveConnectionStatus() {
   const box = document.getElementById("cdeDriveConnectBox");
   if (!box) return;
- 
+
   if (activeRole !== "bim_manager") { box.innerHTML = ""; return; }
- 
+
   const { data, error } = await sb.rpc("get_drive_connection_status", { p_project_id: activeProjectId });
   const status = data && data[0];
- 
+
   if (error) { box.innerHTML = ""; return; }
- 
+
   if (status && status.connected) {
     box.innerHTML = `
       <div class="cde-file-card" style="margin-bottom:10px;">
@@ -265,7 +270,7 @@ async function renderDriveConnectionStatus() {
     document.getElementById("cdeConnectDrive").addEventListener("click", startGoogleDriveConnect);
   }
 }
- 
+
 function startGoogleDriveConnect() {
   const redirectUri = `${SUPABASE_URL}/functions/v1/drive-oauth-callback`;
   const params = new URLSearchParams({
@@ -279,7 +284,7 @@ function startGoogleDriveConnect() {
   });
   window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
 }
- 
+
 // Nếu vừa quay lại từ Google (URL có ?drive_connect=...), hiện thông báo kết quả
 (function checkDriveConnectResult() {
   const params = new URLSearchParams(window.location.search);
@@ -293,7 +298,7 @@ function startGoogleDriveConnect() {
   // Xoá query string khỏi URL cho sạch
   window.history.replaceState({}, "", window.location.pathname);
 })();
- 
+
 /* ---------------------------------------------------------------------
    3b. LIÊN KẾT THƯ MỤC GOOGLE DRIVE THEO TỪNG TRẠNG THÁI (Cách A)
    Mỗi dự án có 4 link thư mục Drive tương ứng WIP/Shared/Published/Archived.
@@ -308,30 +313,30 @@ const STATUS_COLUMN = {
   PUBLISHED: "drive_published_url",
   ARCHIVED: "drive_archived_url"
 };
- 
+
 let activeProjectDriveLinks = {};
- 
+
 async function loadActiveProjectDriveLinks() {
   const box = document.getElementById("cdeFilesList");
   box.innerHTML = "Đang tải...";
- 
+
   const { data, error } = await sb
     .from("projects")
     .select("id, drive_wip_url, drive_shared_url, drive_published_url, drive_archived_url")
     .eq("id", activeProjectId)
     .single();
- 
+
   if (error) { box.innerHTML = `<div style="color:#d9534f">${error.message}</div>`; return; }
   activeProjectDriveLinks = data || {};
   renderDriveLinkBox();
 }
- 
+
 function renderDriveLinkBox() {
   const box = document.getElementById("cdeFilesList");
   const col = STATUS_COLUMN[activeStatusTab];
   const url = activeProjectDriveLinks ? activeProjectDriveLinks[col] : null;
   const isBimManager = activeRole === "bim_manager";
- 
+
   if (url) {
     box.innerHTML = `
       <div class="cde-file-card">
@@ -349,15 +354,15 @@ function renderDriveLinkBox() {
     document.getElementById("cdeListDriveFiles").addEventListener("click", listDriveFilesViaApi);
     return;
   }
- 
+
   if (isBimManager) {
     showDriveLinkForm(col, "");
     return;
   }
- 
+
   box.innerHTML = `<div style="color:#999">Chưa có thư mục Drive cho trạng thái này. Liên hệ BIM Manager để thêm.</div>`;
 }
- 
+
 function showDriveLinkForm(col, currentValue) {
   const box = document.getElementById("cdeFilesList");
   box.innerHTML = `
@@ -368,18 +373,18 @@ function showDriveLinkForm(col, currentValue) {
     </div>`;
   document.getElementById("cdeSaveDriveLink").addEventListener("click", () => saveDriveLink(col));
 }
- 
+
 async function saveDriveLink(col) {
   const val = document.getElementById("cdeDriveLinkInput").value.trim();
   if (!val) { alert("Dán link thư mục Drive trước đã."); return; }
- 
+
   const { error } = await sb.from("projects").update({ [col]: val }).eq("id", activeProjectId);
   if (error) { alert("Lỗi lưu link: " + error.message); return; }
- 
+
   activeProjectDriveLinks[col] = val;
   renderDriveLinkBox();
 }
- 
+
 /* ---------------------------------------------------------------------
    3c. NẠP FILE TRỰC TIẾP TỪ DRIVE VÀO VIEWER (Cách B — qua Edge Function)
    Yêu cầu đã deploy function "drive-proxy" (xem HUONG_DAN_CACH_B.md).
@@ -388,11 +393,11 @@ async function saveDriveLink(col) {
 async function listDriveFilesViaApi() {
   const listBox = document.getElementById("cdeDriveFileList");
   listBox.innerHTML = "Đang tải danh sách file từ Drive...";
- 
+
   const { data, error } = await sb.functions.invoke("drive-proxy", {
     body: { action: "list", projectId: activeProjectId, status: activeStatusTab }
   });
- 
+
   if (error) {
     let detail = error.message || String(error);
     try {
@@ -408,11 +413,11 @@ async function listDriveFilesViaApi() {
     listBox.innerHTML = `<div style="color:#999">Thư mục này chưa có file nào.</div>`;
     return;
   }
- 
+
   listBox.innerHTML = "";
   data.forEach(f => listBox.appendChild(buildDriveFileCard(f)));
 }
- 
+
 function buildDriveFileCard(f) {
   const card = document.createElement("div");
   card.className = "cde-file-card";
@@ -421,32 +426,32 @@ function buildDriveFileCard(f) {
     <div class="fname">${f.name}</div>
     <div class="meta">${sizeKb} · sửa lúc ${f.modifiedTime ? new Date(f.modifiedTime).toLocaleString("vi-VN") : "-"}</div>
     <div class="actions"></div>`;
- 
+
   const actionsEl = card.querySelector(".actions");
   const ext = (f.name.split(".").pop() || "").toLowerCase();
- 
+
   if (["ifc", "xkt", "glb"].includes(ext)) {
     const btnOpen = document.createElement("button");
     btnOpen.innerText = "👁 Nạp vào Viewer";
     btnOpen.addEventListener("click", () => openDriveFileInViewer(f, btnOpen));
     actionsEl.appendChild(btnOpen);
   }
- 
+
   if (["pdf", "jpg", "jpeg", "png", "gif", "webp", "docx", "xlsx", "xls"].includes(ext)) {
     const btnPreview = document.createElement("button");
     btnPreview.innerText = "👁 Xem trước";
     btnPreview.addEventListener("click", () => previewDriveFile(f, btnPreview));
     actionsEl.appendChild(btnPreview);
   }
- 
+
   const btnDownload = document.createElement("button");
   btnDownload.innerText = "⬇ Tải xuống";
   btnDownload.addEventListener("click", () => downloadDriveFile(f, btnDownload));
   actionsEl.appendChild(btnDownload);
- 
+
   return card;
 }
- 
+
 async function fetchDriveFileBlob(f) {
   const { data: sessionData } = await sb.auth.getSession();
   const token = sessionData?.session?.access_token;
@@ -465,48 +470,48 @@ async function fetchDriveFileBlob(f) {
   }
   return res.blob();
 }
- 
+
 // Xem trước PDF/ảnh ngay trong app bằng 1 cửa sổ nổi (modal) — vẫn có nút
 // "Mở tab mới" cho ai thích xem full màn hình / dùng trình xem PDF riêng
 // của trình duyệt.
 let cdeCurrentPreviewUrl = null;
- 
+
 function closePreviewModal() {
   document.getElementById("cdePreviewOverlay").classList.add("hidden");
   document.getElementById("cdePreviewBody").innerHTML = "";
   if (cdeCurrentPreviewUrl) { URL.revokeObjectURL(cdeCurrentPreviewUrl); cdeCurrentPreviewUrl = null; }
 }
- 
+
 function previewDriveFile(f, btn) {
   const originalText = btn ? btn.innerText : "";
   if (btn) { btn.disabled = true; btn.innerText = "⏳ Đang tải..."; }
- 
+
   fetchDriveFileBlob(f)
     .then(async blob => {
       const ext = (f.name.split(".").pop() || "").toLowerCase();
       const bodyEl = document.getElementById("cdePreviewBody");
       document.getElementById("cdePreviewTitle").innerText = f.name;
- 
+
       if (ext === "pdf") {
         const url = URL.createObjectURL(blob);
         cdeCurrentPreviewUrl = url;
         bodyEl.innerHTML = `<iframe src="${url}" style="width:100%;height:100%;border:none;"></iframe>`;
         document.getElementById("cdePreviewNewTab").href = url;
         document.getElementById("cdePreviewNewTab").style.display = "inline";
- 
+
       } else if (["jpg", "jpeg", "png", "gif", "webp"].includes(ext)) {
         const url = URL.createObjectURL(blob);
         cdeCurrentPreviewUrl = url;
         bodyEl.innerHTML = `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;"><img src="${url}" style="max-width:100%;max-height:100%;object-fit:contain;"></div>`;
         document.getElementById("cdePreviewNewTab").href = url;
         document.getElementById("cdePreviewNewTab").style.display = "inline";
- 
+
       } else if (ext === "docx") {
         document.getElementById("cdePreviewNewTab").style.display = "none";
         const arrayBuffer = await blob.arrayBuffer();
         const result = await mammoth.convertToHtml({ arrayBuffer });
         bodyEl.innerHTML = `<div style="background:#fff;max-width:800px;width:100%;height:100%;overflow:auto;padding:30px;box-sizing:border-box;font-family:'Segoe UI',Tahoma,sans-serif;line-height:1.6;">${result.value}</div>`;
- 
+
       } else if (["xlsx", "xls"].includes(ext)) {
         document.getElementById("cdePreviewNewTab").style.display = "none";
         const arrayBuffer = await blob.arrayBuffer();
@@ -531,7 +536,7 @@ function previewDriveFile(f, btn) {
         });
         renderSheet(0);
       }
- 
+
       document.getElementById("cdePreviewOverlay").classList.remove("hidden");
     })
     .catch(e => alert(e.message))
@@ -539,7 +544,7 @@ function previewDriveFile(f, btn) {
       if (btn) { btn.disabled = false; btn.innerText = originalText; }
     });
 }
- 
+
 async function downloadDriveFile(f, btn) {
   const originalText = btn ? btn.innerText : "";
   if (btn) { btn.disabled = true; btn.innerText = "⏳ Đang tải..."; }
@@ -555,7 +560,7 @@ async function downloadDriveFile(f, btn) {
     if (btn) { btn.disabled = false; btn.innerText = originalText; }
   }
 }
- 
+
 // Nạp file Drive thẳng vào viewer hiện có, tận dụng lại input file gốc của
 // app (không đụng vào logic loader IFC/XKT đã có sẵn).
 async function openDriveFileInViewer(f, btn) {
@@ -567,7 +572,7 @@ async function openDriveFileInViewer(f, btn) {
     const targetInputId = ext === "ifc" ? "ifcModelFileInput" : "modelFileInput";
     const input = document.getElementById(targetInputId);
     if (!input) { alert("Không tìm thấy input nạp file phù hợp cho ." + ext); return; }
- 
+
     const file = new File([blob], f.name);
     const dt = new DataTransfer();
     dt.items.add(file);
@@ -580,7 +585,7 @@ async function openDriveFileInViewer(f, btn) {
     if (btn) { btn.disabled = false; btn.innerText = originalText; }
   }
 }
- 
+
 /* ---------------------------------------------------------------------
    5. QUẢN LÝ THÀNH VIÊN & QUYỀN (chỉ BIM Manager)
    --------------------------------------------------------------------- */
@@ -606,7 +611,7 @@ function renderMembersButton() {
     alert("Đã thêm thành viên.");
   });
 }
- 
+
 /* ---------------------------------------------------------------------
    6. NÚT MỞ PANEL (gắn vào toolbar hiện có, xem hướng dẫn tích hợp)
    --------------------------------------------------------------------- */
@@ -614,5 +619,5 @@ window.toggleCdeFilesPanel = function () {
   const p = document.getElementById("cdeFilesPanel");
   p.style.display = p.style.display === "block" ? "none" : "block";
 };
- 
+
 injectCdeUI();

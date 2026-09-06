@@ -566,6 +566,7 @@
         <div class="ribbon-group">
           <div class="ribbon-group-buttons">
             <button class="btn" onclick="toggleOpennessPanel()" title="Chỉ số độ thông thoáng (KHÔNG phải phân tích gió CFD thật)">🌬️ Độ Thông Thoáng</button>
+            <button class="btn" onclick="toggleWindPanel()" title="Mô phỏng dòng chảy gió 2D đơn giản hoá (ước lượng minh hoạ, KHÔNG phải CFD thật)">🌪️ Mô Phỏng Gió</button>
           </div>
           <div class="ribbon-group-label">Vi Khí Hậu</div>
         </div>
@@ -744,6 +745,11 @@
 
     <div id="clashResults" style="margin-top: 12px; max-height: 250px; overflow-y: auto;"></div>
 
+    <button type="button" onclick="toggleClashHistory()" style="margin-top:8px; width:100%; background:#f1f3f5; color:#333; border:1px solid #ccc; padding:7px; border-radius:4px; font-size:11px; cursor:pointer;">
+      📜 Lịch sử các lần quét trước
+    </button>
+    <div id="clashHistoryBox" style="display:none; margin-top:8px; max-height:220px; overflow-y:auto;"></div>
+
     <div id="clashExportRow" style="display:flex; gap:6px; margin-top:10px;">
       <button type="button" onclick="exportClashReport('html')" title="Xuất báo cáo dạng trang HTML" style="flex:1; background:#20c997; color:#fff; border:none; padding:8px 4px; border-radius:4px; font-size:11px; font-weight:bold; cursor:pointer;">🌐 HTML</button>
       <button type="button" onclick="exportClashReport('excel')" title="Xuất báo cáo dạng bảng Excel" style="flex:1; background:#28a745; color:#fff; border:none; padding:8px 4px; border-radius:4px; font-size:11px; font-weight:bold; cursor:pointer;">📊 Excel</button>
@@ -808,7 +814,10 @@
       WebIFCLoaderPlugin,
       TreeViewPlugin, 
       SectionPlanesPlugin, 
-      DistanceMeasurementsPlugin 
+      DistanceMeasurementsPlugin,
+      Mesh,
+      ReadableGeometry,
+      PhongMaterial
     } from "https://cdn.jsdelivr.net/npm/@xeokit/xeokit-sdk/dist/xeokit-sdk.es.js";
 
     const viewer = new Viewer({ 
@@ -840,6 +849,37 @@
     let multiSelectMode = false;
     const multiSelectedIds = new Set();
     window.multiSelectedIds = multiSelectedIds; // Set = kiểu tham chiếu, luôn đồng bộ tự động
+
+    // ---- Lớp phủ màu cho mô phỏng gió/vi khí hậu (cde-wind-analysis.js) ----
+    // Dựng 1 mặt lưới phẳng duy nhất, tô màu theo từng đỉnh (vertex color)
+    // theo tốc độ gió tại ô đó — 1 draw call, không tạo hàng nghìn object
+    // riêng lẻ (sẽ rất chậm với xeokit).
+    let windOverlayMesh = null;
+
+    window.renderWindOverlayMesh = function (positions, indices, colors) {
+      window.removeWindOverlayMesh();
+      windOverlayMesh = new Mesh(viewer.scene, {
+        geometry: new ReadableGeometry(viewer.scene, {
+          primitive: "triangles",
+          positions: positions,
+          indices: indices,
+          colors: colors,
+          normals: null
+        }),
+        material: new PhongMaterial(viewer.scene, {
+          diffuse: [1, 1, 1],
+          backfaces: true,
+          alpha: 0.85,
+          alphaMode: "blend"
+        }),
+        pickable: false,
+        collidable: false
+      });
+    };
+
+    window.removeWindOverlayMesh = function () {
+      if (windOverlayMesh) { windOverlayMesh.destroy(); windOverlayMesh = null; }
+    };
 
     // Cache hình học THẬT lấy trực tiếp từ file .IFC gốc qua web-ifc (WASM),
     // KHÔNG qua xeokit -> không bị giới hạn GPU-only. Key = GlobalId (trùng
@@ -1875,14 +1915,33 @@
       textarea.focus();
 
       popup.querySelector(".mp-cancel").addEventListener("click", closeMarkupPopup);
-      popup.querySelector(".mp-save").addEventListener("click", () => {
+      popup.querySelector(".mp-save").addEventListener("click", async () => {
         const text = textarea.value.trim();
         if (text === "") { textarea.focus(); return; }
-        const markup = { id: Date.now(), text: text, worldPos: worldPos, entityId: entityId };
+        const entity = entityId ? viewer.scene.objects[entityId] : null;
+        const globalId = entity ? (entity.originalSystemId || entityId) : null;
+        const markup = { id: Date.now(), text: text, worldPos: worldPos, entityId: entityId, dbId: null };
         markupList.push(markup);
         create3DMarkupPin(markup);
         updateMarkupListUI();
         closeMarkupPopup();
+
+        // Lưu lên Supabase để mọi thành viên dự án (đúng vai trò) thấy
+        // được, và còn nguyên sau khi tải lại trang / đăng nhập lại.
+        if (window.sb && window.activeProjectId) {
+          try {
+            const { data: userData } = await window.sb.auth.getUser();
+            const { data, error } = await window.sb.from("project_markups").insert({
+              project_id: window.activeProjectId,
+              text: text,
+              world_pos_x: worldPos[0], world_pos_y: worldPos[1], world_pos_z: worldPos[2],
+              global_id: globalId,
+              created_by: userData.user.id
+            }).select().single();
+            if (error) { console.warn("Lỗi lưu markup:", error.message); }
+            else { markup.dbId = data.id; }
+          } catch (e) { console.warn("Lỗi lưu markup:", e); }
+        }
       });
       // Enter (không giữ Shift) để lưu nhanh, giống chat/comment box
       textarea.addEventListener("keydown", (e) => {
@@ -2338,6 +2397,7 @@
     window.deleteMarkup = function(id) {
       const idx = markupList.findIndex(m => m.id === id);
       if (idx === -1) return;
+      const markup = markupList[idx];
       markupList.splice(idx, 1);
       const pinEl = document.getElementById("markup_pin_" + id);
       if (pinEl) pinEl.remove();
@@ -2348,6 +2408,54 @@
       const cIdx = markers3D.findIndex(item => item.id === "markup_cloud_" + id);
       if (cIdx !== -1) markers3D.splice(cIdx, 1);
       updateMarkupListUI();
+
+      if (window.sb && markup.dbId) {
+        window.sb.from("project_markups").delete().eq("id", markup.dbId)
+          .then(({ error }) => { if (error) console.warn("Lỗi xoá markup trên server:", error.message); });
+      }
+    };
+
+    // Tải toàn bộ markup đã lưu của dự án đang chọn (gọi lại mỗi khi đổi
+    // dự án trong panel CDE — xem cde-auth.js). Xoá sạch pin cũ trước khi
+    // vẽ lại để tránh trùng lặp nếu gọi nhiều lần.
+    window.loadProjectMarkups = async function() {
+      // Xoá pin cũ đang hiển thị
+      [...markupList].forEach(m => {
+        const pinEl = document.getElementById("markup_pin_" + m.id);
+        if (pinEl) pinEl.remove();
+        const cloudEl = document.getElementById("markup_cloud_" + m.id);
+        if (cloudEl) cloudEl.remove();
+      });
+      markupList.length = 0;
+      for (let i = markers3D.length - 1; i >= 0; i--) {
+        if (String(markers3D[i].id).startsWith("markup_pin_") || String(markers3D[i].id).startsWith("markup_cloud_")) {
+          markers3D.splice(i, 1);
+        }
+      }
+
+      if (!window.sb || !window.activeProjectId) { updateMarkupListUI(); return; }
+
+      try {
+        const { data, error } = await window.sb
+          .from("project_markups")
+          .select("*")
+          .eq("project_id", window.activeProjectId)
+          .order("created_at", { ascending: true });
+        if (error) { console.warn("Lỗi tải markup:", error.message); return; }
+
+        (data || []).forEach(row => {
+          const markup = {
+            id: Date.now() + Math.random(), // id nội bộ để quản lý pin, khác dbId
+            dbId: row.id,
+            text: row.text,
+            worldPos: [row.world_pos_x, row.world_pos_y, row.world_pos_z],
+            entityId: null
+          };
+          markupList.push(markup);
+          create3DMarkupPin(markup);
+        });
+        updateMarkupListUI();
+      } catch (e) { console.warn("Lỗi tải markup:", e); }
     };
 
     window.zoomToMarkup = function(id) {
@@ -3164,6 +3272,35 @@ window.runClashNow = async function() {
       }))
     };
 
+    // Lưu lịch sử lên Supabase để còn nguyên sau khi tải lại trang / đăng
+    // nhập lại, và mọi thành viên dự án đều xem lại được (không chỉ máy
+    // vừa chạy). idA/idB chỉ đúng trong phiên hiện tại (phụ thuộc model
+    // vừa nạp) nên lưu kèm GlobalId ổn định để tham chiếu lâu dài.
+    if (window.sb && window.activeProjectId) {
+      (async () => {
+        try {
+          const { data: userData } = await window.sb.auth.getUser();
+          const hardCountForSave = realClashes.filter(c => c.isHardClash).length;
+          await window.sb.from("project_clash_runs").insert({
+            project_id: window.activeProjectId,
+            mode: mode,
+            tolerance: tolerance,
+            clash_count: realClashes.length,
+            hard_count: hardCountForSave,
+            soft_count: realClashes.length - hardCountForSave,
+            clashes: realClashes.map(c => ({
+              globalIdA: (viewer.scene.objects[c.idA] && viewer.scene.objects[c.idA].originalSystemId) || c.idA,
+              globalIdB: (viewer.scene.objects[c.idB] && viewer.scene.objects[c.idB].originalSystemId) || c.idB,
+              modelA: c.modelA, modelB: c.modelB,
+              realPenetration: c.realPenetration, isHardClash: c.isHardClash,
+              labelA: getEntityLabel(c.idA), labelB: getEntityLabel(c.idB)
+            })),
+            created_by: userData.user.id
+          });
+        } catch (e) { console.warn("Lỗi lưu lịch sử va chạm:", e); }
+      })();
+    }
+
     if (realClashes.length === 0) {
       resultsEl.innerHTML = `
         <div style='color:#155724; padding:12px; background:#d4edda; border:1px solid #c3e6cb; border-radius:6px;'>
@@ -3780,5 +3917,7 @@ window.debugClashPair = function() {
   <script src="./cde-daylight-analysis.js"></script>
   <script src="./cde-openness-analysis.js"></script>
   <script src="./cde-carbon-analysis.js"></script>
+  <script src="./cde-history.js"></script>
+  <script src="./cde-wind-analysis.js"></script>
 </body>
 </html>
