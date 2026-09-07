@@ -40,6 +40,7 @@ function injectWindUI() {
 
 function renderWindStlExportBox() {
   const box = document.getElementById("windStlExportBox");
+  if (!box) return;
   box.innerHTML = `
     <div class="cde-file-card">
       <div class="fname">📤 Cần mô phỏng 3D thật (có xoáy chính xác)?</div>
@@ -47,13 +48,15 @@ function renderWindStlExportBox() {
       <button class="btn" style="width:100%;margin-top:6px;" id="windExportStlBtn">📦 Xuất STL (cấu kiện đã chọn)</button>
       <button class="btn" style="width:100%;margin-top:6px;" id="windOpenSimScaleBtn">🔗 Mở SimScale để tải STL lên</button>
     </div>`;
-  document.getElementById("windExportStlBtn").addEventListener("click", exportSelectedAsSTL);
-  document.getElementById("windOpenSimScaleBtn").addEventListener("click", () => {
+  document.getElementById("windExportStlBtn")?.addEventListener("click", exportSelectedAsSTL);
+  document.getElementById("windOpenSimScaleBtn")?.addEventListener("click", () => {
     window.open("https://www.simscale.com/app/dashboard/projects", "_blank");
   });
+}
 
 window.toggleWindPanel = function () {
   const p = document.getElementById("windPanel");
+  if (!p) return;
   const willShow = p.style.display !== "block";
   p.style.display = willShow ? "block" : "none";
   if (willShow) { renderWindAreaBox(); renderWindParamsBox(); renderWindResultBox(); renderWindStlExportBox(); }
@@ -64,6 +67,7 @@ window.toggleWindPanel = function () {
    --------------------------------------------------------------------- */
 function renderWindAreaBox() {
   const box = document.getElementById("windAreaBox");
+  if (!box) return;
   const hasArea = windAreaPoints.length === 2;
   box.innerHTML = `
     <div class="cde-file-card">
@@ -72,29 +76,37 @@ function renderWindAreaBox() {
       <button class="btn" style="width:100%;margin-top:6px;" id="windPickAreaBtn">🧭 Click 2 điểm góc để chọn vùng (mặt bằng/sân)</button>
       <div id="windAreaStatus" style="font-size:10px;color:#0275d8;margin-top:4px;"></div>
     </div>`;
-  document.getElementById("windPickAreaBtn").addEventListener("click", startWindAreaPick);
+  document.getElementById("windPickAreaBtn")?.addEventListener("click", startWindAreaPick);
 }
 
 function startWindAreaPick() {
   windAreaPoints = [];
   windCalibrating = true;
   const statusEl = document.getElementById("windAreaStatus");
-  statusEl.innerText = "Click góc THỨ NHẤT của vùng khảo sát...";
+  if (statusEl) statusEl.innerText = "Click góc THỨ NHẤT của vùng khảo sát...";
+
+  if (typeof viewer === "undefined" || !viewer.scene) {
+    alert("Không tìm thấy 3D Viewer.");
+    return;
+  }
 
   const canvas = viewer.scene.canvas.canvas;
   const handler = (e) => {
     const rect = canvas.getBoundingClientRect();
     const canvasPos = [e.clientX - rect.left, e.clientY - rect.top];
     const hit = viewer.scene.pick({ canvasPos, pickSurface: true });
-    if (!hit || !hit.worldPos) { statusEl.innerText = "Không trúng bề mặt nào, click lại."; return; }
+    if (!hit || !hit.worldPos) { 
+      if (statusEl) statusEl.innerText = "Không trúng bề mặt nào, click lại."; 
+      return; 
+    }
 
     windAreaPoints.push(hit.worldPos.slice());
     if (windAreaPoints.length === 1) {
-      statusEl.innerText = "Click góc THỨ HAI (đường chéo đối diện)...";
+      if (statusEl) statusEl.innerText = "Click góc THỨ HAI (đường chéo đối diện)...";
     } else {
       canvas.removeEventListener("click", handler);
       windCalibrating = false;
-      statusEl.innerText = "✅ Đã chọn xong vùng khảo sát.";
+      if (statusEl) statusEl.innerText = "✅ Đã chọn xong vùng khảo sát.";
       renderWindAreaBox();
     }
   };
@@ -106,6 +118,7 @@ function startWindAreaPick() {
    --------------------------------------------------------------------- */
 function renderWindParamsBox() {
   const box = document.getElementById("windParamsBox");
+  if (!box) return;
   box.innerHTML = `
     <div class="cde-file-card">
       <div class="fname">🌬️ Thông số gió</div>
@@ -135,7 +148,7 @@ function renderWindParamsBox() {
       </div>
       <button class="btn btn-primary" style="width:100%;margin-top:6px;" id="windRunBtn">▶ Chạy mô phỏng</button>
     </div>`;
-  document.getElementById("windRunBtn").addEventListener("click", runWindSimulation);
+  document.getElementById("windRunBtn")?.addEventListener("click", runWindSimulation);
 }
 
 /* ---------------------------------------------------------------------
@@ -149,7 +162,7 @@ async function buildObstacleGrid(minX, maxX, minZ, maxZ, analysisY, n) {
   for (let j = 0; j <= n; j++) {
     for (let i = 0; i <= n; i++) {
       const x = minX + i * dx, z = minZ + j * dz;
-      const hit = viewer.scene.pick({ origin: [x, rayFromY, z], direction: [0, -1, 0], pickSurface: true });
+      const hit = typeof viewer !== "undefined" && viewer.scene ? viewer.scene.pick({ origin: [x, rayFromY, z], direction: [0, -1, 0], pickSurface: true }) : null;
       const idx = j * (n + 1) + i;
       solid[idx] = (hit && hit.worldPos && hit.worldPos[1] >= analysisY) ? 1 : 0;
     }
@@ -169,7 +182,6 @@ function runStableFluids(n, solid, windDirX, windDirZ, speed, iterations) {
   let u0 = new Float32Array(size), w0 = new Float32Array(size);
   const p = new Float32Array(size), div = new Float32Array(size);
 
-  // Khởi tạo: gió tự do khắp nơi, trừ ô vật cản
   for (let idx = 0; idx < size; idx++) {
     if (!solid[idx]) { u[idx] = windDirX * speed; w[idx] = windDirZ * speed; }
   }
@@ -179,7 +191,6 @@ function runStableFluids(n, solid, windDirX, windDirZ, speed, iterations) {
       for (let i = 0; i <= n; i++) {
         const idx = IX(i, j);
         if (solid[idx]) { uArr[idx] = 0; wArr[idx] = 0; continue; }
-        // Biên đầu hướng gió thổi tới -> ép giữ đúng vận tốc tự do (inflow)
         const isInflowEdge =
           (windDirX > 0.3 && i === 0) || (windDirX < -0.3 && i === n) ||
           (windDirZ > 0.3 && j === 0) || (windDirZ < -0.3 && j === n);
@@ -260,24 +271,25 @@ async function runWindSimulation() {
   if (windAreaPoints.length !== 2) { alert("Chọn vùng khảo sát (2 điểm góc) trước."); return; }
 
   const btn = document.getElementById("windRunBtn");
-  btn.disabled = true;
+  if (btn) btn.disabled = true;
 
   const [p1, p2] = windAreaPoints;
   const minX = Math.min(p1[0], p2[0]), maxX = Math.max(p1[0], p2[0]);
   const minZ = Math.min(p1[2], p2[2]), maxZ = Math.max(p1[2], p2[2]);
   const baseY = (p1[1] + p2[1]) / 2;
-  const heightMin = parseFloat(document.getElementById("windHeightMin").value) || 1.5;
-  const heightMax = parseFloat(document.getElementById("windHeightMax").value) || 10;
-  const sliceCount = Math.max(1, Math.min(8, parseInt(document.getElementById("windSliceCount").value) || 3));
-  const n = Math.max(20, Math.min(100, parseInt(document.getElementById("windGridRes").value) || 50));
-  const iterations = Math.max(30, Math.min(400, parseInt(document.getElementById("windIterations").value) || 150));
-  const dirDeg = parseFloat(document.getElementById("windDirDeg").value) || 0;
+  const heightMin = parseFloat(document.getElementById("windHeightMin")?.value) || 1.5;
+  const heightMax = parseFloat(document.getElementById("windHeightMax")?.value) || 10;
+  const sliceCount = Math.max(1, Math.min(8, parseInt(document.getElementById("windSliceCount")?.value) || 3));
+  const n = Math.max(20, Math.min(100, parseInt(document.getElementById("windGridRes")?.value) || 50));
+  const iterations = Math.max(30, Math.min(400, parseInt(document.getElementById("windIterations")?.value) || 150));
+  const dirDeg = parseFloat(document.getElementById("windDirDeg")?.value) || 0;
 
-  // Hướng Bắc đã hiệu chỉnh (dùng chung với panel Giờ Nắng) — mặc định Bắc = -Z nếu chưa hiệu chỉnh
   let northX = 0, northZ = -1;
   try {
-    const { data } = await sb.from("projects").select("north_dir_x, north_dir_z").eq("id", activeProjectId).single();
-    if (data) { northX = data.north_dir_x ?? 0; northZ = data.north_dir_z ?? -1; }
+    if (typeof sb !== "undefined" && typeof activeProjectId !== "undefined" && sb && activeProjectId) {
+      const { data } = await sb.from("projects").select("north_dir_x, north_dir_z").eq("id", activeProjectId).single();
+      if (data) { northX = data.north_dir_x ?? 0; northZ = data.north_dir_z ?? -1; }
+    }
   } catch (e) { /* dùng mặc định nếu lỗi */ }
 
   const north = [northX, 0, northZ];
@@ -293,11 +305,11 @@ async function runWindSimulation() {
   windSlices = [];
   for (let s = 0; s < heights.length; s++) {
     const analysisY = baseY + heights[s];
-    btn.innerText = `⏳ Lát cắt ${s + 1}/${heights.length}: dựng lưới vật cản...`;
+    if (btn) btn.innerText = `⏳ Lát cắt ${s + 1}/${heights.length}: dựng lưới vật cản...`;
     await new Promise(r => setTimeout(r, 0));
     const solid = await buildObstacleGrid(minX, maxX, minZ, maxZ, analysisY, n);
 
-    btn.innerText = `⏳ Lát cắt ${s + 1}/${heights.length}: đang giải mô phỏng...`;
+    if (btn) btn.innerText = `⏳ Lát cắt ${s + 1}/${heights.length}: đang giải mô phỏng...`;
     await new Promise(r => setTimeout(r, 30));
     const { mag, maxSpeed } = runStableFluids(n, solid, windDirX, windDirZ, 5, iterations);
 
@@ -311,17 +323,16 @@ async function runWindSimulation() {
   buildWindOverlay(windSlices[0]);
   renderWindResultBox();
 
-  btn.disabled = false; btn.innerText = "▶ Chạy mô phỏng";
+  if (btn) { btn.disabled = false; btn.innerText = "▶ Chạy mô phỏng"; }
 }
 
 function windSpeedToColor(speed, freestream) {
-  // So với gió tự do: xanh dương (êm/bị che) -> xanh lá (~bằng gió tự do) -> đỏ (tăng tốc, hiệu ứng Venturi)
-  const ratio = speed / freestream; // 0 = êm hoàn toàn, 1 = bằng gió tự do, >1 = tăng tốc
+  const ratio = speed / freestream; 
   if (ratio < 1) {
     const t = Math.max(0, ratio);
     return [0.1 + t * 0.1, 0.2 + t * 0.6, 0.75 - t * 0.35, 0.8];
   } else {
-    const t = Math.min(1, (ratio - 1) / 1); // ratio 1..2 -> 0..1
+    const t = Math.min(1, (ratio - 1) / 1); 
     return [0.2 + t * 0.8, 0.8 - t * 0.6, 0.2, 0.85];
   }
 }
@@ -349,17 +360,24 @@ function buildWindOverlay(grid) {
     }
   }
 
-  window.renderWindOverlayMesh(positions, indices, colors);
+  if (typeof window.renderWindOverlayMesh === "function") {
+    window.renderWindOverlayMesh(positions, indices, colors);
+  } else {
+    console.warn("Chưa khai báo hàm window.renderWindOverlayMesh để hiển thị 3D.");
+  }
 }
 
 function clearWindOverlay() {
-  window.removeWindOverlayMesh();
+  if (typeof window.removeWindOverlayMesh === "function") {
+    window.removeWindOverlayMesh();
+  }
   windSlices = [];
   renderWindResultBox();
 }
 
 function renderWindResultBox() {
   const box = document.getElementById("windResultBox");
+  if (!box) return;
   if (!windSlices || windSlices.length === 0) { box.innerHTML = ""; return; }
 
   const current = windSlices[windActiveSliceIdx];
@@ -380,24 +398,19 @@ function renderWindResultBox() {
     </div>`;
 
   if (windSlices.length > 1) {
-    document.getElementById("windSliceSlider").addEventListener("input", (e) => {
+    document.getElementById("windSliceSlider")?.addEventListener("input", (e) => {
       windActiveSliceIdx = parseInt(e.target.value);
       const slice = windSlices[windActiveSliceIdx];
       buildWindOverlay(slice);
-      document.getElementById("windCurrentHeightLabel").innerText = `Độ cao: ${slice.heightLabel} m (lưới ${slice.n}×${slice.n})`;
+      const label = document.getElementById("windCurrentHeightLabel");
+      if (label) label.innerText = `Độ cao: ${slice.heightLabel} m (lưới ${slice.n}×${slice.n})`;
     });
   }
-  document.getElementById("windClearBtn").addEventListener("click", clearWindOverlay);
+  document.getElementById("windClearBtn")?.addEventListener("click", clearWindOverlay);
 }
-
-injectWindUI();
 
 /* ---------------------------------------------------------------------
    6. XUẤT STL (cho SimScale hoặc phần mềm CFD 3D thật khác)
-   Tái sử dụng window.extractIdsMeshForGLB() — hàm đọc hình học tam giác
-   THẬT từ file .ifc gốc, đã được dùng sẵn cho tính năng AR. Chỉ hoạt
-   động với cấu kiện thuộc model .ifc gốc (không hỗ trợ model .xkt "nâng
-   cao" — đúng giới hạn app đã có từ trước với AR).
    --------------------------------------------------------------------- */
 function buildBinarySTL(positions, indices) {
   const triCount = indices.length / 3;
@@ -436,17 +449,17 @@ async function exportSelectedAsSTL() {
   if (!window.extractIdsMeshForGLB) { alert("Không tìm thấy chức năng đọc hình học (extractIdsMeshForGLB). Kiểm tra lại index.html."); return; }
 
   const btn = document.getElementById("windExportStlBtn");
-  btn.disabled = true; btn.innerText = "⏳ Đang đọc hình học...";
+  if (btn) { btn.disabled = true; btn.innerText = "⏳ Đang đọc hình học..."; }
 
   try {
     const { positions, indices, objectCount } = await window.extractIdsMeshForGLB(
       [...multiSelectedIds],
-      (done, total) => { btn.innerText = `⏳ Đang đọc model ${done}/${total}...`; }
+      (done, total) => { if (btn) btn.innerText = `⏳ Đang đọc model ${done}/${total}...`; }
     );
 
     if (!indices || indices.length === 0) throw new Error("Không đọc được tam giác nào — có thể cấu kiện đã chọn thuộc model .xkt (nâng cao), chưa hỗ trợ xuất STL.");
 
-    btn.innerText = "⏳ Đang dựng file STL...";
+    if (btn) btn.innerText = "⏳ Đang dựng file STL...";
     await new Promise(r => setTimeout(r, 0));
     const buffer = buildBinarySTL(positions, indices);
 
@@ -457,10 +470,17 @@ async function exportSelectedAsSTL() {
     a.click();
     URL.revokeObjectURL(url);
 
-    showToast ? showToast(`✅ Đã xuất STL (${objectCount} cấu kiện)`, "success") : alert("Đã xuất STL.");
+    if (typeof showToast !== "undefined") {
+      showToast(`✅ Đã xuất STL (${objectCount} cấu kiện)`, "success");
+    } else {
+      alert("Đã xuất STL.");
+    }
   } catch (e) {
     alert("Lỗi xuất STL: " + e.message);
   } finally {
-    btn.disabled = false; btn.innerText = "📦 Xuất STL (cấu kiện đã chọn)";
+    if (btn) { btn.disabled = false; btn.innerText = "📦 Xuất STL (cấu kiện đã chọn)"; }
   }
 }
+
+// Khởi tạo UI
+injectWindUI();
