@@ -1198,6 +1198,7 @@
       const dimensions = centerAndMeasure(allPositions);
       return { positions: allPositions, normals: allNormals, indices: allIndices, dimensions, objectCount };
     }
+    window.extractIdsMeshForGLB = extractIdsMeshForGLB; // để cde-wind-analysis.js dùng cho xuất STL (CFD)
 
     // Đóng gói positions/normals/indices thành 1 file GLB (glTF nhị phân)
     // hợp lệ tối thiểu — 1 mesh, 1 vật liệu màu cam trung tính, đủ để

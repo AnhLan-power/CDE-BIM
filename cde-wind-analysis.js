@@ -33,15 +33,30 @@ function injectWindUI() {
     </div>
     <div id="windAreaBox"></div>
     <div id="windParamsBox"></div>
-    <div id="windResultBox"></div>`;
+    <div id="windResultBox"></div>
+    <div id="windStlExportBox"></div>`;
   document.body.appendChild(panel);
 }
+
+function renderWindStlExportBox() {
+  const box = document.getElementById("windStlExportBox");
+  box.innerHTML = `
+    <div class="cde-file-card">
+      <div class="fname">📤 Cần mô phỏng 3D thật (có xoáy chính xác)?</div>
+      <div class="meta">Xuất cấu kiện đã chọn ("Chọn Nhiều") ra file .stl, rồi tự tải lên SimScale (miễn phí, chạy CFD 3D thật trên trình duyệt).</div>
+      <button class="btn" style="width:100%;margin-top:6px;" id="windExportStlBtn">📦 Xuất STL (cấu kiện đã chọn)</button>
+      <button class="btn" style="width:100%;margin-top:6px;" id="windOpenSimScaleBtn">🔗 Mở SimScale để tải STL lên</button>
+    </div>`;
+  document.getElementById("windExportStlBtn").addEventListener("click", exportSelectedAsSTL);
+  document.getElementById("windOpenSimScaleBtn").addEventListener("click", () => {
+    window.open("https://www.simscale.com/app/dashboard/projects", "_blank");
+  });
 
 window.toggleWindPanel = function () {
   const p = document.getElementById("windPanel");
   const willShow = p.style.display !== "block";
   p.style.display = willShow ? "block" : "none";
-  if (willShow) { renderWindAreaBox(); renderWindParamsBox(); renderWindResultBox(); }
+  if (willShow) { renderWindAreaBox(); renderWindParamsBox(); renderWindResultBox(); renderWindStlExportBox(); }
 };
 
 /* ---------------------------------------------------------------------
@@ -376,3 +391,76 @@ function renderWindResultBox() {
 }
 
 injectWindUI();
+
+/* ---------------------------------------------------------------------
+   6. XUẤT STL (cho SimScale hoặc phần mềm CFD 3D thật khác)
+   Tái sử dụng window.extractIdsMeshForGLB() — hàm đọc hình học tam giác
+   THẬT từ file .ifc gốc, đã được dùng sẵn cho tính năng AR. Chỉ hoạt
+   động với cấu kiện thuộc model .ifc gốc (không hỗ trợ model .xkt "nâng
+   cao" — đúng giới hạn app đã có từ trước với AR).
+   --------------------------------------------------------------------- */
+function buildBinarySTL(positions, indices) {
+  const triCount = indices.length / 3;
+  const buffer = new ArrayBuffer(84 + triCount * 50);
+  const view = new DataView(buffer);
+  view.setUint32(80, triCount, true);
+
+  let offset = 84;
+  for (let t = 0; t < triCount; t++) {
+    const ia = indices[t * 3], ib = indices[t * 3 + 1], ic = indices[t * 3 + 2];
+    const ax = positions[ia * 3], ay = positions[ia * 3 + 1], az = positions[ia * 3 + 2];
+    const bx = positions[ib * 3], by = positions[ib * 3 + 1], bz = positions[ib * 3 + 2];
+    const cx = positions[ic * 3], cy = positions[ic * 3 + 1], cz = positions[ic * 3 + 2];
+
+    const ux = bx - ax, uy = by - ay, uz = bz - az;
+    const vx = cx - ax, vy = cy - ay, vz = cz - az;
+    let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+    const len = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
+    nx /= len; ny /= len; nz /= len;
+
+    view.setFloat32(offset, nx, true); view.setFloat32(offset + 4, ny, true); view.setFloat32(offset + 8, nz, true);
+    view.setFloat32(offset + 12, ax, true); view.setFloat32(offset + 16, ay, true); view.setFloat32(offset + 20, az, true);
+    view.setFloat32(offset + 24, bx, true); view.setFloat32(offset + 28, by, true); view.setFloat32(offset + 32, bz, true);
+    view.setFloat32(offset + 36, cx, true); view.setFloat32(offset + 40, cy, true); view.setFloat32(offset + 44, cz, true);
+    view.setUint16(offset + 48, 0, true);
+    offset += 50;
+  }
+  return buffer;
+}
+
+async function exportSelectedAsSTL() {
+  if (typeof multiSelectedIds === "undefined" || multiSelectedIds.size === 0) {
+    alert("Bấm 'Chọn Nhiều' trên thanh công cụ và chọn ít nhất 1 cấu kiện trước (nên chọn cả công trình + các khối lân cận muốn phân tích gió).");
+    return;
+  }
+  if (!window.extractIdsMeshForGLB) { alert("Không tìm thấy chức năng đọc hình học (extractIdsMeshForGLB). Kiểm tra lại index.html."); return; }
+
+  const btn = document.getElementById("windExportStlBtn");
+  btn.disabled = true; btn.innerText = "⏳ Đang đọc hình học...";
+
+  try {
+    const { positions, indices, objectCount } = await window.extractIdsMeshForGLB(
+      [...multiSelectedIds],
+      (done, total) => { btn.innerText = `⏳ Đang đọc model ${done}/${total}...`; }
+    );
+
+    if (!indices || indices.length === 0) throw new Error("Không đọc được tam giác nào — có thể cấu kiện đã chọn thuộc model .xkt (nâng cao), chưa hỗ trợ xuất STL.");
+
+    btn.innerText = "⏳ Đang dựng file STL...";
+    await new Promise(r => setTimeout(r, 0));
+    const buffer = buildBinarySTL(positions, indices);
+
+    const blob = new Blob([buffer], { type: "model/stl" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `mohinh_${objectCount}cauKien_${new Date().toISOString().slice(0, 10)}.stl`;
+    a.click();
+    URL.revokeObjectURL(url);
+
+    showToast ? showToast(`✅ Đã xuất STL (${objectCount} cấu kiện)`, "success") : alert("Đã xuất STL.");
+  } catch (e) {
+    alert("Lỗi xuất STL: " + e.message);
+  } finally {
+    btn.disabled = false; btn.innerText = "📦 Xuất STL (cấu kiện đã chọn)";
+  }
+}
