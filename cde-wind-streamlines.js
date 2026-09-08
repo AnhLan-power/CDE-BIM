@@ -1,16 +1,7 @@
 /* =====================================================================
    CDE WIND STREAMLINES MODULE — Đường dòng gió động kiểu SimScale
-   (Bước 1+2: dữ liệu mẫu cứng + hiển thị/animate bằng xeokit)
-   (Bước 3: gọi backend Python thật — xem WIND_BACKEND_URL bên dưới)
-
-   Cấu trúc dữ liệu mong đợi (JSON), khớp với backend Python:
-   [
-     { "id": 1, "points": [[x,y,z], ...], "velocities": [v0, v1, ...] },
-     ...
-   ]
    ===================================================================== */
 
-// !!! ĐIỀN URL BACKEND PYTHON THẬT CỦA CẬU VÀO ĐÂY SAU KHI DEPLOY (Phần 3) !!!
 const WIND_BACKEND_URL = "https://wind-backend-yey0.onrender.com";
 
 let windStreamlineRibbons = [];   // các Mesh dải ruy băng tĩnh (đường đi)
@@ -48,9 +39,7 @@ function injectWindStreamlineBox() {
 }
 
 /* ---------------------------------------------------------------------
-   1. DỮ LIỆU MẪU CỨNG (Bước 1) — 5 đường uốn lượn quanh vùng đã chọn
-   (dùng lại windAreaPoints nếu cậu đã chọn vùng ở khối "Vùng khảo sát"
-   phía trên; nếu chưa chọn, dùng 1 vùng mặc định quanh gốc toạ độ).
+   1. DỮ LIỆU MẪU CỨNG
    --------------------------------------------------------------------- */
 function generateDemoStreamlines() {
   let minX = -10, maxX = 10, minZ = -10, maxZ = 10, baseY = 0;
@@ -74,12 +63,10 @@ function generateDemoStreamlines() {
     for (let k = 0; k <= pointsPerLine; k++) {
       const t = k / pointsPerLine;
       const x = minX + (maxX - minX) * t;
-      // Uốn lượn giả lập "né chướng ngại vật" — CHỈ để test hiển thị, không phải vật lý thật
       const wiggle = Math.sin(t * Math.PI * 2 + l) * (maxZ - minZ) * 0.08;
       const z = startZ + wiggle;
       const y = baseY + Math.sin(t * Math.PI * 3 + l) * 0.3;
       points.push([x, y, z]);
-      // Vận tốc giả lập: chậm lại ở giữa đoạn (như đi qua vùng bị che), nhanh ở 2 đầu
       const v = 3 + 4 * Math.abs(Math.sin(t * Math.PI));
       velocities.push(v);
     }
@@ -91,7 +78,7 @@ function generateDemoStreamlines() {
 }
 
 /* ---------------------------------------------------------------------
-   2. TẢI FILE JSON THẬT (khi có dữ liệu từ backend — Bước 3 sau này)
+   2. TẢI FILE JSON THẬT
    --------------------------------------------------------------------- */
 function handleStreamlineJsonUpload(e) {
   const file = e.target.files[0];
@@ -110,11 +97,10 @@ function handleStreamlineJsonUpload(e) {
 }
 
 /* ---------------------------------------------------------------------
-   3. DỰNG HÌNH: dải ruy băng tĩnh (đường đi) + hạt động (hiệu ứng chạy)
+   3. DỰNG HÌNH: Dải ruy băng + Hạt động
    --------------------------------------------------------------------- */
 function velocityToColor(v, maxV) {
   const t = Math.min(1, Math.max(0, v / maxV));
-  // xanh dương (chậm) -> xanh lá -> đỏ (nhanh), giống bảng màu SimScale
   if (t < 0.5) { const k = t / 0.5; return [0.1, 0.3 + k * 0.5, 0.9 - k * 0.4]; }
   const k = (t - 0.5) / 0.5;
   return [0.5 + k * 0.5, 0.8 - k * 0.7, 0.1];
@@ -125,7 +111,10 @@ function renderWindStreamlines(data) {
   if (!data || !data.lines || data.lines.length === 0) return;
 
   const maxV = Math.max(0.001, ...data.lines.flatMap(l => l.velocities));
-  const width = 0.12; // độ dày ruy băng (m), cố định đơn giản hoá
+  const width = 0.12; 
+
+  // Tạo dữ liệu hình cầu 1 lần để tái sử dụng hiệu quả
+  const sharedSphereData = buildSphereGeometryData(0.18);
 
   data.lines.forEach(line => {
     const { points, velocities } = line;
@@ -135,8 +124,6 @@ function renderWindStreamlines(data) {
     for (let i = 0; i < points.length; i++) {
       const [x, y, z] = points[i];
       const c = velocityToColor(velocities[i] ?? velocities[velocities.length - 1], maxV);
-      // 2 đỉnh mỗi điểm (trên/dưới) tạo dải ruy băng mỏng theo phương đứng —
-      // đơn giản hoá, đủ để thấy hướng + màu, không phải ống tròn 3D thật.
       positions.push(x, y - width / 2, z, x, y + width / 2, z);
       colors.push(...c, 1, ...c, 1);
     }
@@ -156,10 +143,9 @@ function renderWindStreamlines(data) {
     });
     windStreamlineRibbons.push(mesh);
 
-    // 3 hạt nhỏ animate chạy dọc theo đường này, cách đều nhau lúc bắt đầu
     for (let p = 0; p < 3; p++) {
       const particle = new window.XeokitMesh(window.viewer.scene, {
-        geometry: new window.XeokitReadableGeometry(window.viewer.scene, buildSphereGeometryData(0.18)),
+        geometry: new window.XeokitReadableGeometry(window.viewer.scene, sharedSphereData),
         material: new window.XeokitPhongMaterial(window.viewer.scene, { diffuse: [1, 1, 0.4], emissive: [0.6, 0.6, 0.2] }),
         position: points[0], pickable: false, collidable: false
       });
@@ -170,7 +156,6 @@ function renderWindStreamlines(data) {
   startWindStreamlineAnimation();
 }
 
-// Dựng geometry hình cầu nhỏ đơn giản (dùng làm "hạt" animate)
 function buildSphereGeometryData(radius) {
   const positions = [], indices = [];
   const latBands = 8, longBands = 8;
@@ -196,7 +181,7 @@ function buildSphereGeometryData(radius) {
 }
 
 /* ---------------------------------------------------------------------
-   4. VÒNG LẶP ANIMATE HẠT CHẠY DỌC ĐƯỜNG DÒNG
+   4. ANIMATE HẠT & GIẢI PHÓNG BỘ NHỚ
    --------------------------------------------------------------------- */
 function pointAtArcFraction(points, frac) {
   const n = points.length - 1;
@@ -223,8 +208,19 @@ function startWindStreamlineAnimation() {
 
 function clearWindStreamlines() {
   if (windStreamlineRAF) { cancelAnimationFrame(windStreamlineRAF); windStreamlineRAF = null; }
-  windStreamlineRibbons.forEach(m => m.destroy());
-  windStreamlineParticles.forEach(p => p.mesh.destroy());
+  
+  // Dọn dẹp triệt để geometry và material tránh memory leak WebGL
+  windStreamlineRibbons.forEach(m => {
+    if (m.geometry) m.geometry.destroy();
+    if (m.material) m.material.destroy();
+    m.destroy();
+  });
+  windStreamlineParticles.forEach(p => {
+    if (p.mesh.geometry) p.mesh.geometry.destroy();
+    if (p.mesh.material) p.mesh.material.destroy();
+    p.mesh.destroy();
+  });
+
   windStreamlineRibbons = [];
   windStreamlineParticles = [];
 }
@@ -232,16 +228,14 @@ function clearWindStreamlines() {
 injectWindStreamlineBox();
 
 /* ---------------------------------------------------------------------
-   5. GỌI BACKEND PYTHON THẬT (Bước 3)
-   Dựng STL từ cấu kiện đã chọn (dùng lại logic đã có ở nút Xuất STL),
-   gửi lên backend, poll trạng thái, tải kết quả JSON về hiển thị.
+   5. GỌI BACKEND PYTHON THẬT
    --------------------------------------------------------------------- */
 async function runRealWindSimulation() {
   const statusEl = document.getElementById("windRealSimStatus");
   const btn = document.getElementById("windRealSimBtn");
 
   if (WIND_BACKEND_URL.includes("DIEN-URL-RENDER-CUA-CAU")) {
-    alert("Chưa điền URL backend thật vào WIND_BACKEND_URL trong file cde-wind-streamlines.js (xem hướng dẫn Phần 3-4).");
+    alert("Chưa điền URL backend thật vào WIND_BACKEND_URL trong file cde-wind-streamlines.js.");
     return;
   }
   if (typeof multiSelectedIds === "undefined" || multiSelectedIds.size === 0) {
@@ -277,31 +271,42 @@ async function runRealWindSimulation() {
     if (!submitRes.ok) throw new Error("Gửi thất bại: HTTP " + submitRes.status);
     const { job_id } = await submitRes.json();
 
-    // Poll trạng thái mỗi 3 giây
+    // Vòng lặp Polling an toàn
     while (true) {
       await new Promise(r => setTimeout(r, 3000));
       const statusRes = await fetch(`${WIND_BACKEND_URL}/status/${job_id}`);
+      if (!statusRes.ok) throw new Error(`Không thể lấy trạng thái job (HTTP ${statusRes.status})`);
+
       const statusData = await statusRes.json();
-      if (statusData.error) throw new Error(statusData.error);
+      if (statusData.error || statusData.status === "error") {
+        throw new Error(statusData.error || "Lỗi tính toán từ server backend.");
+      }
 
       const stageLabels = {
-        queued: "Đang chờ...", reading_stl: "Đang đọc STL...",
-        voxelizing: "Đang chia lưới vật cản...", solving: "Đang giải phương trình dòng chảy",
-        tracing_streamlines: "Đang dò đường dòng...", done: "Xong!"
+        queued: "Đang chờ...", 
+        reading_stl: "Đang đọc STL...",
+        voxelizing: "Đang chia lưới vật cản...", 
+        solving: "Đang giải phương trình dòng chảy",
+        tracing_streamlines: "Đang dò đường dòng...", 
+        done: "Xong!"
       };
+
       let label = stageLabels[statusData.status] || statusData.status;
-      if (statusData.status === "solving" && statusData.progress) label += ` (${statusData.progress})`;
+      if (statusData.status === "solving" && statusData.progress) {
+        label += ` (${statusData.progress})`;
+      }
       statusEl.innerText = "⏳ " + label;
 
       if (statusData.status === "done") {
         const resultRes = await fetch(`${WIND_BACKEND_URL}/result/${job_id}`);
+        if (!resultRes.ok) throw new Error("Không thể tải file kết quả JSON.");
+        
         const lines = await resultRes.json();
         windStreamlineData = { lines };
         renderWindStreamlines(windStreamlineData);
         statusEl.innerText = "✅ Đã có kết quả mô phỏng thật!";
         break;
       }
-      if (statusData.status === "error") throw new Error("Lỗi tính toán ở backend.");
     }
   } catch (e) {
     statusEl.innerText = "";
