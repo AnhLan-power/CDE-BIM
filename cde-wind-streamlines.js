@@ -1,15 +1,17 @@
 /* =====================================================================
    CDE WIND STREAMLINES MODULE — Đường dòng gió động kiểu SimScale
-   (Bước 1+2 của lộ trình: dữ liệu mẫu cứng (chưa phải vật lý thật) +
-   hiển thị/animate bằng xeokit. Bước 3 — thay dữ liệu mẫu bằng kết quả
-   tính toán thật từ backend Python — làm sau khi có server riêng.)
+   (Bước 1+2: dữ liệu mẫu cứng + hiển thị/animate bằng xeokit)
+   (Bước 3: gọi backend Python thật — xem WIND_BACKEND_URL bên dưới)
 
-   Cấu trúc dữ liệu mong đợi (JSON), khớp với đề xuất backend sau này:
+   Cấu trúc dữ liệu mong đợi (JSON), khớp với backend Python:
    [
      { "id": 1, "points": [[x,y,z], ...], "velocities": [v0, v1, ...] },
      ...
    ]
    ===================================================================== */
+
+// !!! ĐIỀN URL BACKEND PYTHON THẬT CỦA CẬU VÀO ĐÂY SAU KHI DEPLOY (Phần 3) !!!
+const WIND_BACKEND_URL = "https://wind-backend-yey0.onrender.com";
 
 let windStreamlineRibbons = [];   // các Mesh dải ruy băng tĩnh (đường đi)
 let windStreamlineParticles = []; // các Mesh hạt nhỏ animate chạy dọc đường
@@ -29,12 +31,15 @@ function injectWindStreamlineBox() {
       Bước 1+2 của lộ trình: dữ liệu bên dưới là DỮ LIỆU MẪU dựng sẵn (chưa phải kết quả tính toán vật lý thật) — dùng để kiểm tra cách hiển thị/animate trước khi nối với backend tính toán thật (Bước 3).
     </div>
     <button class="btn btn-primary" style="width:100%;margin-top:6px;" id="windStreamlineDemoBtn">🧪 Tạo dữ liệu mẫu & xem thử</button>
-    <button class="btn" style="width:100%;margin-top:6px;" id="windStreamlineLoadJsonBtn">📂 Tải file JSON đường dòng (khi có từ backend)</button>
+    <button class="btn" style="width:100%;margin-top:6px;background:#e8f5e9;" id="windRealSimBtn">🚀 Chạy mô phỏng THẬT (backend Python)</button>
+    <div id="windRealSimStatus" style="font-size:10px;color:#0275d8;margin-top:4px;"></div>
+    <button class="btn" style="width:100%;margin-top:6px;" id="windStreamlineLoadJsonBtn">📂 Tải file JSON đường dòng (thủ công)</button>
     <input type="file" id="windStreamlineFileInput" accept=".json" style="display:none;">
     <button class="btn" style="width:100%;margin-top:6px;" id="windStreamlineClearBtn">↺ Xoá đường dòng</button>`;
   panel.appendChild(box);
 
   document.getElementById("windStreamlineDemoBtn").addEventListener("click", generateDemoStreamlines);
+  document.getElementById("windRealSimBtn").addEventListener("click", runRealWindSimulation);
   document.getElementById("windStreamlineClearBtn").addEventListener("click", clearWindStreamlines);
   document.getElementById("windStreamlineLoadJsonBtn").addEventListener("click", () => {
     document.getElementById("windStreamlineFileInput").click();
@@ -225,3 +230,109 @@ function clearWindStreamlines() {
 }
 
 injectWindStreamlineBox();
+
+/* ---------------------------------------------------------------------
+   5. GỌI BACKEND PYTHON THẬT (Bước 3)
+   Dựng STL từ cấu kiện đã chọn (dùng lại logic đã có ở nút Xuất STL),
+   gửi lên backend, poll trạng thái, tải kết quả JSON về hiển thị.
+   --------------------------------------------------------------------- */
+async function runRealWindSimulation() {
+  const statusEl = document.getElementById("windRealSimStatus");
+  const btn = document.getElementById("windRealSimBtn");
+
+  if (WIND_BACKEND_URL.includes("DIEN-URL-RENDER-CUA-CAU")) {
+    alert("Chưa điền URL backend thật vào WIND_BACKEND_URL trong file cde-wind-streamlines.js (xem hướng dẫn Phần 3-4).");
+    return;
+  }
+  if (typeof multiSelectedIds === "undefined" || multiSelectedIds.size === 0) {
+    alert("Bấm 'Chọn Nhiều' và chọn cấu kiện (công trình + khối lân cận) trước.");
+    return;
+  }
+  if (!window.extractIdsMeshForGLB) { alert("Thiếu hàm đọc hình học (extractIdsMeshForGLB)."); return; }
+
+  btn.disabled = true;
+  try {
+    statusEl.innerText = "⏳ Đang đọc hình học...";
+    const { positions, indices } = await window.extractIdsMeshForGLB([...multiSelectedIds], (done, total) => {
+      statusEl.innerText = `⏳ Đang đọc model ${done}/${total}...`;
+    });
+    if (!indices || indices.length === 0) throw new Error("Không đọc được tam giác nào (có thể thuộc model .xkt, chưa hỗ trợ).");
+
+    statusEl.innerText = "⏳ Đang dựng file STL...";
+    const stlBuffer = buildBinarySTLForWind(positions, indices);
+    const stlBlob = new Blob([stlBuffer], { type: "model/stl" });
+
+    const dirDeg = document.getElementById("windDirDeg") ? document.getElementById("windDirDeg").value : 0;
+
+    const formData = new FormData();
+    formData.append("stl", stlBlob, "model.stl");
+    formData.append("dirDeg", dirDeg);
+    formData.append("speed", "5");
+    formData.append("resolution", "24");
+    formData.append("iterations", "60");
+    formData.append("seedCount", "5");
+
+    statusEl.innerText = "⏳ Đang gửi lên backend, chờ khởi động (có thể mất 30-60s nếu server đang ngủ)...";
+    const submitRes = await fetch(`${WIND_BACKEND_URL}/simulate`, { method: "POST", body: formData });
+    if (!submitRes.ok) throw new Error("Gửi thất bại: HTTP " + submitRes.status);
+    const { job_id } = await submitRes.json();
+
+    // Poll trạng thái mỗi 3 giây
+    while (true) {
+      await new Promise(r => setTimeout(r, 3000));
+      const statusRes = await fetch(`${WIND_BACKEND_URL}/status/${job_id}`);
+      const statusData = await statusRes.json();
+      if (statusData.error) throw new Error(statusData.error);
+
+      const stageLabels = {
+        queued: "Đang chờ...", reading_stl: "Đang đọc STL...",
+        voxelizing: "Đang chia lưới vật cản...", solving: "Đang giải phương trình dòng chảy",
+        tracing_streamlines: "Đang dò đường dòng...", done: "Xong!"
+      };
+      let label = stageLabels[statusData.status] || statusData.status;
+      if (statusData.status === "solving" && statusData.progress) label += ` (${statusData.progress})`;
+      statusEl.innerText = "⏳ " + label;
+
+      if (statusData.status === "done") {
+        const resultRes = await fetch(`${WIND_BACKEND_URL}/result/${job_id}`);
+        const lines = await resultRes.json();
+        windStreamlineData = { lines };
+        renderWindStreamlines(windStreamlineData);
+        statusEl.innerText = "✅ Đã có kết quả mô phỏng thật!";
+        break;
+      }
+      if (statusData.status === "error") throw new Error("Lỗi tính toán ở backend.");
+    }
+  } catch (e) {
+    statusEl.innerText = "";
+    alert("Lỗi chạy mô phỏng thật: " + e.message);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function buildBinarySTLForWind(positions, indices) {
+  const triCount = indices.length / 3;
+  const buffer = new ArrayBuffer(84 + triCount * 50);
+  const view = new DataView(buffer);
+  view.setUint32(80, triCount, true);
+  let offset = 84;
+  for (let t = 0; t < triCount; t++) {
+    const ia = indices[t * 3], ib = indices[t * 3 + 1], ic = indices[t * 3 + 2];
+    const ax = positions[ia * 3], ay = positions[ia * 3 + 1], az = positions[ia * 3 + 2];
+    const bx = positions[ib * 3], by = positions[ib * 3 + 1], bz = positions[ib * 3 + 2];
+    const cx = positions[ic * 3], cy = positions[ic * 3 + 1], cz = positions[ic * 3 + 2];
+    const ux = bx - ax, uy = by - ay, uz = bz - az;
+    const vx = cx - ax, vy = cy - ay, vz = cz - az;
+    let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+    const len = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
+    nx /= len; ny /= len; nz /= len;
+    view.setFloat32(offset, nx, true); view.setFloat32(offset + 4, ny, true); view.setFloat32(offset + 8, nz, true);
+    view.setFloat32(offset + 12, ax, true); view.setFloat32(offset + 16, ay, true); view.setFloat32(offset + 20, az, true);
+    view.setFloat32(offset + 24, bx, true); view.setFloat32(offset + 28, by, true); view.setFloat32(offset + 32, bz, true);
+    view.setFloat32(offset + 36, cx, true); view.setFloat32(offset + 40, cy, true); view.setFloat32(offset + 44, cz, true);
+    view.setUint16(offset + 48, 0, true);
+    offset += 50;
+  }
+  return buffer;
+}
