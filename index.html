@@ -881,6 +881,13 @@
       if (windOverlayMesh) { windOverlayMesh.destroy(); windOverlayMesh = null; }
     };
 
+    // Đưa thẳng 3 class dựng hình ra window — cho phép các module ngoài
+    // (cde-wind-streamlines.js...) tự dựng mesh tuỳ ý (đường dòng, hạt bay...)
+    // mà không cần sửa lại index.html mỗi khi thêm hiệu ứng mới.
+    window.XeokitMesh = Mesh;
+    window.XeokitReadableGeometry = ReadableGeometry;
+    window.XeokitPhongMaterial = PhongMaterial;
+
     // Cache hình học THẬT lấy trực tiếp từ file .IFC gốc qua web-ifc (WASM),
     // KHÔNG qua xeokit -> không bị giới hạn GPU-only. Key = GlobalId (trùng
     // với entity.id mà xeokit dùng khi model được convert từ cùng file IFC).
@@ -3920,5 +3927,6 @@ window.debugClashPair = function() {
   <script src="./cde-carbon-analysis.js"></script>
   <script src="./cde-history.js"></script>
   <script src="./cde-wind-analysis.js"></script>
+  <script src="./cde-wind-streamlines.js"></script>
 </body>
 </html>
