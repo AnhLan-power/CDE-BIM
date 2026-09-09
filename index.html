@@ -1147,7 +1147,7 @@
       for (let i = 0; i < positions.length; i += 3) {
         positions[i] -= cx; positions[i + 1] -= cy; positions[i + 2] -= cz;
       }
-      return { x: maxX - minX, y: maxY - minY, z: maxZ - minZ };
+      return { x: maxX - minX, y: maxY - minY, z: maxZ - minZ, center: [cx, cy, cz] };
     }
 
     // Giữ tương thích: AR cho ĐÚNG 1 cấu kiện (dùng bởi nút AR trong thanh
