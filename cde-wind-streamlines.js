@@ -1,9 +1,10 @@
 /* =====================================================================
    CDE WIND STREAMLINES MODULE — Đường dòng gió động kiểu SimScale
-   (Bước 1+2: dữ liệu mẫu cứng + hiển thị/animate bằng xeokit)
-   (Bước 3: gọi backend Python thật — xem WIND_BACKEND_URL bên dưới)
+   Gọi backend Python thật (xem WIND_BACKEND_URL bên dưới) để tính toán,
+   rồi vẽ lại bằng xeokit dạng dải ruy băng tô màu theo vận tốc + hạt bay
+   động dọc theo đường dòng.
 
-   Cấu trúc dữ liệu mong đợi (JSON), khớp với backend Python:
+   Cấu trúc dữ liệu JSON nhận từ backend:
    [
      { "id": 1, "points": [[x,y,z], ...], "velocities": [v0, v1, ...] },
      ...
@@ -26,11 +27,7 @@ function injectWindStreamlineBox() {
   box.className = "cde-file-card";
   box.id = "windStreamlineBox";
   box.innerHTML = `
-    <div class="fname">🌊 Đường dòng động (thử nghiệm hiển thị)</div>
-    <div class="meta">
-      Bước 1+2 của lộ trình: dữ liệu bên dưới là DỮ LIỆU MẪU dựng sẵn (chưa phải kết quả tính toán vật lý thật) — dùng để kiểm tra cách hiển thị/animate trước khi nối với backend tính toán thật (Bước 3).
-    </div>
-    <button class="btn btn-primary" style="width:100%;margin-top:6px;" id="windStreamlineDemoBtn">🧪 Tạo dữ liệu mẫu & xem thử</button>
+    <div class="fname">🌊 Đường dòng gió động</div>
     <button class="btn" style="width:100%;margin-top:6px;background:#e8f5e9;" id="windRealSimBtn">🚀 Chạy mô phỏng THẬT (backend Python)</button>
     <div id="windRealSimStatus" style="font-size:10px;color:#0275d8;margin-top:4px;"></div>
     <button class="btn" style="width:100%;margin-top:6px;" id="windStreamlineLoadJsonBtn">📂 Tải file JSON đường dòng (thủ công)</button>
@@ -38,7 +35,6 @@ function injectWindStreamlineBox() {
     <button class="btn" style="width:100%;margin-top:6px;" id="windStreamlineClearBtn">↺ Xoá đường dòng</button>`;
   panel.appendChild(box);
 
-  document.getElementById("windStreamlineDemoBtn").addEventListener("click", generateDemoStreamlines);
   document.getElementById("windRealSimBtn").addEventListener("click", runRealWindSimulation);
   document.getElementById("windStreamlineClearBtn").addEventListener("click", clearWindStreamlines);
   document.getElementById("windStreamlineLoadJsonBtn").addEventListener("click", () => {
@@ -48,50 +44,7 @@ function injectWindStreamlineBox() {
 }
 
 /* ---------------------------------------------------------------------
-   1. DỮ LIỆU MẪU CỨNG (Bước 1) — 5 đường uốn lượn quanh vùng đã chọn
-   (dùng lại windAreaPoints nếu cậu đã chọn vùng ở khối "Vùng khảo sát"
-   phía trên; nếu chưa chọn, dùng 1 vùng mặc định quanh gốc toạ độ).
-   --------------------------------------------------------------------- */
-function generateDemoStreamlines() {
-  let minX = -10, maxX = 10, minZ = -10, maxZ = 10, baseY = 0;
-  if (typeof windAreaPoints !== "undefined" && windAreaPoints.length === 2) {
-    const [p1, p2] = windAreaPoints;
-    minX = Math.min(p1[0], p2[0]); maxX = Math.max(p1[0], p2[0]);
-    minZ = Math.min(p1[2], p2[2]); maxZ = Math.max(p1[2], p2[2]);
-    baseY = (p1[1] + p2[1]) / 2 + 1.5;
-  } else if (typeof viewer !== "undefined" && viewer.scene.aabb) {
-    const aabb = viewer.scene.aabb;
-    minX = aabb[0]; maxX = aabb[3]; minZ = aabb[2]; maxZ = aabb[5];
-    baseY = aabb[4] + 1.5;
-  }
-
-  const lines = [];
-  const lineCount = 5;
-  const pointsPerLine = 24;
-  for (let l = 0; l < lineCount; l++) {
-    const startZ = minZ + (maxZ - minZ) * ((l + 0.5) / lineCount);
-    const points = [], velocities = [];
-    for (let k = 0; k <= pointsPerLine; k++) {
-      const t = k / pointsPerLine;
-      const x = minX + (maxX - minX) * t;
-      // Uốn lượn giả lập "né chướng ngại vật" — CHỈ để test hiển thị, không phải vật lý thật
-      const wiggle = Math.sin(t * Math.PI * 2 + l) * (maxZ - minZ) * 0.08;
-      const z = startZ + wiggle;
-      const y = baseY + Math.sin(t * Math.PI * 3 + l) * 0.3;
-      points.push([x, y, z]);
-      // Vận tốc giả lập: chậm lại ở giữa đoạn (như đi qua vùng bị che), nhanh ở 2 đầu
-      const v = 3 + 4 * Math.abs(Math.sin(t * Math.PI));
-      velocities.push(v);
-    }
-    lines.push({ id: l + 1, points, velocities });
-  }
-
-  windStreamlineData = { lines };
-  renderWindStreamlines(windStreamlineData);
-}
-
-/* ---------------------------------------------------------------------
-   2. TẢI FILE JSON THẬT (khi có dữ liệu từ backend — Bước 3 sau này)
+   2. TẢI FILE JSON THẬT (thủ công, nếu cậu có sẵn kết quả từ nguồn khác)
    --------------------------------------------------------------------- */
 function handleStreamlineJsonUpload(e) {
   const file = e.target.files[0];
@@ -131,7 +84,7 @@ function renderWindStreamlines(data) {
     const { points, velocities } = line;
     if (points.length < 2) return;
 
-    const positions = [], colors = [], indices = [];
+    const positions = [], colors = [], normals = [], indices = [];
     for (let i = 0; i < points.length; i++) {
       const [x, y, z] = points[i];
       const c = velocityToColor(velocities[i] ?? velocities[velocities.length - 1], maxV);
@@ -139,6 +92,15 @@ function renderWindStreamlines(data) {
       // đơn giản hoá, đủ để thấy hướng + màu, không phải ống tròn 3D thật.
       positions.push(x, y - width / 2, z, x, y + width / 2, z);
       colors.push(...c, 1, ...c, 1);
+      // Pháp tuyến xấp xỉ hướng ngang (vuông góc hướng đi) để ruy băng nhận
+      // sáng tốt từ nhiều góc nhìn — không cần chính xác tuyệt đối vì đây
+      // là hình minh hoạ hướng dòng chảy, không phải hình học kỹ thuật.
+      const next = points[Math.min(i + 1, points.length - 1)];
+      const prev = points[Math.max(i - 1, 0)];
+      const dx = next[0] - prev[0], dz = next[2] - prev[2];
+      const len = Math.sqrt(dx * dx + dz * dz) || 1;
+      const nx = -dz / len, nz = dx / len; // vuông góc hướng đi, nằm ngang
+      normals.push(nx, 0, nz, nx, 0, nz);
     }
     for (let i = 0; i < points.length - 1; i++) {
       const a = i * 2, b = a + 1, c = a + 2, d = a + 3;
@@ -147,10 +109,10 @@ function renderWindStreamlines(data) {
 
     const mesh = new window.XeokitMesh(window.viewer.scene, {
       geometry: new window.XeokitReadableGeometry(window.viewer.scene, {
-        primitive: "triangles", positions, indices, colors, normals: null
+        primitive: "triangles", positions, indices, colors, normals
       }),
       material: new window.XeokitPhongMaterial(window.viewer.scene, {
-        diffuse: [1, 1, 1], backfaces: true, emissive: [0.3, 0.3, 0.3]
+        diffuse: [1, 1, 1], backfaces: true, emissive: [0.55, 0.55, 0.55], ambient: [1, 1, 1]
       }),
       pickable: false, collidable: false
     });
@@ -273,7 +235,7 @@ async function runRealWindSimulation() {
     formData.append("stl", stlBlob, "model.stl");
     formData.append("dirDeg", dirDeg);
     formData.append("speed", "5");
-    formData.append("resolution", "24");
+    formData.append("resolution", "32");
     formData.append("iterations", "60");
     formData.append("seedCount", "5");
 
