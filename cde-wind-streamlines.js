@@ -1,5 +1,5 @@
 /* =====================================================================
-   CDE WIND STREAMLINES MODULE — Đã vá sạch lỗi cú pháp khuyết thiếu
+   CDE WIND STREAMLINES MODULE — Khối 1: Giao diện & Tiện ích màu sắc
    ===================================================================== */
 
 const WIND_BACKEND_URL = "https://wind-backend-yey0.onrender.com";
@@ -90,12 +90,14 @@ function renderWindStreamlines(data) {
       indices.push(a, c, b, b, c, d);
     }
 
+    // Đã vá lỗi diffuse cố định mảng trắng để tránh khuyết ký tự khi sinh code
+    const defaultWhiteColor = [1.0, 1.0, 1.0];
     const mesh = new window.XeokitMesh(window.viewer.scene, {
       geometry: new window.XeokitReadableGeometry(window.viewer.scene, {
         primitive: "triangles", positions: positions, indices: indices, colors: colors, normals: normals
       }),
       material: new window.XeokitPhongMaterial(window.viewer.scene, {
-        diffuse:, backfaces: true, emissive: [0.15, 0.15, 0.15], ambient: [0.35, 0.35, 0.35]
+        diffuse: defaultWhiteColor, backfaces: true, emissive: [0.15, 0.15, 0.15], ambient: [0.35, 0.35, 0.35]
       }),
       pickable: false, collidable: false
     });
@@ -198,7 +200,7 @@ function renderConvergenceChart(residuals) {
         <span style="color:#2ecc71;">── v (trục Y)</span>
         <span style="color:#3498db;">── w (trục Z)</span>
       </div>
-      <canvas id="windConvergenceCanvas" width="330" height="160" style="width:100%;background:#fff;border-radius:6px;"></canvas>
+      <canvas id="windConvergenceCanvas" width="330" height="160" style="width:100%;background:#fff;border-radius:6px PapayaWhip;"></canvas>
     </div>`;
 
   const canvas = document.getElementById("windConvergenceCanvas");
@@ -232,7 +234,7 @@ function renderConvergenceChart(residuals) {
     const f = (maxLog - power) / range;
     const y = padT + f * (H - padT - padB);
     ctx.fillText(Math.pow(10, power).toExponential(1), 2, y + 3);
-    ctx.strokeStyle = "#f0f0f0"; ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(W - padR, y); stroke();
+    ctx.strokeStyle = "#f0f0f0"; ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(W - padR, y); ctx.stroke();
   });
 
   function drawComponentLine(logVals, color) {
@@ -275,7 +277,9 @@ async function runRealWindSimulation() {
     });
     if (!indices || indices.length === 0) throw new Error("Không đọc được tam giác nào.");
 
-    const worldOffset = (dimensions && dimensions.center) ? dimensions.center :;
+    // Vá lỗi khuyết thiếu giá trị gán mặc định cho worldOffset để tránh sập code trình duyệt
+    const defaultOffset = [0.0, 0.0, 0.0];
+    const worldOffset = (dimensions && dimensions.center) ? dimensions.center : defaultOffset;
 
     statusEl.innerText = "⏳ Đang dựng file STL...";
     const stlBuffer = buildBinarySTLForWind(positions, indices);
