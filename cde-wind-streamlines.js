@@ -235,9 +235,9 @@ async function runRealWindSimulation() {
     formData.append("stl", stlBlob, "model.stl");
     formData.append("dirDeg", dirDeg);
     formData.append("speed", "5");
-    formData.append("resolution", "32");
-    formData.append("iterations", "60");
-    formData.append("seedCount", "5");
+    formData.append("resolution", "36");
+    formData.append("iterations", "90");
+    formData.append("seedCount", "8");
 
     statusEl.innerText = "⏳ Đang gửi lên backend, chờ khởi động (có thể mất 30-60s nếu server đang ngủ)...";
     const submitRes = await fetch(`${WIND_BACKEND_URL}/simulate`, { method: "POST", body: formData });
