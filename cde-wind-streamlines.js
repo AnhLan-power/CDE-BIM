@@ -12,7 +12,7 @@
    ===================================================================== */
 
 // !!! ĐIỀN URL BACKEND PYTHON THẬT CỦA CẬU VÀO ĐÂY SAU KHI DEPLOY (Phần 3) !!!
-const WIND_BACKEND_URL = "https://DIEN-URL-RENDER-CUA-CAU.onrender.com";
+const WIND_BACKEND_URL = "https://wind-backend-yey0.onrender.com";
 
 let windStreamlineRibbons = [];   // các Mesh dải ruy băng tĩnh (đường đi)
 let windStreamlineParticles = []; // các Mesh hạt nhỏ animate chạy dọc đường
