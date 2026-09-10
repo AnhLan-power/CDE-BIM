@@ -76,7 +76,7 @@ function renderWindStreamlines(data) {
       const [x, y, z] = points[i];
       const c = velocityToColor(velocities[i] ?? velocities[velocities.length - 1], maxV);
       positions.push(x, y - width / 2, z, x, y + width / 2, z);
-      colors.push(...c, 1, ...c, 1);
+      colors.push(c[0], c[1], c[2], 1, c[0], c[1], c[2], 1);
 
       const next = points[Math.min(i + 1, points.length - 1)];
       const prev = points[Math.max(i - 1, 0)];
@@ -210,17 +210,16 @@ function renderConvergenceChart(residuals) {
   const minLog = -4;  
   const range = maxLog - minLog;
 
-  const isMultiComponent = Array.isArray(residuals[0]);
-
   const logLines = { u: [], v: [], w: [] };
   residuals.forEach(r => {
-    let u_val = isMultiComponent ? r[0] : r;
-    let v_val = isMultiComponent ? r[1] : r;
-    let w_val = isMultiComponent ? r[2] : r;
-
-    logLines.u.push(Math.min(maxLog, Math.max(minLog, Math.log10(Math.max(u_val, 1e-8)))));
-    logLines.v.push(Math.min(maxLog, Math.max(minLog, Math.log10(Math.max(v_val, 1e-8)))));
-    logLines.w.push(Math.min(maxLog, Math.max(minLog, Math.log10(Math.max(w_val, 1e-8)))));
+    if (Array.isArray(r) && r.length === 3) {
+      logLines.u.push(Math.min(maxLog, Math.max(minLog, Math.log10(Math.max(r[0], 1e-8)))));
+      logLines.v.push(Math.min(maxLog, Math.max(minLog, Math.log10(Math.max(r[1], 1e-8)))));
+      logLines.w.push(Math.min(maxLog, Math.max(minLog, Math.log10(Math.max(r[2], 1e-8)))));
+    } else {
+      const val = Math.min(maxLog, Math.max(minLog, Math.log10(Math.max(r, 1e-8))));
+      logLines.u.push(val); logLines.v.push(val); logLines.w.push(val);
+    }
   });
 
   ctx.clearRect(0, 0, W, H);
@@ -235,6 +234,7 @@ function renderConvergenceChart(residuals) {
   });
 
   function drawComponentLine(logVals, color) {
+    if (logVals.length === 0) return;
     ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.beginPath();
     logVals.forEach((lv, i) => {
       const x = padL + (i / (logVals.length - 1 || 1)) * (W - padL - padR);
@@ -245,10 +245,8 @@ function renderConvergenceChart(residuals) {
   }
 
   drawComponentLine(logLines.u, "#e67e22"); 
-  if (isMultiComponent) {
-    drawComponentLine(logLines.v, "#2ecc71"); 
-    drawComponentLine(logLines.w, "#3498db"); 
-  }
+  drawComponentLine(logLines.v, "#2ecc71"); 
+  drawComponentLine(logLines.w, "#3498db"); 
 
   ctx.fillStyle = "#666"; ctx.fillText("Vòng lặp →", W - 50, H - 4);
 }
