@@ -1,5 +1,5 @@
 /* =====================================================================
-   CDE WIND STREAMLINES MODULE — Đã sửa sạch lỗi khuyết thiếu cú pháp
+   CDE WIND STREAMLINES MODULE — Đã vá sạch lỗi cú pháp khuyết thiếu
    ===================================================================== */
 
 const WIND_BACKEND_URL = "https://wind-backend-yey0.onrender.com";
@@ -232,7 +232,7 @@ function renderConvergenceChart(residuals) {
     const f = (maxLog - power) / range;
     const y = padT + f * (H - padT - padB);
     ctx.fillText(Math.pow(10, power).toExponential(1), 2, y + 3);
-    ctx.strokeStyle = "#f0f0f0"; ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(W - padR, y); ctx.stroke();
+    ctx.strokeStyle = "#f0f0f0"; ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(W - padR, y); stroke();
   });
 
   function drawComponentLine(logVals, color) {
