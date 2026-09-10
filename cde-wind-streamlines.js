@@ -3,26 +3,26 @@
    Gọi backend Python thật (xem WIND_BACKEND_URL bên dưới) để tính toán,
    rồi vẽ lại bằng xeokit dạng dải ruy băng tô màu theo vận tốc + hạt bay
    động dọc theo đường dòng.
- 
+
    Cấu trúc dữ liệu JSON nhận từ backend:
    [
      { "id": 1, "points": [[x,y,z], ...], "velocities": [v0, v1, ...] },
      ...
    ]
    ===================================================================== */
- 
+
 // !!! ĐIỀN URL BACKEND PYTHON THẬT CỦA CẬU VÀO ĐÂY SAU KHI DEPLOY (Phần 3) !!!
 const WIND_BACKEND_URL = "https://wind-backend-yey0.onrender.com";
- 
+
 let windStreamlineRibbons = [];   // các Mesh dải ruy băng tĩnh (đường đi)
 let windStreamlineParticles = []; // các Mesh hạt nhỏ animate chạy dọc đường
 let windStreamlineRAF = null;
 let windStreamlineData = null;
- 
+
 function injectWindStreamlineBox() {
   const panel = document.getElementById("windPanel");
   if (!panel) { console.warn("Chưa thấy #windPanel — cde-wind-analysis.js cần load trước file này."); return; }
- 
+
   const box = document.createElement("div");
   box.className = "cde-file-card";
   box.id = "windStreamlineBox";
@@ -32,9 +32,10 @@ function injectWindStreamlineBox() {
     <div id="windRealSimStatus" style="font-size:10px;color:#0275d8;margin-top:4px;"></div>
     <button class="btn" style="width:100%;margin-top:6px;" id="windStreamlineLoadJsonBtn">📂 Tải file JSON đường dòng (thủ công)</button>
     <input type="file" id="windStreamlineFileInput" accept=".json" style="display:none;">
-    <button class="btn" style="width:100%;margin-top:6px;" id="windStreamlineClearBtn">↺ Xoá đường dòng</button>`;
+    <button class="btn" style="width:100%;margin-top:6px;" id="windStreamlineClearBtn">↺ Xoá đường dòng</button>
+    <div id="windConvergenceBox"></div>`;
   panel.appendChild(box);
- 
+
   document.getElementById("windRealSimBtn").addEventListener("click", runRealWindSimulation);
   document.getElementById("windStreamlineClearBtn").addEventListener("click", clearWindStreamlines);
   document.getElementById("windStreamlineLoadJsonBtn").addEventListener("click", () => {
@@ -42,7 +43,7 @@ function injectWindStreamlineBox() {
   });
   document.getElementById("windStreamlineFileInput").addEventListener("change", handleStreamlineJsonUpload);
 }
- 
+
 /* ---------------------------------------------------------------------
    2. TẢI FILE JSON THẬT (thủ công, nếu cậu có sẵn kết quả từ nguồn khác)
    --------------------------------------------------------------------- */
@@ -61,7 +62,7 @@ function handleStreamlineJsonUpload(e) {
   };
   reader.readAsText(file);
 }
- 
+
 /* ---------------------------------------------------------------------
    3. DỰNG HÌNH: dải ruy băng tĩnh (đường đi) + hạt động (hiệu ứng chạy)
    --------------------------------------------------------------------- */
@@ -74,18 +75,18 @@ function velocityToColor(v, maxV) {
   const b = Math.max(0, Math.min(1, 1.5 - Math.abs(4 * t - 1)));
   return [r, g, b];
 }
- 
+
 function renderWindStreamlines(data) {
   clearWindStreamlines();
   if (!data || !data.lines || data.lines.length === 0) return;
- 
+
   const maxV = Math.max(0.001, ...data.lines.flatMap(l => l.velocities));
   const width = 0.35; // độ dày ruy băng (m) — tăng từ 0.12 để nhìn đậm, rõ hơn
- 
+
   data.lines.forEach(line => {
     const { points, velocities } = line;
     if (points.length < 2) return;
- 
+
     const positions = [], colors = [], normals = [], indices = [];
     for (let i = 0; i < points.length; i++) {
       const [x, y, z] = points[i];
@@ -108,7 +109,7 @@ function renderWindStreamlines(data) {
       const a = i * 2, b = a + 1, c = a + 2, d = a + 3;
       indices.push(a, c, b, b, c, d);
     }
- 
+
     const mesh = new window.XeokitMesh(window.viewer.scene, {
       geometry: new window.XeokitReadableGeometry(window.viewer.scene, {
         primitive: "triangles", positions, indices, colors, normals
@@ -119,7 +120,7 @@ function renderWindStreamlines(data) {
       pickable: false, collidable: false
     });
     windStreamlineRibbons.push(mesh);
- 
+
     // 3 hạt nhỏ animate chạy dọc theo đường này, cách đều nhau lúc bắt đầu
     for (let p = 0; p < 3; p++) {
       const particle = new window.XeokitMesh(window.viewer.scene, {
@@ -130,10 +131,10 @@ function renderWindStreamlines(data) {
       windStreamlineParticles.push({ mesh: particle, points, offset: p / 3, speed: 0.15 });
     }
   });
- 
+
   startWindStreamlineAnimation();
 }
- 
+
 // Dựng geometry hình cầu nhỏ đơn giản (dùng làm "hạt" animate)
 function buildSphereGeometryData(radius) {
   const positions = [], indices = [];
@@ -158,7 +159,7 @@ function buildSphereGeometryData(radius) {
   }
   return { primitive: "triangles", positions, indices };
 }
- 
+
 /* ---------------------------------------------------------------------
    4. VÒNG LẶP ANIMATE HẠT CHẠY DỌC ĐƯỜNG DÒNG
    --------------------------------------------------------------------- */
@@ -171,7 +172,7 @@ function pointAtArcFraction(points, frac) {
   const a = points[i0], b = points[i1];
   return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
 }
- 
+
 function startWindStreamlineAnimation() {
   let t = 0;
   const step = () => {
@@ -184,7 +185,7 @@ function startWindStreamlineAnimation() {
   };
   windStreamlineRAF = requestAnimationFrame(step);
 }
- 
+
 function clearWindStreamlines() {
   if (windStreamlineRAF) { cancelAnimationFrame(windStreamlineRAF); windStreamlineRAF = null; }
   windStreamlineRibbons.forEach(m => m.destroy());
@@ -192,9 +193,56 @@ function clearWindStreamlines() {
   windStreamlineRibbons = [];
   windStreamlineParticles = [];
 }
- 
+
 injectWindStreamlineBox();
- 
+
+/* ---------------------------------------------------------------------
+   6. BIỂU ĐỒ HỘI TỤ (Residual Convergence) — vẽ bằng Canvas thuần
+   --------------------------------------------------------------------- */
+function renderConvergenceChart(residuals) {
+  const box = document.getElementById("windConvergenceBox");
+  if (!residuals || residuals.length === 0) { box.innerHTML = ""; return; }
+
+  box.innerHTML = `
+    <div class="cde-file-card">
+      <div class="fname">📉 Biểu đồ hội tụ (Residual Convergence)</div>
+      <div class="meta">Sai số giữa các vòng lặp — càng giảm càng chứng tỏ lời giải đã ổn định. Trục dọc theo thang log, giống cách SimScale hiển thị.</div>
+      <canvas id="windConvergenceCanvas" width="330" height="160" style="width:100%;background:#fff;border-radius:6px;margin-top:6px;"></canvas>
+    </div>`;
+
+  const canvas = document.getElementById("windConvergenceCanvas");
+  const ctx = canvas.getContext("2d");
+  const W = canvas.width, H = canvas.height;
+  const padL = 42, padB = 18, padT = 8, padR = 8;
+
+  const logVals = residuals.map(r => Math.log10(Math.max(r, 1e-8)));
+  const minLog = Math.min(...logVals), maxLog = Math.max(...logVals);
+  const range = (maxLog - minLog) || 1;
+
+  ctx.clearRect(0, 0, W, H);
+  ctx.strokeStyle = "#ddd"; ctx.fillStyle = "#999"; ctx.font = "9px sans-serif";
+  ctx.beginPath(); ctx.moveTo(padL, padT); ctx.lineTo(padL, H - padB); ctx.lineTo(W - padR, H - padB); ctx.stroke();
+
+  // Nhãn trục dọc (log scale): min, giữa, max
+  [0, 0.5, 1].forEach(f => {
+    const val = minLog + range * (1 - f);
+    const y = padT + f * (H - padT - padB);
+    ctx.fillText(Math.pow(10, val).toExponential(1), 2, y + 3);
+    ctx.strokeStyle = "#f0f0f0"; ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(W - padR, y); ctx.stroke();
+  });
+
+  // Đường residual
+  ctx.strokeStyle = "#e67e22"; ctx.lineWidth = 1.5; ctx.beginPath();
+  logVals.forEach((lv, i) => {
+    const x = padL + (i / (logVals.length - 1 || 1)) * (W - padL - padR);
+    const y = padT + (1 - (lv - minLog) / range) * (H - padT - padB);
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+
+  ctx.fillStyle = "#666"; ctx.fillText("Vòng lặp →", W - 50, H - 4);
+}
+
 /* ---------------------------------------------------------------------
    5. GỌI BACKEND PYTHON THẬT (Bước 3)
    Dựng STL từ cấu kiện đã chọn (dùng lại logic đã có ở nút Xuất STL),
@@ -203,7 +251,7 @@ injectWindStreamlineBox();
 async function runRealWindSimulation() {
   const statusEl = document.getElementById("windRealSimStatus");
   const btn = document.getElementById("windRealSimBtn");
- 
+
   if (WIND_BACKEND_URL.includes("DIEN-URL-RENDER-CUA-CAU")) {
     alert("Chưa điền URL backend thật vào WIND_BACKEND_URL trong file cde-wind-streamlines.js (xem hướng dẫn Phần 3-4).");
     return;
@@ -213,7 +261,7 @@ async function runRealWindSimulation() {
     return;
   }
   if (!window.extractIdsMeshForGLB) { alert("Thiếu hàm đọc hình học (extractIdsMeshForGLB)."); return; }
- 
+
   btn.disabled = true;
   try {
     statusEl.innerText = "⏳ Đang đọc hình học...";
@@ -221,18 +269,18 @@ async function runRealWindSimulation() {
       statusEl.innerText = `⏳ Đang đọc model ${done}/${total}...`;
     });
     if (!indices || indices.length === 0) throw new Error("Không đọc được tam giác nào (có thể thuộc model .xkt, chưa hỗ trợ).");
- 
+
     // extractIdsMeshForGLB dịch toạ độ về gần (0,0,0) để tối ưu cho AR — lưu
     // lại đúng điểm tâm đã trừ đi để cộng ngược lại vào kết quả trả về từ
     // backend, nếu không đường dòng sẽ vẽ sai chỗ (rất xa mô hình thật).
     const worldOffset = (dimensions && dimensions.center) ? dimensions.center : [0, 0, 0];
- 
+
     statusEl.innerText = "⏳ Đang dựng file STL...";
     const stlBuffer = buildBinarySTLForWind(positions, indices);
     const stlBlob = new Blob([stlBuffer], { type: "model/stl" });
- 
+
     const dirDeg = document.getElementById("windDirDeg") ? document.getElementById("windDirDeg").value : 0;
- 
+
     const formData = new FormData();
     formData.append("stl", stlBlob, "model.stl");
     formData.append("dirDeg", dirDeg);
@@ -240,19 +288,19 @@ async function runRealWindSimulation() {
     formData.append("resolution", "36");
     formData.append("iterations", "90");
     formData.append("seedCount", "14");
- 
+
     statusEl.innerText = "⏳ Đang gửi lên backend, chờ khởi động (có thể mất 30-60s nếu server đang ngủ)...";
     const submitRes = await fetch(`${WIND_BACKEND_URL}/simulate`, { method: "POST", body: formData });
     if (!submitRes.ok) throw new Error("Gửi thất bại: HTTP " + submitRes.status);
     const { job_id } = await submitRes.json();
- 
+
     // Poll trạng thái mỗi 3 giây
     while (true) {
       await new Promise(r => setTimeout(r, 3000));
       const statusRes = await fetch(`${WIND_BACKEND_URL}/status/${job_id}`);
       const statusData = await statusRes.json();
       if (statusData.error) throw new Error(statusData.error);
- 
+
       const stageLabels = {
         queued: "Đang chờ...", reading_stl: "Đang đọc STL...",
         voxelizing: "Đang chia lưới vật cản...", solving: "Đang giải phương trình dòng chảy",
@@ -261,10 +309,11 @@ async function runRealWindSimulation() {
       let label = stageLabels[statusData.status] || statusData.status;
       if (statusData.status === "solving" && statusData.progress) label += ` (${statusData.progress})`;
       statusEl.innerText = "⏳ " + label;
- 
+
       if (statusData.status === "done") {
         const resultRes = await fetch(`${WIND_BACKEND_URL}/result/${job_id}`);
-        const lines = await resultRes.json();
+        const data = await resultRes.json();
+        const lines = data.lines || [];
         // Cộng lại đúng offset thế giới thật đã lưu ở trên
         lines.forEach(line => {
           line.points = line.points.map(p => [
@@ -273,6 +322,7 @@ async function runRealWindSimulation() {
         });
         windStreamlineData = { lines };
         renderWindStreamlines(windStreamlineData);
+        renderConvergenceChart(data.residuals || []);
         statusEl.innerText = "✅ Đã có kết quả mô phỏng thật!";
         break;
       }
@@ -285,7 +335,7 @@ async function runRealWindSimulation() {
     btn.disabled = false;
   }
 }
- 
+
 function buildBinarySTLForWind(positions, indices) {
   const triCount = indices.length / 3;
   const buffer = new ArrayBuffer(84 + triCount * 50);
