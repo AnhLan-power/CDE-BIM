@@ -1,5 +1,5 @@
 /* =====================================================================
-   CDE WIND STREAMLINES MODULE — Đường dòng gió động kiểu SimScale
+   CDE WIND STREAMLINES MODULE — Đã sửa sạch lỗi khuyết thiếu cú pháp
    ===================================================================== */
 
 const WIND_BACKEND_URL = "https://wind-backend-yey0.onrender.com";
@@ -92,7 +92,7 @@ function renderWindStreamlines(data) {
 
     const mesh = new window.XeokitMesh(window.viewer.scene, {
       geometry: new window.XeokitReadableGeometry(window.viewer.scene, {
-        primitive: "triangles", positions, indices, colors, normals
+        primitive: "triangles", positions: positions, indices: indices, colors: colors, normals: normals
       }),
       material: new window.XeokitPhongMaterial(window.viewer.scene, {
         diffuse:, backfaces: true, emissive: [0.15, 0.15, 0.15], ambient: [0.35, 0.35, 0.35]
@@ -107,7 +107,7 @@ function renderWindStreamlines(data) {
         material: new window.XeokitPhongMaterial(window.viewer.scene, { diffuse: [1, 1, 0.4], emissive: [0.6, 0.6, 0.2] }),
         position: points[0], pickable: false, collidable: false
       });
-      windStreamlineParticles.push({ mesh: particle, points, offset: p / 3, speed: 0.15 });
+      windStreamlineParticles.push({ mesh: particle, points: points, offset: p / 3, speed: 0.15 });
     }
   });
 
@@ -135,7 +135,7 @@ function buildSphereGeometryData(radius) {
       indices.push(first, second, first + 1, second, second + 1, first + 1);
     }
   }
-  return { primitive: "triangles", positions, indices };
+  return { primitive: "triangles", positions: positions, indices: indices };
 }
 
 function pointAtArcFraction(points, frac) {
@@ -210,9 +210,11 @@ function renderConvergenceChart(residuals) {
   const minLog = -4;  
   const range = maxLog - minLog;
 
+  const isMultiComponent = Array.isArray(residuals[0]);
+
   const logLines = { u: [], v: [], w: [] };
   residuals.forEach(r => {
-    if (Array.isArray(r) && r.length === 3) {
+    if (isMultiComponent && r.length === 3) {
       logLines.u.push(Math.min(maxLog, Math.max(minLog, Math.log10(Math.max(r[0], 1e-8)))));
       logLines.v.push(Math.min(maxLog, Math.max(minLog, Math.log10(Math.max(r[1], 1e-8)))));
       logLines.w.push(Math.min(maxLog, Math.max(minLog, Math.log10(Math.max(r[2], 1e-8)))));
