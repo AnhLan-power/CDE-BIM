@@ -10,6 +10,7 @@ let windStreamlineRAF = null;
 let windStreamlineData = null;
 
 function injectWindStreamlineBox() {
+  // 1. Tự động dò tìm Panel dựa theo nội dung hiển thị trên ảnh của cậu
   let panel = document.getElementById("windPanel");
   
   if (!panel) {
@@ -22,25 +23,30 @@ function injectWindStreamlineBox() {
     }
   }
   
+  // 2. Nếu cấu trúc web bị đóng băng, tự tạo menu nổi ở góc màn hình để cứu nút bấm
   if (!panel) {
     panel = document.createElement("div");
-    panel.style = "position:absolute; top:80px; left:20px; z-index:9999; width:260px;";
+    panel.id = "windPanelFallback";
+    panel.style = "position:absolute; top:120px; left:20px; z-index:9999; width:260px; background:#fff; padding:10px; border-radius:8px; box-shadow:0 2px 10px rgba(0,0,0,0.15);";
     document.body.appendChild(panel);
   }
 
+  // Tránh tạo trùng lặp khi F5 hoặc nạp lại script
   if (document.getElementById("windStreamlineBox")) return;
 
   const box = document.createElement("div");
   box.className = "cde-file-card";
   box.id = "windStreamlineBox";
-  box.style.marginTop = "10px";
+  box.style.marginTop = "15px";
+  box.style.borderTop = "2px dashed #2ecc71";
+  box.style.paddingTop = "10px";
   box.innerHTML = `
-    <div class="fname" style="font-weight:bold;">🌊 Đường dòng gió động</div>
-    <button class="btn" style="width:100%;margin-top:6px;background:#e8f5e9;border:1px solid #2ecc71;cursor:pointer;padding:6px;border-radius:4px;" id="windRealSimBtn">🚀 Chạy mô phỏng THẬT (backend Python)</button>
-    <div id="windRealSimStatus" style="font-size:10px;color:#0275d8;margin-top:4px;"></div>
-    <button class="btn" style="width:100%;margin-top:6px;cursor:pointer;padding:4px;" id="windStreamlineLoadJsonBtn">📂 Tải file JSON đường dòng (thủ công)</button>
+    <div class="fname" style="font-weight:bold; color:#2c3e50; margin-bottom:8px;">🌊 Đường dòng gió động</div>
+    <button class="btn" style="width:100%;margin-top:6px;background:#e8f5e9;border:1px solid #2ecc71;color:#27ae60;font-weight:bold;cursor:pointer;padding:8px;border-radius:4px;" id="windRealSimBtn">🚀 Chạy mô phỏng THẬT (backend Python)</button>
+    <div id="windRealSimStatus" style="font-size:11px;color:#0275d8;margin-top:4px;font-style:italic;"></div>
+    <button class="btn" style="width:100%;margin-top:6px;cursor:pointer;padding:6px;border-radius:4px;" id="windStreamlineLoadJsonBtn">📂 Tải file JSON đường dòng (thủ công)</button>
     <input type="file" id="windStreamlineFileInput" accept=".json" style="display:none;">
-    <button class="btn" style="width:100%;margin-top:6px;cursor:pointer;padding:4px;" id="windStreamlineClearBtn">↺ Xoá đường dòng</button>
+    <button class="btn" style="width:100%;margin-top:6px;cursor:pointer;padding:6px;border-radius:4px;background:#fdf2f2;color:#ec5b5b;border:1px solid #f5c2c2;" id="windStreamlineClearBtn">↺ Xoá đường dòng</button>
     <div id="windLegendBarBox"></div>
     <div id="windConvergenceBox"></div>`;
   panel.appendChild(box);
@@ -92,7 +98,9 @@ function renderWindStreamlines(data) {
     const positions = [], colors = [], normals = [], indices = [];
     for (let i = 0; i < points.length; i++) {
       const [x, y, z] = points[i];
-      const c = velocityToColor(velocities[i] ?? velocities[velocities.length - 1], maxV);
+      const vVal = velocities[i] !== undefined ? velocities[i] : velocities[velocities.length - 1];
+      const c = velocityToColor(vVal, maxV);
+      
       positions.push(x, y - width / 2, z, x, y + width / 2, z);
       colors.push(c[0], c[1], c[2], 1, c[0], c[1], c[2], 1);
 
@@ -155,7 +163,6 @@ function buildSphereGeometryData(radius) {
   }
   return { primitive: "triangles", positions: positions, indices: indices };
 }
-
 function pointAtArcFraction(points, frac) {
   const n = points.length - 1;
   const pos = frac * n;
@@ -185,13 +192,15 @@ function clearWindStreamlines() {
   windStreamlineParticles.forEach(p => p.mesh.destroy());
   windStreamlineRibbons = [];
   windStreamlineParticles = [];
-  document.getElementById("windLegendBarBox").innerHTML = "";
+  const lb = document.getElementById("windLegendBarBox");
+  if (lb) lb.innerHTML = "";
 }
 
 function renderVelocityLegendBar(maxV) {
   const box = document.getElementById("windLegendBarBox");
+  if (!box) return;
   box.innerHTML = `
-    <div class="cde-file-card" style="margin-top:8px; padding:8px; background:#fff;">
+    <div class="cde-file-card" style="margin-top:8px; padding:8px; background:#fff; border:1px solid #e0e0e0;">
       <div style="font-size:11px;font-weight:bold;margin-bottom:4px;">📊 Thang vận tốc gió (Velocity Magnitude - m/s)</div>
       <div style="display:flex;align-items:center;height:14px;background:linear-gradient(to right, #00008f, #0000ff, #00ffff, #ffff00, #ff0000, #800000);border-radius:3px;"></div>
       <div style="display:flex;justify-content:space-between;font-size:9px;color:#555;margin-top:2px;">
@@ -203,20 +212,21 @@ function renderVelocityLegendBar(maxV) {
       </div>
     </div>`;
 }
+
 function renderConvergenceChart(residuals) {
   const box = document.getElementById("windConvergenceBox");
-  if (!residuals || residuals.length === 0) { box.innerHTML = ""; return; }
+  if (!box || !residuals || residuals.length === 0) { if (box) box.innerHTML = ""; return; }
 
   box.innerHTML = `
-    <div class="cde-file-card" style="margin-top:8px; background:#fff;">
-      <div class="fname">📉 Biểu đồ hội tụ (Residual Convergence)</div>
+    <div class="cde-file-card" style="margin-top:8px; background:#fff; border:1px solid #e0e0e0; padding:8px;">
+      <div class="fname" style="font-weight:bold; font-size:11px;">📉 Biểu đồ hội tụ (Residual Convergence)</div>
       <div class="meta" style="margin-bottom:4px; font-size:10px; color:#666;">Hội tụ đa thành phần chuẩn solver CFD thương mại.</div>
       <div style="display:flex; gap:12px; font-size:9px; font-weight:bold; margin-bottom:6px;">
         <span style="color:#e67e22;">── u (trục X)</span>
         <span style="color:#2ecc71;">── v (trục Y)</span>
         <span style="color:#3498db;">── w (trục Z)</span>
       </div>
-      <canvas id="windConvergenceCanvas" width="330" height="160" style="width:100%;background:#fff;border-radius:6px;"></canvas>
+      <canvas id="windConvergenceCanvas" width="330" height="160" style="width:100%;background:#fff;border-radius:6px; border:1px solid #f0f0f0;"></canvas>
     </div>`;
 
   const canvas = document.getElementById("windConvergenceCanvas");
@@ -228,7 +238,7 @@ function renderConvergenceChart(residuals) {
   const minLog = -4;  
   const range = maxLog - minLog;
 
-  const isMultiComponent = Array.isArray(residuals[0]);
+  const isMultiComponent = Array.isArray(residuals);
 
   const logLines = { u: [], v: [], w: [] };
   residuals.forEach(r => {
@@ -373,11 +383,13 @@ function buildBinarySTLForWind(positions, indices) {
     view.setFloat32(offset, nx, true); view.setFloat32(offset + 4, ny, true); view.setFloat32(offset + 8, nz, true);
     view.setFloat32(offset + 12, ax, true); view.setFloat32(offset + 16, ay, true); view.setFloat32(offset + 20, az, true);
     view.setFloat32(offset + 24, bx, true); view.setFloat32(offset + 28, by, true); view.setFloat32(offset + 32, bz, true);
-    view.setFloat32(offset + 36, cx, true); view.setFloat32(offset + 40, cy, true); view.setFloat32(offset + 44, cz, true);
+    view.setFloat32(offset + 36, cx, true); view.setFloat32(offset + 40, cy, true);
+    view.setFloat32(offset + 44, cz, true);
     view.setUint16(offset + 48, 0, true);
     offset += 50;
-  }
-  return buffer;
-}
+    }
+    return buffer;
+    }
 
-injectWindStreamlineBox();
+    // Gọi hàm tiêm UI chạy tự động
+    injectWindStreamlineBox();
