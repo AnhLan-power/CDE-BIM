@@ -67,10 +67,12 @@ function handleStreamlineJsonUpload(e) {
    --------------------------------------------------------------------- */
 function velocityToColor(v, maxV) {
   const t = Math.min(1, Math.max(0, v / maxV));
-  // xanh dương (chậm) -> xanh lá -> đỏ (nhanh), giống bảng màu SimScale
-  if (t < 0.5) { const k = t / 0.5; return [0.1, 0.3 + k * 0.5, 0.9 - k * 0.4]; }
-  const k = (t - 0.5) / 0.5;
-  return [0.5 + k * 0.5, 0.8 - k * 0.7, 0.1];
+  // Bảng màu "jet" chuẩn CFD (xanh dương đậm -> lam -> lục -> vàng -> đỏ),
+  // rực và tương phản hơn hẳn gradient cũ, giống đúng kiểu SimScale.
+  const r = Math.max(0, Math.min(1, 1.5 - Math.abs(4 * t - 3)));
+  const g = Math.max(0, Math.min(1, 1.5 - Math.abs(4 * t - 2)));
+  const b = Math.max(0, Math.min(1, 1.5 - Math.abs(4 * t - 1)));
+  return [r, g, b];
 }
 
 function renderWindStreamlines(data) {
@@ -78,7 +80,7 @@ function renderWindStreamlines(data) {
   if (!data || !data.lines || data.lines.length === 0) return;
 
   const maxV = Math.max(0.001, ...data.lines.flatMap(l => l.velocities));
-  const width = 0.12; // độ dày ruy băng (m), cố định đơn giản hoá
+  const width = 0.35; // độ dày ruy băng (m) — tăng từ 0.12 để nhìn đậm, rõ hơn
 
   data.lines.forEach(line => {
     const { points, velocities } = line;
@@ -112,7 +114,7 @@ function renderWindStreamlines(data) {
         primitive: "triangles", positions, indices, colors, normals
       }),
       material: new window.XeokitPhongMaterial(window.viewer.scene, {
-        diffuse: [1, 1, 1], backfaces: true, emissive: [0.55, 0.55, 0.55], ambient: [1, 1, 1]
+        diffuse: [1, 1, 1], backfaces: true, emissive: [0.85, 0.85, 0.85], ambient: [1, 1, 1]
       }),
       pickable: false, collidable: false
     });
@@ -237,7 +239,7 @@ async function runRealWindSimulation() {
     formData.append("speed", "5");
     formData.append("resolution", "36");
     formData.append("iterations", "90");
-    formData.append("seedCount", "8");
+    formData.append("seedCount", "14");
 
     statusEl.innerText = "⏳ Đang gửi lên backend, chờ khởi động (có thể mất 30-60s nếu server đang ngủ)...";
     const submitRes = await fetch(`${WIND_BACKEND_URL}/simulate`, { method: "POST", body: formData });
