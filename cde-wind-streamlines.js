@@ -77,6 +77,7 @@ function velocityToColor(v, maxV) {
   const b = Math.max(0, Math.min(1, 1.5 - Math.abs(4 * t - 1)));
   return [r, g, b];
 }
+
 function renderWindStreamlines(data) {
   clearWindStreamlines();
   if (!data || !data.lines || data.lines.length === 0) return;
@@ -188,6 +189,7 @@ function clearWindStreamlines() {
   windStreamlineParticles = [];
   document.getElementById("windLegendBarBox").innerHTML = "";
 }
+
 function renderVelocityLegendBar(maxV) {
   const box = document.getElementById("windLegendBarBox");
   box.innerHTML = `
@@ -203,7 +205,6 @@ function renderVelocityLegendBar(maxV) {
       </div>
     </div>`;
 }
-
 function renderConvergenceChart(residuals) {
   const box = document.getElementById("windConvergenceBox");
   if (!residuals || residuals.length === 0) { box.innerHTML = ""; return; }
@@ -251,7 +252,7 @@ function renderConvergenceChart(residuals) {
     const f = (maxLog - power) / range;
     const y = padT + f * (H - padT - padB);
     ctx.fillText(Math.pow(10, power).toExponential(1), 2, y + 3);
-    ctx.strokeStyle = "#f0f0f0"; ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(W - padR, y); ctx.stroke();
+    ctx.strokeStyle = "#f0f0f0"; ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(W - padR, y); stroke();
   });
 
   function drawComponentLine(logVals, color) {
