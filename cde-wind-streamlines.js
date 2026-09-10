@@ -10,26 +10,25 @@ let windStreamlineRAF = null;
 let windStreamlineData = null;
 
 function injectWindStreamlineBox() {
-  // Tìm panel chính để tiêm mã HTML
   let panel = document.getElementById("windPanel");
   
-  // CƠ CHẾ BẢO VỆ: Nếu panel cũ bị đổi tên, tự tìm thẻ chứa form "Mô phỏng Gió" trong ảnh của cậu
   if (!panel) {
     const allCards = document.querySelectorAll(".cde-file-card, div");
     for (let c of allCards) {
-      if (c.innerHTML && c.innerHTML.includes("Thông số gió")) {
+      if (c.innerHTML && (c.innerHTML.includes("Mô Phỏng Gió") || c.innerHTML.includes("Thông số gió"))) {
         panel = c;
         break;
       }
     }
   }
   
-  // Nếu vẫn không thấy, tạo menu nổi độc lập để nút bấm không bao giờ bị mất
   if (!panel) {
     panel = document.createElement("div");
     panel.style = "position:absolute; top:80px; left:20px; z-index:9999; width:260px;";
     document.body.appendChild(panel);
   }
+
+  if (document.getElementById("windStreamlineBox")) return;
 
   const box = document.createElement("div");
   box.className = "cde-file-card";
@@ -69,7 +68,6 @@ function handleStreamlineJsonUpload(e) {
   };
   reader.readAsText(file);
 }
-
 function velocityToColor(v, maxV) {
   const t = Math.min(1, Math.max(0, v / maxV));
   const r = Math.max(0, Math.min(1, 1.5 - Math.abs(4 * t - 3)));
@@ -252,7 +250,7 @@ function renderConvergenceChart(residuals) {
     const f = (maxLog - power) / range;
     const y = padT + f * (H - padT - padB);
     ctx.fillText(Math.pow(10, power).toExponential(1), 2, y + 3);
-    ctx.strokeStyle = "#f0f0f0"; ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(W - padR, y); stroke();
+    ctx.strokeStyle = "#f0f0f0"; ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(W - padR, y); ctx.stroke();
   });
 
   function drawComponentLine(logVals, color) {
