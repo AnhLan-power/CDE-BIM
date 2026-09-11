@@ -10,38 +10,44 @@ let windStreamlineRAF = null;
 let windStreamlineData = null;
 
 function injectWindStreamlineBox() {
-  // Tìm panel chính để tiêm mã HTML
   let panel = document.getElementById("windPanel");
-  
-  // CƠ CHẾ BẢO VỆ: Nếu panel cũ bị đổi tên, tự tìm thẻ chứa form "Mô phỏng Gió" trong ảnh của cậu
+
+  // Tìm chính xác card chứa thông tin mô phỏng gió từ UI
   if (!panel) {
-    const allCards = document.querySelectorAll(".cde-file-card, div");
-    for (let c of allCards) {
-      if (c.innerHTML && c.innerHTML.includes("Thông số gió")) {
-        panel = c;
+    const cards = document.querySelectorAll(".cde-file-card, div");
+    for (let c of cards) {
+      if (c.children.length === 0 && c.innerText && c.innerText.includes("Cần mô phỏng 3D thật")) {
+        panel = c.parentElement;
         break;
       }
     }
   }
-  
-  // Nếu vẫn không thấy, tạo menu nổi độc lập để nút bấm không bao giờ bị mất
+
+  // Nếu không tìm thấy panel phù hợp, tạo một menu nổi bên trái
   if (!panel) {
-    panel = document.createElement("div");
-    panel.style = "position:absolute; top:80px; left:20px; z-index:9999; width:260px;";
-    document.body.appendChild(panel);
+    panel = document.getElementById("windStreamlineFloatingPanel");
+    if (!panel) {
+      panel = document.createElement("div");
+      panel.id = "windStreamlineFloatingPanel";
+      panel.style.cssText = "position:fixed; top:100px; left:20px; z-index:99999; width:280px; background:#fff; padding:10px; border-radius:8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);";
+      document.body.appendChild(panel);
+    }
   }
+
+  // Tránh tự chèn trùng lặp nếu hàm bị gọi nhiều lần
+  if (document.getElementById("windStreamlineBox")) return;
 
   const box = document.createElement("div");
   box.className = "cde-file-card";
   box.id = "windStreamlineBox";
-  box.style.marginTop = "10px";
+  box.style.cssText = "margin-top:10px; padding:10px; border:1px solid #e0e0e0; border-radius:6px; background:#f9f9f9;";
   box.innerHTML = `
-    <div class="fname" style="font-weight:bold;">🌊 Đường dòng gió động</div>
-    <button class="btn" style="width:100%;margin-top:6px;background:#e8f5e9;border:1px solid #2ecc71;cursor:pointer;padding:6px;border-radius:4px;" id="windRealSimBtn">🚀 Chạy mô phỏng THẬT (backend Python)</button>
-    <div id="windRealSimStatus" style="font-size:10px;color:#0275d8;margin-top:4px;"></div>
-    <button class="btn" style="width:100%;margin-top:6px;cursor:pointer;padding:4px;" id="windStreamlineLoadJsonBtn">📂 Tải file JSON đường dòng (thủ công)</button>
+    <div class="fname" style="font-weight:bold; font-size:13px; margin-bottom:6px;">🌊 Đường dòng gió động</div>
+    <button class="btn" style="width:100%; margin-top:4px; background:#e8f5e9; color:#2e7d32; border:1px solid #2ecc71; cursor:pointer; padding:6px; border-radius:4px; font-weight:bold;" id="windRealSimBtn">🚀 Chạy mô phỏng THẬT (backend Python)</button>
+    <div id="windRealSimStatus" style="font-size:11px; color:#0275d8; margin-top:4px; text-align:center;"></div>
+    <button class="btn" style="width:100%; margin-top:6px; cursor:pointer; padding:5px; border:1px solid #ccc; background:#fff; border-radius:4px;" id="windStreamlineLoadJsonBtn">📂 Tải file JSON đường dòng (thủ công)</button>
     <input type="file" id="windStreamlineFileInput" accept=".json" style="display:none;">
-    <button class="btn" style="width:100%;margin-top:6px;cursor:pointer;padding:4px;" id="windStreamlineClearBtn">↺ Xoá đường dòng</button>
+    <button class="btn" style="width:100%; margin-top:6px; cursor:pointer; padding:5px; border:1px solid #ccc; background:#fff; border-radius:4px;" id="windStreamlineClearBtn">↺ Xoá đường dòng</button>
     <div id="windLegendBarBox"></div>
     <div id="windConvergenceBox"></div>`;
   panel.appendChild(box);
@@ -77,6 +83,7 @@ function velocityToColor(v, maxV) {
   const b = Math.max(0, Math.min(1, 1.5 - Math.abs(4 * t - 1)));
   return [r, g, b];
 }
+
 function renderWindStreamlines(data) {
   clearWindStreamlines();
   if (!data || !data.lines || data.lines.length === 0) return;
@@ -114,7 +121,7 @@ function renderWindStreamlines(data) {
         primitive: "triangles", positions: positions, indices: indices, colors: colors, normals: normals
       }),
       material: new window.XeokitPhongMaterial(window.viewer.scene, {
-        diffuse:, backfaces: true, emissive: [0.15, 0.15, 0.15], ambient: [0.35, 0.35, 0.35]
+        diffuse: [0.8, 0.8, 0.8], backfaces: true, emissive: [0.15, 0.15, 0.15], ambient: [0.35, 0.35, 0.35]
       }),
       pickable: false, collidable: false
     });
@@ -186,10 +193,13 @@ function clearWindStreamlines() {
   windStreamlineParticles.forEach(p => p.mesh.destroy());
   windStreamlineRibbons = [];
   windStreamlineParticles = [];
-  document.getElementById("windLegendBarBox").innerHTML = "";
+  const legendBox = document.getElementById("windLegendBarBox");
+  if (legendBox) legendBox.innerHTML = "";
 }
+
 function renderVelocityLegendBar(maxV) {
   const box = document.getElementById("windLegendBarBox");
+  if (!box) return;
   box.innerHTML = `
     <div class="cde-file-card" style="margin-top:8px; padding:8px; background:#fff;">
       <div style="font-size:11px;font-weight:bold;margin-bottom:4px;">📊 Thang vận tốc gió (Velocity Magnitude - m/s)</div>
@@ -206,6 +216,7 @@ function renderVelocityLegendBar(maxV) {
 
 function renderConvergenceChart(residuals) {
   const box = document.getElementById("windConvergenceBox");
+  if (!box) return;
   if (!residuals || residuals.length === 0) { box.innerHTML = ""; return; }
 
   box.innerHTML = `
@@ -294,7 +305,7 @@ async function runRealWindSimulation() {
     });
     if (!indices || indices.length === 0) throw new Error("Không đọc được tam giác nào.");
 
-    const worldOffset = (dimensions && dimensions.center) ? dimensions.center :;
+    const worldOffset = (dimensions && dimensions.center) ? dimensions.center : [0, 0, 0];
 
     statusEl.innerText = "⏳ Đang dựng file STL...";
     const stlBuffer = buildBinarySTLForWind(positions, indices);
@@ -381,4 +392,9 @@ function buildBinarySTLForWind(positions, indices) {
   return buffer;
 }
 
-injectWindStreamlineBox();
+// Chạy khởi tạo khi DOM tải hoàn tất
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", injectWindStreamlineBox);
+} else {
+  injectWindStreamlineBox();
+}
