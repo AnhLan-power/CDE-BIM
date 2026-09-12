@@ -56,11 +56,31 @@ function canEditTodos() {
 }
 
 async function loadProjectMembersForTodos() {
-  const { data } = await sb
+  const { data: members, error: memErr } = await sb
     .from("project_members")
-    .select("user_id, role, profiles(full_name, email)")
+    .select("user_id, role")
     .eq("project_id", activeProjectId);
-  cdeProjectMembersCache = data || [];
+
+  if (memErr || !members || members.length === 0) {
+    console.warn("Không tải được project_members:", memErr);
+    cdeProjectMembersCache = [];
+    return;
+  }
+
+  const userIds = members.map(m => m.user_id);
+  const { data: profiles } = await sb
+    .from("profiles")
+    .select("id, full_name, email")
+    .in("id", userIds);
+
+  const profileById = {};
+  (profiles || []).forEach(p => { profileById[p.id] = p; });
+
+  cdeProjectMembersCache = members.map(m => ({
+    user_id: m.user_id,
+    role: m.role,
+    profiles: profileById[m.user_id] || null
+  }));
 }
 
 /* ---------------------------------------------------------------------
@@ -97,6 +117,10 @@ function renderAddTodoBox(prefill) {
       <input type="number" id="tdNewCompletion" min="0" max="100" placeholder="% hoàn thành" style="flex:1;">
     </div>
     <input type="text" id="tdNewTags" placeholder="Tags, cách nhau bởi dấu phẩy">
+    <label style="display:block;font-size:11px;margin:6px 0;">
+      <input type="checkbox" id="tdAttachView" ${prefill?.autoSaveView ? "checked disabled" : ""}>
+      📷 Đính kèm góc nhìn camera hiện tại
+    </label>
     <div style="font-size:10px;color:#888;margin-top:4px;">Người phụ trách:</div>
     <div style="max-height:90px;overflow-y:auto;border:1px solid #eee;border-radius:6px;padding:4px 6px;">${memberOptions || "<i style='font-size:11px;color:#999;'>Chưa có thành viên khác</i>"}</div>
     ${prefill && prefill.linkedGlobalIds ? `<div class="meta" style="margin-top:4px;">🔗 Đã liên kết ${prefill.linkedGlobalIds.length} cấu kiện + 1 góc nhìn camera</div>` : ""}
@@ -121,7 +145,8 @@ async function submitNewTodo(prefill) {
   if (!title) { alert("Nhập tiêu đề."); return; }
 
   let linkedViewId = null;
-  if (prefill && prefill.autoSaveView) {
+  const wantsView = document.getElementById("tdAttachView")?.checked;
+  if (wantsView) {
     const cam = viewer.camera;
     const { data: viewRow, error: viewErr } = await sb.from("project_views").insert({
       project_id: activeProjectId,

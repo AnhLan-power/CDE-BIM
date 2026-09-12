@@ -3332,11 +3332,19 @@ window.runClashNow = async function() {
           : `⚠️ Va chạm #${idx + 1} (Cách nhau ~${Math.abs(c.realPenetration).toFixed(3)}m, trong ngưỡng clearance)`;
         const boxColor = c.isHardClash ? "#d9534f" : "#e0a800";
         const bgColor = c.isHardClash ? "#fff0f0" : "#fff8e6";
+        const labelAEsc = getEntityLabel(c.idA).replace(/'/g, "\\'");
+        const labelBEsc = getEntityLabel(c.idB).replace(/'/g, "\\'");
+        const gidA = (viewer.scene.objects[c.idA] && viewer.scene.objects[c.idA].originalSystemId) || c.idA;
+        const gidB = (viewer.scene.objects[c.idB] && viewer.scene.objects[c.idB].originalSystemId) || c.idB;
         html += `
           <div style="border:1px solid ${boxColor}; padding:8px; margin-bottom:6px; border-radius:4px; cursor:pointer; background:${bgColor};" onclick="highlightClashPair('${c.idA}', '${c.idB}')">
             <b style="color:${boxColor};">${label}:</b><br>
             <span style="color:#d9534f; font-weight:bold;">🔴 [${c.modelA}]</span> ${getEntityLabel(c.idA)}<br>
-            <span style="color:#28a745; font-weight:bold;">🟢 [${c.modelB}]</span> ${getEntityLabel(c.idB)}
+            <span style="color:#28a745; font-weight:bold;">🟢 [${c.modelB}]</span> ${getEntityLabel(c.idB)}<br>
+            <button style="margin-top:6px;font-size:10px;padding:3px 8px;border-radius:10px;border:1px solid #ccc;background:#fff;cursor:pointer;"
+              onclick="event.stopPropagation(); window.createTodoFromClash && window.createTodoFromClash('${labelAEsc}', '${labelBEsc}', '${gidA}', '${gidB}')">
+              ✅ Tạo ToDo
+            </button>
           </div>`;
       });
       resultsEl.innerHTML = html;
