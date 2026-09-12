@@ -66,6 +66,20 @@ function buildClashHistoryCard(run) {
           window.zoomToHistoryClash(clashes[idx]);
         });
       });
+      tableBox.querySelectorAll(".clash-hist-todo-btn").forEach(btn => {
+        btn.addEventListener("click", (e) => {
+          e.stopPropagation(); // không kích hoạt luôn click zoom của hàng cha
+          const idx = parseInt(btn.dataset.idx);
+          const c = clashes[idx];
+          if (window.createTodoFromClash) {
+            window.createTodoFromClash(
+              c.labelA || c.globalIdA || "Cấu kiện A",
+              c.labelB || c.globalIdB || "Cấu kiện B",
+              c.globalIdA, c.globalIdB
+            );
+          }
+        });
+      });
     }
   });
 
@@ -80,10 +94,11 @@ function renderClashHistoryTable(clashes) {
       <td style="padding:3px;">${(c.realPenetration ?? 0).toFixed(3)}</td>
       <td style="padding:3px;">${c.labelA || c.globalIdA || "-"}</td>
       <td style="padding:3px;">${c.labelB || c.globalIdB || "-"}</td>
+      <td style="padding:3px;"><button class="clash-hist-todo-btn" data-idx="${idx}" style="font-size:9px;padding:2px 6px;border-radius:8px;border:1px solid #ccc;background:#f8f9fa;cursor:pointer;">✅ Tạo ToDo</button></td>
     </tr>`).join("");
   return `
     <table style="width:100%;font-size:10px;border-collapse:collapse;" id="clashHistTable_${Math.random().toString(36).slice(2)}">
-      <thead><tr style="background:#f1f3f5;"><th style="padding:3px;text-align:left;">Trạng thái</th><th style="padding:3px;text-align:left;">Ăn sâu (m)</th><th style="padding:3px;text-align:left;">Cấu kiện A</th><th style="padding:3px;text-align:left;">Cấu kiện B</th></tr></thead>
+      <thead><tr style="background:#f1f3f5;"><th style="padding:3px;text-align:left;">Trạng thái</th><th style="padding:3px;text-align:left;">Ăn sâu (m)</th><th style="padding:3px;text-align:left;">Cấu kiện A</th><th style="padding:3px;text-align:left;">Cấu kiện B</th><th></th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
     <div style="font-size:9px;color:#999;margin-top:4px;">💡 Bấm vào 1 dòng để zoom/highlight tới đúng cấu kiện (chỉ hoạt động nếu model tương ứng đang được nạp trong phiên hiện tại).</div>`;
