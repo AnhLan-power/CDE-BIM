@@ -1,0 +1,13 @@
+{
+  "background_color": "#faf8f8",
+  "dir": "ltr",
+  "display": "standalone",
+  "name": "CDE BIM Wind Simulator",
+  "orientation": "any",
+  "scope": "/",
+  "short_name": "CDE BIM",
+  "start_url": "/",
+  "theme_color": "#ebe4e4",
+  "description": "Môi trường trao đổi dữ liêu chung CDE BIM tích hợp Mô phỏng khí động học gió 3D.",
+  "id": "CDE BIM"
+}
