@@ -35,12 +35,123 @@ function injectQtoUI() {
     </div>
     <div id="qtoNoProjectMsg" style="color:#999;padding:8px 0;">Vào panel 📁 CDE, chọn dự án trước đã.</div>
     <div id="qtoContent" style="display:none;">
+      <div id="qtoLibraryBox"></div>
       <div class="cde-status-tabs" id="qtoCategoryTabs"></div>
       <div id="qtoAddBox"></div>
       <div id="qtoListBox"></div>
       <div id="qtoSummaryBox"></div>
     </div>`;
   document.body.appendChild(panel);
+}
+
+/* ---------------------------------------------------------------------
+   0. THƯ VIỆN MÃ HIỆU ĐỊNH MỨC (dùng chung mọi dự án)
+   --------------------------------------------------------------------- */
+function renderQtoLibraryBox() {
+  const box = document.getElementById("qtoLibraryBox");
+  box.innerHTML = `
+    <div class="cde-file-card">
+      <div class="fname">📚 Thư Viện Mã Hiệu Định Mức</div>
+      <div class="meta" id="qtoLibCount">Đang kiểm tra...</div>
+      <input type="file" id="qtoLibFileInput" accept=".xlsx,.xls" style="display:none;">
+      <button class="btn" style="width:100%;margin-top:6px;" id="qtoLibImportBtn">📥 Import Excel (Mã hiệu / Tên công tác / Đơn vị)</button>
+    </div>`;
+  document.getElementById("qtoLibImportBtn").addEventListener("click", () => {
+    document.getElementById("qtoLibFileInput").click();
+  });
+  document.getElementById("qtoLibFileInput").addEventListener("change", handleLibraryImport);
+  updateQtoLibCount();
+}
+
+async function updateQtoLibCount() {
+  const { count } = await sb.from("norm_code_library").select("*", { count: "exact", head: true });
+  const el = document.getElementById("qtoLibCount");
+  if (el) el.innerText = `Đã có ${count || 0} mã hiệu trong thư viện.`;
+}
+
+function handleLibraryImport(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = async (ev) => {
+    try {
+      const workbook = XLSX.read(ev.target.result, { type: "array" });
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+      if (rows.length === 0) { alert("File rỗng."); return; }
+
+      const headers = Object.keys(rows[0]);
+      const codeCol = headers.find(h => /mã\s*hiệu|ma\s*hieu|code/i.test(h));
+      const nameCol = headers.find(h => /tên\s*công\s*tác|ten\s*cong\s*tac|name|công\s*tác/i.test(h));
+      const unitCol = headers.find(h => /đơn\s*vị|don\s*vi|unit/i.test(h));
+      const chapterCol = headers.find(h => /chương|chuong|chapter/i.test(h));
+      if (!codeCol || !nameCol) { alert("Không tìm thấy cột 'Mã hiệu' và 'Tên công tác' trong file."); return; }
+
+      const entries = rows
+        .map(r => ({
+          norm_code: String(r[codeCol]).trim(),
+          task_name: String(r[nameCol]).trim(),
+          unit: unitCol ? String(r[unitCol]).trim() : null,
+          chapter: chapterCol ? String(r[chapterCol]).trim() : null,
+          created_by: currentUser.id
+        }))
+        .filter(r => r.norm_code && r.task_name);
+
+      if (!confirm(`Tìm thấy ${entries.length} mã hiệu trong file. Thêm vào thư viện?`)) return;
+
+      // Chèn theo lô (500 dòng/lần) tránh vượt giới hạn 1 request
+      for (let i = 0; i < entries.length; i += 500) {
+        const chunk = entries.slice(i, i + 500);
+        const { error } = await sb.from("norm_code_library").insert(chunk);
+        if (error) { alert("Lỗi ở lô " + i + ": " + error.message); return; }
+      }
+
+      showToast ? showToast(`✅ Đã import ${entries.length} mã hiệu`, "success") : alert("Import xong.");
+      updateQtoLibCount();
+    } catch (err) {
+      alert("Lỗi đọc file: " + err.message);
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+/* Tìm kiếm gợi ý theo tên công tác hoặc mã hiệu — gắn vào 1 ô input, hiện
+   dropdown kết quả bên dưới, chọn 1 dòng sẽ tự điền tên/mã/đơn vị. */
+function attachLibraryAutocomplete(inputEl, onPick) {
+  const dropdown = document.createElement("div");
+  dropdown.style.cssText = "position:relative;";
+  const list = document.createElement("div");
+  list.style.cssText = "position:absolute;top:0;left:0;right:0;background:#fff;border:1px solid #ddd;border-radius:6px;max-height:160px;overflow-y:auto;z-index:200;display:none;box-shadow:0 4px 10px rgba(0,0,0,0.1);";
+  inputEl.parentNode.insertBefore(dropdown, inputEl.nextSibling);
+  dropdown.appendChild(list);
+
+  let debounceTimer;
+  inputEl.addEventListener("input", () => {
+    clearTimeout(debounceTimer);
+    const q = inputEl.value.trim();
+    if (q.length < 2) { list.style.display = "none"; return; }
+    debounceTimer = setTimeout(async () => {
+      const { data } = await sb
+        .from("norm_code_library")
+        .select("norm_code, task_name, unit")
+        .or(`task_name.ilike.%${q}%,norm_code.ilike.%${q}%`)
+        .limit(15);
+      if (!data || data.length === 0) { list.style.display = "none"; return; }
+      list.innerHTML = data.map((r, i) =>
+        `<div class="qto-lib-suggestion" data-idx="${i}" style="padding:5px 8px;font-size:11px;cursor:pointer;border-bottom:1px solid #f0f0f0;">
+          <b>${r.norm_code}</b> — ${r.task_name} ${r.unit ? `<span style="color:#999;">(${r.unit})</span>` : ""}
+        </div>`).join("");
+      list.style.display = "block";
+      list.querySelectorAll(".qto-lib-suggestion").forEach(el => {
+        el.addEventListener("click", () => {
+          const r = data[parseInt(el.dataset.idx)];
+          onPick(r);
+          list.style.display = "none";
+        });
+      });
+    }, 300);
+  });
+  inputEl.addEventListener("blur", () => setTimeout(() => { list.style.display = "none"; }, 200));
 }
 
 window.toggleQtoPanel = function () {
