@@ -170,6 +170,7 @@ async function refreshQtoPanel() {
   document.getElementById("qtoNoProjectMsg").style.display = "none";
   document.getElementById("qtoContent").style.display = "block";
 
+  renderQtoLibraryBox();
   await loadQtoItems();
   renderQtoCategoryTabs();
 }
