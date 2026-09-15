@@ -232,6 +232,21 @@ function renderAddQtoBox() {
     </div>`;
 
   document.getElementById("qtoRunBtn").addEventListener("click", runQtoCalculation);
+
+  const nameInput = document.getElementById("qtoNewName");
+  const codeInput = document.getElementById("qtoNewCode");
+  const unitSelect = document.getElementById("qtoNewUnit");
+
+  const fillFromLibrary = (r) => {
+    nameInput.value = r.task_name;
+    codeInput.value = r.norm_code;
+    const matchedUnitKey = Object.keys(QTO_UNIT_LABELS).find(k =>
+      QTO_UNIT_LABELS[k] === r.unit || k === (r.unit || "").toLowerCase()
+    );
+    if (matchedUnitKey) unitSelect.value = matchedUnitKey;
+  };
+  attachLibraryAutocomplete(nameInput, fillFromLibrary);
+  attachLibraryAutocomplete(codeInput, fillFromLibrary);
 }
 
 function findQuantityFromPsets(entityId, patterns) {
