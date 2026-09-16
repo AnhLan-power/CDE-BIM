@@ -49,17 +49,26 @@ function injectQtoUI() {
    --------------------------------------------------------------------- */
 function renderQtoLibraryBox() {
   const box = document.getElementById("qtoLibraryBox");
+  const isLibAdmin = !!(currentProfile && currentProfile.is_library_admin);
+
   box.innerHTML = `
     <div class="cde-file-card">
       <div class="fname">📚 Thư Viện Mã Hiệu Định Mức</div>
       <div class="meta" id="qtoLibCount">Đang kiểm tra...</div>
-      <input type="file" id="qtoLibFileInput" accept=".xlsx,.xls" style="display:none;">
-      <button class="btn" style="width:100%;margin-top:6px;" id="qtoLibImportBtn">📥 Import Excel (Mã hiệu / Tên công tác / Đơn vị)</button>
+      ${isLibAdmin ? `
+        <input type="file" id="qtoLibFileInput" accept=".xlsx,.xls" style="display:none;">
+        <button class="btn" style="width:100%;margin-top:6px;" id="qtoLibImportBtn">📥 Import Excel (Mã hiệu / Tên công tác / Đơn vị)</button>
+      ` : `
+        <div class="meta" style="color:#999;">🔒 Chỉ admin thư viện mới thêm/sửa được mã hiệu — mọi người vẫn tìm kiếm/dùng bình thường.</div>
+      `}
     </div>`;
-  document.getElementById("qtoLibImportBtn").addEventListener("click", () => {
-    document.getElementById("qtoLibFileInput").click();
-  });
-  document.getElementById("qtoLibFileInput").addEventListener("change", handleLibraryImport);
+
+  if (isLibAdmin) {
+    document.getElementById("qtoLibImportBtn").addEventListener("click", () => {
+      document.getElementById("qtoLibFileInput").click();
+    });
+    document.getElementById("qtoLibFileInput").addEventListener("change", handleLibraryImport);
+  }
   updateQtoLibCount();
 }
 
