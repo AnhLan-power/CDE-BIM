@@ -1,9 +1,10 @@
 const CACHE_NAME = 'cde-bim-v1';
 // Danh sách các file bạn muốn lưu cache để chạy nhanh/offline (nếu cần)
 const assets = [
-  '/',
-  '/index.html',
-  '/manifest.json'
+  './',
+  './index.html',
+  './manifest.json',
+  './icons/icon-512.png'
 ];
 
 // Kích hoạt Service Worker
