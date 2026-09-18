@@ -4,7 +4,8 @@ const assets = [
   './',
   './index.html',
   './manifest.json',
-  './icons/icon-512.png'
+  './icons/icon-512.png',
+  './icons/icon-192.png'
 ];
 
 // Kích hoạt Service Worker
