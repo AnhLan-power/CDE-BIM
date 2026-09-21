@@ -350,7 +350,8 @@ async function runQtoCalculation() {
     const entity = viewer.scene.objects[id];
     if (!entity) continue;
     const { value, estimated } = getElementQuantity(id, unit, density);
-    elements.push({ id, name: entity.name || id, value, estimated });
+    const globalId = entity.originalSystemId || id;
+    elements.push({ id, globalId, name: entity.name || id, value, estimated });
     if (i % 10 === 0) await new Promise(r => setTimeout(r, 0));
   }
 
@@ -446,9 +447,42 @@ function renderQtoSummary() {
         <button id="qtoExportExcelBtn">📥 Xuất Excel</button>
         <button id="qtoExportPdfBtn">📄 Xuất PDF</button>
       </div>
+      <div class="actions" style="margin-top:6px;">
+        <button id="qtoHideTakeoffBtn" title="Ẩn hết cấu kiện đã bóc tách — phần còn hiện là chưa tính, giúp soát sót">🙈 Hide Takeoff</button>
+        <button id="qtoShowTakeoffBtn" title="Hiện lại toàn bộ mô hình">👁 Show Takeoff</button>
+      </div>
     </div>`;
   document.getElementById("qtoExportExcelBtn").addEventListener("click", exportQtoExcel);
   document.getElementById("qtoExportPdfBtn").addEventListener("click", exportQtoPdf);
+  document.getElementById("qtoHideTakeoffBtn").addEventListener("click", hideTakeoffElements);
+  document.getElementById("qtoShowTakeoffBtn").addEventListener("click", showTakeoffElements);
+}
+
+// Ẩn hết cấu kiện đã có mặt trong BẤT KỲ công tác nào (toàn dự án, mọi
+// hạng mục) — phần còn lại đang hiện trên mô hình chính là phần CHƯA
+// được bóc tách, giúp soát nhanh xem có sót cấu kiện nào không, giống
+// hệt "Hide Takeoff" của Navisworks Quantification.
+function hideTakeoffElements() {
+  const globalIdSet = new Set();
+  qtoItems.forEach(it => (it.elements || []).forEach(e => {
+    if (e.globalId) globalIdSet.add(e.globalId);
+    else if (e.id) globalIdSet.add(e.id); // dữ liệu cũ chưa có globalId, tạm dùng id
+  }));
+
+  const idsToHide = [];
+  viewer.scene.objectIds.forEach(id => {
+    const entity = viewer.scene.objects[id];
+    const gid = (entity && entity.originalSystemId) || id;
+    if (globalIdSet.has(gid) || globalIdSet.has(id)) idsToHide.push(id);
+  });
+
+  if (idsToHide.length === 0) { alert("Chưa có cấu kiện nào được bóc tách."); return; }
+  viewer.scene.setObjectsVisible(idsToHide, false);
+  showToast ? showToast(`🙈 Đã ẩn ${idsToHide.length} cấu kiện đã bóc tách`, "success") : null;
+}
+
+function showTakeoffElements() {
+  viewer.scene.setObjectsVisible(viewer.scene.objectIds, true);
 }
 
 /* ---------------------------------------------------------------------

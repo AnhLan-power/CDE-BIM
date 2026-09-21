@@ -16,8 +16,6 @@
  <script src="https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js"></script>
  <link rel="stylesheet" href="./cde-auth.css">
  <link rel="stylesheet" href="./cde-timeline.css">
- <link rel="manifest" href="./manifest.json">
-
 
   <style>
     body { margin: 0; padding: 0; overflow: hidden; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
@@ -441,15 +439,6 @@
       #instruction { bottom: 14px; font-size: 11px; padding: 7px 14px; max-width: 90vw; }
     }
   </style>
-  <script>
-  if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js')
-        .then(reg => console.log('Service Worker đã đăng ký thành công!', reg))
-        .catch(err => console.log('Đăng ký Service Worker thất bại:', err));
-    });
-  }
-</script>
 </head>
 <body>
 
@@ -855,6 +844,30 @@
     // getIfcApi() / getWebIfcLoader() phía dưới).
     let webIfcLoader = null;
     const treeView = new TreeViewPlugin(viewer, { containerElementId: "treeViewContainer", autoExpandDepth: 1 });
+
+    // Click vào TÊN 1 nhóm trên cây (không phải checkbox) -> chọn toàn bộ
+    // cấu kiện trong nhóm đó vào multiSelectedIds, giống hệt cơ chế "Chọn
+    // Nhiều" thủ công — để dùng thẳng cho Bóc Tách Khối Lượng, Carbon,
+    // v.v. mà không cần click từng cấu kiện ngoài scene.
+    treeView.on("nodeTitleClicked", (e) => {
+      const objectIds = treeView.metaScene.getObjectIDsInSubtree(e.treeViewNode.objectId);
+      if (!objectIds || objectIds.length === 0) return;
+
+      clearMultiSelection();
+      multiSelectMode = true;
+      objectIds.forEach(id => {
+        const entity = viewer.scene.objects[id];
+        if (entity) {
+          multiSelectedIds.add(id);
+          entity.selected = true;
+        }
+      });
+      updateMultiSelectBar();
+      const bar = document.getElementById("multiSelectBar");
+      if (bar) bar.classList.add("open");
+      showToast ? showToast(`✅ Đã chọn ${multiSelectedIds.size} cấu kiện từ cây thư mục`, "success") : null;
+    });
+
     const sectionPlanes = new SectionPlanesPlugin(viewer);
     const distanceMeasurements = new DistanceMeasurementsPlugin(viewer);
 
