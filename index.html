@@ -799,6 +799,7 @@
   </div>
 
   <canvas id="myCanvas"></canvas>
+  <canvas id="myNavCubeCanvas" style="position:absolute; width:110px; height:110px; bottom:15px; right:15px; z-index:150;"></canvas>
 
   <!-- Thư viện web-ifc: đọc trực tiếp file .IFC gốc để lấy hình học CHÍNH XÁC
        (tam giác lưới thật, không nén trên GPU) — dùng RIÊNG cho việc tính
@@ -818,6 +819,7 @@
       TreeViewPlugin, 
       SectionPlanesPlugin, 
       DistanceMeasurementsPlugin,
+      NavCubePlugin,
       Mesh,
       ReadableGeometry,
       PhongMaterial
@@ -834,6 +836,16 @@
     // được viewer thật (Set/Map là kiểu tham chiếu nên luôn đồng bộ; biến
     // boolean multiSelectMode không tự đồng bộ kiểu này, xem thêm bên dưới).
     window.viewer = viewer;
+
+    // NavCube — khối lập phương định hướng góc nhìn, giống góc dưới-phải
+    // của xeokit gốc. Click 1 mặt/cạnh/góc để camera bay tới đúng hướng đó.
+    new NavCubePlugin(viewer, {
+      canvasId: "myNavCubeCanvas",
+      visible: true,
+      cameraFly: true,
+      cameraFitFOV: 45,
+      cameraFlyDuration: 0.6
+    });
 
     const xktLoader = new XKTLoaderPlugin(viewer);
     // WebIFCLoaderPlugin dựng luôn phần hình học + metadata trực tiếp từ file
