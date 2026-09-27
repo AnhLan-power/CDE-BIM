@@ -3726,11 +3726,25 @@ window.debugClashPair = function() {
     document.getElementById("exportBcfBtn").addEventListener("click", async () => {
       const title = document.getElementById("bcfTitle").value || "Sự cố BIM CDE";
       const desc = document.getElementById("bcfDescription").value || "Cần kiểm tra lại va chạm thiết kế.";
-      const targetId = selectedEntity ? selectedEntity.id : "N/A";
+      // Dùng đúng GlobalId ổn định (originalSystemId) thay vì id nội bộ của
+      // phiên hiện tại — nếu không, Revit/phần mềm khác sẽ không khớp được
+      // đúng cấu kiện cần highlight.
+      const targetId = selectedEntity ? (selectedEntity.originalSystemId || selectedEntity.id) : null;
 
       const eye = viewer.camera.eye;
       const look = viewer.camera.look;
       const up = viewer.camera.up;
+
+      // Vector hướng nhìn PHẢI chuẩn hoá (unit vector) theo đúng chuẩn BCF —
+      // để nguyên chưa chuẩn hoá là 1 nguyên nhân phổ biến khiến phần mềm
+      // nhận (Revit, Navisworks, Solibri...) tính sai/không tính được góc nhìn.
+      const dirRaw = [look[0] - eye[0], look[1] - eye[1], look[2] - eye[2]];
+      const dirLen = Math.sqrt(dirRaw[0] ** 2 + dirRaw[1] ** 2 + dirRaw[2] ** 2) || 1;
+      const dir = dirRaw.map(v => v / dirLen);
+
+      // Góc nhìn (FOV) — bắt buộc phải có trong PerspectiveCamera theo chuẩn
+      // BCF, thiếu là nhiều phần mềm sẽ từ chối đọc cả khối camera.
+      const fov = (viewer.camera.perspective && viewer.camera.perspective.fov) || 60;
 
       const zip = new JSZip();
       const topicGuid = generateUUID();
@@ -3748,17 +3762,24 @@ window.debugClashPair = function() {
 
       const viewpointContent = `<?xml version="1.0" encoding="UTF-8"?>
 <VisualizationInfo Guid="${generateUUID()}">
-  <Components><Selection><Component IfcGuid="${targetId}" /></Selection></Components>
+  ${targetId ? `<Components><Selection><Component IfcGuid="${targetId}" /></Selection></Components>` : ""}
   <PerspectiveCamera>
-    <CameraViewPointX>${eye[0]}</CameraViewPointX><CameraViewPointY>${eye[1]}</CameraViewPointY><CameraViewPointZ>${eye[2]}</CameraViewPointZ>
-    <CameraDirectionX>${look[0] - eye[0]}</CameraDirectionX><CameraDirectionY>${look[1] - eye[1]}</CameraDirectionY><CameraDirectionZ>${look[2] - eye[2]}</CameraDirectionZ>
-    <CameraUpVectorX>${up[0]}</CameraUpVectorX><CameraUpVectorY>${up[1]}</CameraUpVectorY><CameraUpVectorZ>${up[2]}</CameraUpVectorZ>
+    <CameraViewPoint>
+      <X>${eye[0]}</X><Y>${eye[1]}</Y><Z>${eye[2]}</Z>
+    </CameraViewPoint>
+    <CameraDirection>
+      <X>${dir[0]}</X><Y>${dir[1]}</Y><Z>${dir[2]}</Z>
+    </CameraDirection>
+    <CameraUpVector>
+      <X>${up[0]}</X><Y>${up[1]}</Y><Z>${up[2]}</Z>
+    </CameraUpVector>
+    <FieldOfView>${fov}</FieldOfView>
   </PerspectiveCamera>
 </VisualizationInfo>`;
 
       folder.file("markup.bcf", markupContent);
       folder.file("viewpoint.bcfv", viewpointContent);
-      zip.file("bcf.version", `<?xml version="1.0" encoding="UTF-8"?><Version VersionId="2.1"/>`);
+      zip.file("bcf.version", `<?xml version="1.0" encoding="UTF-8"?><Version VersionId="2.1" xmlns="http://www.buildingsmart-tech.org/bcf/version"/>`);
 
       const blob = await zip.generateAsync({ type: "blob" });
       const link = document.createElement("a");
