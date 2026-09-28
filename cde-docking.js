@@ -23,6 +23,7 @@
       el.id = id;
       el.style.cssText = cssText;
       document.body.appendChild(el);
+      watchDockZone(el);
       return el;
     };
     mkZone("dockLeft",
