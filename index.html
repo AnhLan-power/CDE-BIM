@@ -15,6 +15,7 @@
  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
  <script src="https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js"></script>
  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+ <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
  <link rel="stylesheet" href="./cde-auth.css">
  <link rel="stylesheet" href="./cde-timeline.css">
 
@@ -808,28 +809,36 @@
       </button>
     </div>
   </div>
-      <!-- Khung Cửa Sổ Dashboard (Được thêm mới và cấu hình chuẩn) -->
-  <div id="cde-dashboard-panel" class="panel" style="display: none; right: 20px; top: 110px; width: 420px; max-height: calc(100vh - 140px); z-index: 9999;">
+      <!-- Khung Cửa Sổ Dashboard (Nâng cấp Chi Phí & %) -->
+  <div id="cde-dashboard-panel" class="panel" style="display: none; right: 20px; top: 100px; width: 440px; max-height: calc(100vh - 120px); z-index: 9999;">
     <div class="panel-header">
-      <h4 style="margin:0; color:#0275d8;">📊 Tổng Hợp Dữ Liệu BIM</h4>
+      <h4 style="margin:0; color:#0275d8;">📊 Báo Cáo Dữ Liệu & Chi Phí BIM</h4>
       <button onclick="toggleBimDashboard()" style="border:none;background:none;cursor:pointer;font-weight:bold;">✕</button>
     </div>
 
-    <!-- Thống kê nhanh (KPI cards) -->
+    <!-- Thống kê KPI: Số lượng & Chi phí -->
     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; margin-bottom: 12px;">
       <div style="background: #f8f9fa; padding: 10px; border-radius: 8px; border-left: 4px solid #4e73df;">
         <div style="font-size: 11px; color: #666;">TỔNG CẤU KIỆN</div>
         <div id="kpi-total-objects" style="font-size: 18px; font-weight: bold; color: #333;">0</div>
       </div>
       <div style="background: #f8f9fa; padding: 10px; border-radius: 8px; border-left: 4px solid #1cc88a;">
-        <div style="font-size: 11px; color: #666;">SỐ PHÂN LOẠI</div>
-        <div id="kpi-total-types" style="font-size: 18px; font-weight: bold; color: #333;">0</div>
+        <div style="font-size: 11px; color: #666;">TỔNG CHI PHÍ ƯỚC TÍNH</div>
+        <div id="kpi-total-cost" style="font-size: 16px; font-weight: bold; color: #1cc88a;">0 VNĐ</div>
       </div>
     </div>
 
-    <!-- Biểu đồ: Phân bố cấu kiện theo Loại -->
+    <!-- Biểu đồ Doughnut hiển thị % -->
+    <div style="background: #fff; padding: 10px; border-radius: 8px; border: 1px solid #f0f0f0; margin-bottom: 12px;">
+      <canvas id="chartCategories" height="220"></canvas>
+    </div>
+
+    <!-- Bảng áp đơn giá theo loại cấu kiện -->
     <div style="background: #fff; padding: 10px; border-radius: 8px; border: 1px solid #f0f0f0;">
-      <canvas id="chartCategories" height="200"></canvas>
+      <div style="font-weight: bold; font-size: 12px; margin-bottom: 6px; color: #333;">🏷️ Thiết lập đơn giá ước tính (VNĐ / Cấu kiện)</div>
+      <div id="unit-price-table-container" style="max-height: 160px; overflow-y: auto; font-size: 11px;">
+        <!-- Đơn giá từng Loại sẽ tự động tạo ở đây -->
+      </div>
     </div>
   </div>
 
