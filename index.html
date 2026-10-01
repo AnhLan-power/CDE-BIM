@@ -808,46 +808,30 @@
       </button>
     </div>
   </div>
-      <!-- ===================== TAB: PHÂN TÍCH ===================== -->
-      <div class="ribbon-panel" id="ribbonAnalysis">
-        <div class="ribbon-group">
-          <div class="ribbon-group-buttons">
-            <button class="btn" onclick="toggleSunAnalysisPanel()" title="Phân tích số giờ nắng">☀️ Giờ Nắng</button>
-            <button class="btn" onclick="toggleDaylightPanel()" title="Phân tích tiềm năng ánh sáng tự nhiên">🌤️ Daylight</button>
-          </div>
-          <div class="ribbon-group-label">Ánh Sáng</div>
-        </div>
+      <!-- Khung Cửa Sổ Dashboard (Được thêm mới và cấu hình chuẩn) -->
+  <div id="cde-dashboard-panel" class="panel" style="display: none; right: 20px; top: 110px; width: 420px; max-height: calc(100vh - 140px); z-index: 9999;">
+    <div class="panel-header">
+      <h4 style="margin:0; color:#0275d8;">📊 Tổng Hợp Dữ Liệu BIM</h4>
+      <button onclick="toggleBimDashboard()" style="border:none;background:none;cursor:pointer;font-weight:bold;">✕</button>
+    </div>
 
-        <div class="ribbon-sep"></div>
-
-        <div class="ribbon-group">
-          <div class="ribbon-group-buttons">
-            <button class="btn" onclick="toggleOpennessPanel()" title="Chỉ số độ thông thoáng (KHÔNG phải phân tích gió CFD thật)">🌬️ Độ Thông Thoáng</button>
-            <button class="btn" onclick="toggleWindPanel()" title="Mô phỏng dòng chảy gió 2D đơn giản hoá (ước lượng minh hoạ, KHÔNG phải CFD thật)">🌪️ Mô Phỏng Gió</button>
-          </div>
-          <div class="ribbon-group-label">Vi Khí Hậu</div>
-        </div>
-
-        <div class="ribbon-sep"></div>
-
-        <div class="ribbon-group">
-          <div class="ribbon-group-buttons">
-            <button class="btn" onclick="toggleCarbonPanel()" title="Ước tính phát thải carbon vật liệu (Embodied Carbon)">🌍 Carbon</button>
-            <button class="btn" onclick="toggleQtoPanel()" title="Bóc tách khối lượng theo hạng mục Việt Nam">📐 Bóc Khối Lượng</button>
-          </div>
-          <div class="ribbon-group-label">Vật Liệu</div>
-        </div>
-
-        <div class="ribbon-sep"></div>
-
-        <!-- Nhóm Nút Báo Cáo BI -->
-        <div class="ribbon-group">
-          <div class="ribbon-group-buttons">
-            <button class="btn btn-primary" onclick="toggleBimDashboard()" title="Tổng hợp báo cáo dữ liệu BIM">📊 Tổng Hợp BI</button>
-          </div>
-          <div class="ribbon-group-label">Báo Cáo</div>
-        </div>
+    <!-- Thống kê nhanh (KPI cards) -->
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; margin-bottom: 12px;">
+      <div style="background: #f8f9fa; padding: 10px; border-radius: 8px; border-left: 4px solid #4e73df;">
+        <div style="font-size: 11px; color: #666;">TỔNG CẤU KIỆN</div>
+        <div id="kpi-total-objects" style="font-size: 18px; font-weight: bold; color: #333;">0</div>
       </div>
+      <div style="background: #f8f9fa; padding: 10px; border-radius: 8px; border-left: 4px solid #1cc88a;">
+        <div style="font-size: 11px; color: #666;">SỐ PHÂN LOẠI</div>
+        <div id="kpi-total-types" style="font-size: 18px; font-weight: bold; color: #333;">0</div>
+      </div>
+    </div>
+
+    <!-- Biểu đồ: Phân bố cấu kiện theo Loại -->
+    <div style="background: #fff; padding: 10px; border-radius: 8px; border: 1px solid #f0f0f0;">
+      <canvas id="chartCategories" height="200"></canvas>
+    </div>
+  </div>
 
   <canvas id="myCanvas"></canvas>
   <canvas id="myNavCubeCanvas" style="position:absolute; width:110px; height:110px; bottom:15px; right:15px; z-index:150;"></canvas>
