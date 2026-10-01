@@ -35,7 +35,7 @@
        border-left:1px solid #ddd; overflow-y:auto; z-index:80; display:none;
        flex-direction:column; padding:8px; box-sizing:border-box; gap:8px;`);
     mkZone("dockBottom",
-      `position:fixed; left:0; right:0; bottom:0; height:${DOCK_BOTTOM_HEIGHT}px; background:#eef0f2;
+      `position:fixed; bottom:0; height:${DOCK_BOTTOM_HEIGHT}px; background:#eef0f2;
        border-top:1px solid #ddd; overflow-x:auto; overflow-y:hidden; z-index:80; display:none;
        flex-direction:row; padding:8px; box-sizing:border-box; gap:8px;`);
   }
