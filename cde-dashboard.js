@@ -65,18 +65,25 @@ function getActiveProjectInfo() {
 async function forceSyncActiveProjectData() {
   const project = getActiveProjectInfo();
 
+  // Nạp Todos
   if (typeof window.loadTodos === 'function') {
     try { await window.loadTodos(project.id); } catch(e){}
   } else if (typeof window.fetchCdeTodos === 'function') {
     try { await window.fetchCdeTodos(project.id); } catch(e){}
   }
 
+  // Nạp Va chạm (Clashes)
   if (typeof window.loadClashHistory === 'function') {
     try { await window.loadClashHistory(project.id); } catch(e){}
   } else if (typeof window.fetchClashResults === 'function') {
     try { await window.fetchClashResults(project.id); } catch(e){}
+  } else if (typeof window.checkClashes === 'function') {
+    try { await window.checkClashes(project.id); } catch(e){}
+  } else if (typeof window.runClashDetection === 'function') {
+    try { await window.runClashDetection(project.id); } catch(e){}
   }
 
+  // Nạp Tiến độ (Timeline)
   if (typeof window.loadTimelineTasks === 'function') {
     try { await window.loadTimelineTasks(project.id); } catch(e){}
   } else if (typeof window.fetchProjectTimeline === 'function') {
@@ -128,39 +135,101 @@ function collectAllCdeRealData() {
     });
   }
 
-  // --- B. THU THẬP SỐ LƯỢNG VA CHẠM (CLASH) THEO DỮ LIỆU CẮT / KHỐI THỰC TẾ ---
-  if (window.lastClashResults && Array.isArray(window.lastClashResults.clashes)) {
-    realData.clashCount = window.lastClashResults.clashes.length;
-  } else if (Array.isArray(window.clashResults)) {
-    realData.clashCount = window.clashResults.length;
-  } else {
+  // --- B. THU THẬP SỐ LƯỢNG VA CHẠM (CLASH) CHÍNH XÁC ---
+  let detectedClashesCount = -1;
+
+  // 1. Kiểm tra các biến JS Toàn cục (Global Window Variables)
+  if (window.lastClashResults) {
+    if (Array.isArray(window.lastClashResults.clashes)) detectedClashesCount = window.lastClashResults.clashes.length;
+    else if (typeof window.lastClashResults.count === 'number') detectedClashesCount = window.lastClashResults.count;
+    else if (Array.isArray(window.lastClashResults)) detectedClashesCount = window.lastClashResults.length;
+  }
+  
+  if (detectedClashesCount < 0) {
+    const rawClashes = window.clashResults || window.clashes || window.detectedClashes || window.bimClashes || window.clashList;
+    if (Array.isArray(rawClashes)) {
+      detectedClashesCount = rawClashes.length;
+    } else if (rawClashes && Array.isArray(rawClashes.clashes)) {
+      detectedClashesCount = rawClashes.clashes.length;
+    }
+  }
+
+  // 2. Kiểm tra các đối tượng Clash Manager / Bim Viewer
+  if (detectedClashesCount < 0) {
+    if (window.clashManager && Array.isArray(window.clashManager.clashes)) {
+      detectedClashesCount = window.clashManager.clashes.length;
+    } else if (window.viewer && window.viewer.clashes && Array.isArray(window.viewer.clashes)) {
+      detectedClashesCount = window.viewer.clashes.length;
+    }
+  }
+
+  // 3. Kiểm tra trong LocalStorage
+  if (detectedClashesCount < 0) {
     try {
-      const savedClash = localStorage.getItem(`clash_${project.id}`) || localStorage.getItem(`cde_clash_${project.id}`) || localStorage.getItem('cde_last_clash');
-      if (savedClash) {
-        const parsed = JSON.parse(savedClash);
-        if (Array.isArray(parsed)) realData.clashCount = parsed.length;
-        else if (parsed.clashes) realData.clashCount = parsed.clashes.length;
+      const keysToTry = [
+        `clash_${project.id}`,
+        `cde_clash_${project.id}`,
+        `clashes_${project.id}`,
+        'cde_last_clash',
+        'clash_results',
+        'clashes'
+      ];
+      for (let key of keysToTry) {
+        const savedClash = localStorage.getItem(key);
+        if (savedClash) {
+          const parsed = JSON.parse(savedClash);
+          if (Array.isArray(parsed)) {
+            detectedClashesCount = parsed.length;
+            break;
+          } else if (parsed && Array.isArray(parsed.clashes)) {
+            detectedClashesCount = parsed.clashes.length;
+            break;
+          } else if (parsed && typeof parsed.count === 'number') {
+            detectedClashesCount = parsed.count;
+            break;
+          }
+        }
       }
     } catch(e){}
   }
 
-  // Nếu vẫn chưa tìm thấy biến, trích xuất con số từ DOM UI Va chạm
-  if (realData.clashCount === 0) {
-    const clashNodes = document.querySelectorAll('*');
+  // 4. Nếu chưa tìm thấy ở JS/Storage, quét DOM UI Va chạm
+  if (detectedClashesCount < 0) {
+    // Ưu tiên đọc Element hiển thị số lượng cụ thể
+    const clashBadge = document.querySelector('#clash-count, .clash-count, #clash-total, .clash-badge');
+    if (clashBadge && clashBadge.innerText) {
+      const match = clashBadge.innerText.match(/\d+/);
+      if (match) detectedClashesCount = parseInt(match[0], 10);
+    }
+  }
+
+  if (detectedClashesCount < 0) {
+    // Đếm số lượng item va chạm trong danh sách DOM nếu có
+    const clashItems = document.querySelectorAll('.clash-item, .clash-row, [class*="clash-result"]');
+    if (clashItems.length > 0) {
+      detectedClashesCount = clashItems.length;
+    }
+  }
+
+  if (detectedClashesCount < 0) {
+    // Quét toàn bộ Text DOM tìm từ khóa va chạm
+    const clashNodes = document.querySelectorAll('h1, h2, h3, h4, h5, div, span, p, b, td');
     for (let el of clashNodes) {
       if (el.children.length === 0 && el.innerText) {
         const txt = el.innerText.trim();
-        // Tìm định dạng chuỗi: "33 va chạm", "VA CHẠM MÔ HÌNH (CLASH) 33", v.v.
-        if (txt.includes('va chạm') || txt.includes('CLASH')) {
+        if (/va chạm|clash|xung đột/i.test(txt)) {
           const match = txt.match(/\d+/);
           if (match) {
-            realData.clashCount = parseInt(match[0], 10);
+            detectedClashesCount = parseInt(match[0], 10);
             break;
           }
         }
       }
     }
   }
+
+  // Gán kết quả (nếu không tìm thấy thì mặc định là 0)
+  realData.clashCount = detectedClashesCount > 0 ? detectedClashesCount : 0;
 
   // --- C. THU THẬP TIẾN ĐỘ THI CÔNG 4D ---
   let rawTasks = [];
@@ -224,6 +293,7 @@ document.addEventListener('change', async (e) => {
     window.cdeTodos = [];
     window.todos = [];
     window.lastClashResults = null;
+    window.clashResults = null;
     window.timelineTasks = [];
     window.cdeTasks = [];
 
@@ -506,7 +576,7 @@ function renderApprovalsDashboard(container, data) {
 // =========================================================================
 function renderBimQuantityCostDashboard(container) {
   if (typeof viewer === 'undefined' || !viewer || !viewer.metaScene) {
-    container.innerHTML = `<div style="padding: 20px; text-align: center; color: #777;">⚠️ Chưa có mô hình BIM nào được nạp vào Viewer.</div>`;
+    container.innerHTML = `<div style="padding: 20px; text-align: center; color: #777;">⚠️️ Chưa có mô hình BIM nào được nạp vào Viewer.</div>`;
     return;
   }
 
@@ -545,7 +615,7 @@ function renderBimQuantityCostDashboard(container) {
         <canvas id="chartBimCategoryRatio" height="220"></canvas>
       </div>
       <div class="acc-chart-box">
-        <div style="font-weight: bold; font-size: 12px; margin-bottom: 8px;">🏷️️ Thiết lập Đơn giá Ước tính (VNĐ/Cấu kiện)</div>
+        <div style="font-weight: bold; font-size: 12px; margin-bottom: 8px;">🏷 Thiết lập Đơn giá Ước tính (VNĐ/Cấu kiện)</div>
         <div id="acc-unit-price-table-container" style="max-height: 200px; overflow-y: auto; font-size: 11px;"></div>
       </div>
     </div>
