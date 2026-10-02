@@ -1,9 +1,7 @@
-// cde-dashboard.js - Hệ thống Dashboard Quản lý Dự án Chuẩn ACC (Autodesk Construction Cloud)
+// cde-dashboard.js - Kết nối dữ liệu thực từ CDE Supabase & BIM Viewer
 
 let isDashboardOpen = false;
 let currentAccTab = 'rfi';
-
-// Biến lưu các đối tượng Biểu đồ Chart.js để destroy khi chuyển tab
 const activeCharts = {};
 
 // Đơn giá mặc định cấu kiện BIM
@@ -14,8 +12,16 @@ const defaultUnitPrices = {
 };
 let customUnitPrices = { ...defaultUnitPrices };
 
-// 1. Hàm Bật / Tắt Khung Dashboard
-function toggleBimDashboard() {
+// Biến lưu Cache dữ liệu thực lấy từ CDE Supabase
+let cdeRealData = {
+  todos: [],
+  files: [],
+  timelineTasks: [],
+  clashes: []
+};
+
+// 1. Hàm Bật / Tắt Khung Dashboard & Lấy dữ liệu CDE
+async function toggleBimDashboard() {
   const panel = document.getElementById('cde-dashboard-panel');
   if (!panel) return;
 
@@ -23,18 +29,47 @@ function toggleBimDashboard() {
   panel.style.display = isDashboardOpen ? 'block' : 'none';
 
   if (isDashboardOpen) {
+    await fetchCdeRealData(); // Tải dữ liệu thực từ CDE Supabase
     renderAccDashboardTab(currentAccTab);
   }
 }
 
-// 2. Chuyển đổi Tab
+// 2. Hàm Tải Dữ Liệu Thực Từ CDE (Supabase / Local Modules)
+async function fetchCdeRealData() {
+  try {
+    // 2.1. Lấy ToDos / Issues thực từ Supabase CDE
+    if (window.supabaseClient) {
+      const { data: todosData } = await window.supabaseClient.from('cde_todos').select('*');
+      if (todosData) cdeRealData.todos = todosData;
+
+      const { data: filesData } = await window.supabaseClient.from('cde_files').select('*');
+      if (filesData) cdeRealData.files = filesData;
+
+      const { data: tasksData } = await window.supabaseClient.from('cde_tasks').select('*');
+      if (tasksData) cdeRealData.timelineTasks = tasksData;
+    } else {
+      // Tải từ bộ nhớ local/memory nếu không kết nối Supabase
+      if (window.cdeTodos) cdeRealData.todos = window.cdeTodos;
+      if (window.cdeFiles) cdeRealData.files = window.cdeFiles;
+      if (window.cdeTimelineTasks) cdeRealData.timelineTasks = window.cdeTimelineTasks;
+    }
+
+    // 2.2. Lấy dữ liệu Va Chạm (Clash) thực tế vừa quét
+    if (window.lastClashResults && window.lastClashResults.clashes) {
+      cdeRealData.clashes = window.lastClashResults.clashes;
+    }
+  } catch (err) {
+    console.warn("Chưa thể kết nối CDE Supabase, đang hiển thị dữ liệu từ dự án hiện tại:", err);
+  }
+}
+
+// 3. Chuyển đổi Tab
 function switchAccTab(tabName) {
   currentAccTab = tabName;
   document.querySelectorAll('.acc-tab-btn').forEach(btn => btn.classList.remove('active'));
   const activeBtn = document.getElementById(`tab-btn-${tabName}`);
   if (activeBtn) activeBtn.classList.add('active');
 
-  // Hủy các biểu đồ cũ
   Object.keys(activeCharts).forEach(key => {
     if (activeCharts[key]) {
       activeCharts[key].destroy();
@@ -45,7 +80,7 @@ function switchAccTab(tabName) {
   renderAccDashboardTab(tabName);
 }
 
-// 3. Render Nội dung theo từng Tab ACC
+// 4. Render Nội dung theo từng Tab ACC
 function renderAccDashboardTab(tabName) {
   const container = document.getElementById('acc-dashboard-content');
   if (!container) return;
@@ -64,102 +99,102 @@ function renderAccDashboardTab(tabName) {
 }
 
 // =========================================================================
-// TAB 1: RFI MANAGEMENT (QUẢN LÝ YÊU CẦU THÔNG TIN)
+// TAB 1: RFI MANAGEMENT (DỮ LIỆU THỰC TỪ CDE TODOS / BCF)
 // =========================================================================
 function renderRfiDashboard(container) {
+  // Lọc danh sách RFI từ ToDos thực tế trong CDE
+  const rfis = cdeRealData.todos.filter(t => t.type === 'RFI' || (t.title && t.title.toUpperCase().includes('RFI')));
+  
+  const totalRfi = rfis.length;
+  const openRfi = rfis.filter(r => r.status === 'Open' || r.status === 'Pending').length;
+  const closedRfi = rfis.filter(r => r.status === 'Closed' || r.status === 'Done').length;
+  const overdueRfi = rfis.filter(r => r.due_date && new Date(r.due_date) < new Date() && r.status !== 'Closed').length;
+
+  // Thống kê theo bộ môn
+  const disciplineCounts = { 'Kiến Trúc': 0, 'Kết Cấu': 0, 'MEP': 0, 'Khác': 0 };
+  rfis.forEach(r => {
+    const disc = r.discipline || 'Khác';
+    disciplineCounts[disc] = (disciplineCounts[disc] || 0) + 1;
+  });
+
   container.innerHTML = `
     <!-- KPI Row -->
-    <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 14px;">
+    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 14px;">
       <div class="acc-kpi-card" style="border-left: 4px solid #4e73df;">
-        <div style="font-size: 10px; color: #666;">TỔNG RFI</div>
-        <div style="font-size: 20px; font-weight: bold; color: #4e73df;">1,529</div>
+        <div style="font-size: 10px; color: #666;">TỔNG RFI DỰ ÁN</div>
+        <div style="font-size: 20px; font-weight: bold; color: #4e73df;">${totalRfi}</div>
       </div>
       <div class="acc-kpi-card" style="border-left: 4px solid #f6c23e;">
-        <div style="font-size: 10px; color: #666;">RFI ĐANG MỞ</div>
-        <div style="font-size: 20px; font-weight: bold; color: #f6c23e;">485</div>
+        <div style="font-size: 10px; color: #666;">ĐANG CHỜ XỬ LÝ</div>
+        <div style="font-size: 20px; font-weight: bold; color: #f6c23e;">${openRfi}</div>
       </div>
       <div class="acc-kpi-card" style="border-left: 4px solid #1cc88a;">
-        <div style="font-size: 10px; color: #666;">ĐÃ ĐÓNG</div>
-        <div style="font-size: 20px; font-weight: bold; color: #1cc88a;">671</div>
+        <div style="font-size: 10px; color: #666;">ĐÃ GIẢI QUYẾT</div>
+        <div style="font-size: 20px; font-weight: bold; color: #1cc88a;">${closedRfi}</div>
       </div>
       <div class="acc-kpi-card" style="border-left: 4px solid #e74a3b;">
         <div style="font-size: 10px; color: #666;">QUÁ HẠN (OVERDUE)</div>
-        <div style="font-size: 20px; font-weight: bold; color: #e74a3b;">195</div>
-      </div>
-      <div class="acc-kpi-card" style="border-left: 4px solid #36b9cc;">
-        <div style="font-size: 10px; color: #666;">TB NGÀY PHẢN HỒI</div>
-        <div style="font-size: 20px; font-weight: bold; color: #36b9cc;">15.3 Ngày</div>
+        <div style="font-size: 20px; font-weight: bold; color: #e74a3b;">${overdueRfi}</div>
       </div>
     </div>
 
-    <!-- Charts Row 1 -->
+    <!-- Charts Row -->
     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
       <div class="acc-chart-box">
-        <div style="font-weight: bold; font-size: 12px; margin-bottom: 8px;">📊 RFI theo Trạng Thái (Status)</div>
+        <div style="font-weight: bold; font-size: 12px; margin-bottom: 8px;">📊 Trạng Thái RFI Thực Tế</div>
         <canvas id="chartRfiStatus" height="200"></canvas>
       </div>
       <div class="acc-chart-box">
-        <div style="font-weight: bold; font-size: 12px; margin-bottom: 8px;">🏗️ RFI theo Bộ Môn (Discipline)</div>
+        <div style="font-weight: bold; font-size: 12px; margin-bottom: 8px;">🏗️ RFI Phân Theo Bộ Môn</div>
         <canvas id="chartRfiDiscipline" height="200"></canvas>
       </div>
     </div>
 
-    <!-- RFI Log Table -->
+    <!-- Table -->
     <div class="acc-chart-box">
-      <div style="font-weight: bold; font-size: 12px; margin-bottom: 8px;">📋 Bảng Nhật Ký RFI Mới Nhất</div>
+      <div style="font-weight: bold; font-size: 12px; margin-bottom: 8px;">📋 Bảng RFI Thực Từ CDE Project</div>
       <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
         <thead>
           <tr style="background: #f1f3f5; text-align: left;">
-            <th style="padding: 6px;">Mã RFI</th>
-            <th style="padding: 6px;">Tiêu đề</th>
+            <th style="padding: 6px;">Tiêu đề RFI</th>
+            <th style="padding: 6px;">Người giao</th>
             <th style="padding: 6px;">Bộ môn</th>
             <th style="padding: 6px;">Trạng thái</th>
-            <th style="padding: 6px;">Hạn phản hồi</th>
+            <th style="padding: 6px;">Hạn xử lý</th>
           </tr>
         </thead>
         <tbody>
-          <tr style="border-bottom: 1px solid #eee;">
-            <td style="padding: 6px; font-weight: bold;">RFI-2026-089</td>
-            <td>Lệch vị trí ống MEP tầng 3</td>
-            <td>MEP</td>
-            <td><span style="background: #fff3cd; color: #856404; padding: 2px 6px; border-radius: 4px;">Pending</span></td>
-            <td>05/10/2026</td>
-          </tr>
-          <tr style="border-bottom: 1px solid #eee;">
-            <td style="padding: 6px; font-weight: bold;">RFI-2026-090</td>
-            <td>Chi tiết xung đột dầm bê tông & Cột thép</td>
-            <td>Kết cấu</td>
-            <td><span style="background: #f8d7da; color: #721c24; padding: 2px 6px; border-radius: 4px;">Overdue</span></td>
-            <td>28/09/2026</td>
-          </tr>
-          <tr style="border-bottom: 1px solid #eee;">
-            <td style="padding: 6px; font-weight: bold;">RFI-2026-091</td>
-            <td>Thay đổi vật liệu kính mặt đứng</td>
-            <td>Kiến trúc</td>
-            <td><span style="background: #d4edda; color: #155724; padding: 2px 6px; border-radius: 4px;">Closed</span></td>
-            <td>01/10/2026</td>
-          </tr>
+          ${rfis.length === 0 ? `<tr><td colspan="5" style="text-align:center; padding:12px; color:#888;">Chưa có RFI nào trong CDE ToDos. Hãy vào mục "ToDos" để tạo RFI mới!</td></tr>` : 
+            rfis.map(r => `
+              <tr style="border-bottom: 1px solid #eee;">
+                <td style="padding: 6px; font-weight: bold;">${r.title || 'RFI Không tên'}</td>
+                <td>${r.assignee || 'CDE User'}</td>
+                <td>${r.discipline || 'Chung'}</td>
+                <td><span style="background: #e2e3e5; padding: 2px 6px; border-radius: 4px;">${r.status || 'Open'}</span></td>
+                <td>${r.due_date || 'Chưa đặt'}</td>
+              </tr>
+            `).join('')
+          }
         </tbody>
       </table>
     </div>
   `;
 
-  // Draw Charts
   setTimeout(() => {
     activeCharts['rfiStatus'] = new Chart(document.getElementById('chartRfiStatus'), {
       type: 'doughnut',
       data: {
-        labels: ['Open', 'Pending', 'Closed', 'Draft'],
-        datasets: [{ data: [485, 312, 671, 61], backgroundColor: ['#f6c23e', '#36b9cc', '#1cc88a', '#858796'] }]
+        labels: ['Đang chờ', 'Đã xong', 'Quá hạn'],
+        datasets: [{ data: [openRfi, closedRfi, overdueRfi], backgroundColor: ['#f6c23e', '#1cc88a', '#e74a3b'] }]
       },
-      options: { responsive: true, plugins: { legend: { position: 'bottom', labels: { boxWidth: 10 } } } }
+      options: { responsive: true, plugins: { legend: { position: 'bottom' } } }
     });
 
     activeCharts['rfiDiscipline'] = new Chart(document.getElementById('chartRfiDiscipline'), {
       type: 'bar',
       data: {
-        labels: ['Kiến Trúc', 'Kết Cấu', 'MEP', 'Hạ Tầng', 'PCCC'],
-        datasets: [{ label: 'Số lượng RFI', data: [420, 580, 310, 140, 79], backgroundColor: '#4e73df' }]
+        labels: Object.keys(disciplineCounts),
+        datasets: [{ label: 'Số lượng', data: Object.values(disciplineCounts), backgroundColor: '#4e73df' }]
       },
       options: { responsive: true, plugins: { legend: { display: false } } }
     });
@@ -167,104 +202,55 @@ function renderRfiDashboard(container) {
 }
 
 // =========================================================================
-// TAB 2: ISSUE MANAGEMENT (QUẢN LÝ VẤN ĐỀ & VA CHẠM)
+// TAB 2: ISSUE MANAGEMENT (DỮ LIỆU THỰC TỪ CHECK VA CHẠM / TODOS)
 // =========================================================================
 function renderIssuesDashboard(container) {
-  // Lấy dữ liệu va chạm thực tế từ Viewer nếu có
-  const clashCount = window.lastClashResults ? window.lastClashResults.clashes.length : 122;
+  const issues = cdeRealData.todos.filter(t => t.type === 'Issue' || !t.type);
+  const clashes = cdeRealData.clashes;
+
+  const totalIssues = issues.length + clashes.length;
+  const openIssues = issues.filter(i => i.status !== 'Closed').length + clashes.length;
+  const closedIssues = issues.filter(i => i.status === 'Closed').length;
 
   container.innerHTML = `
     <!-- KPI Row -->
-    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 14px;">
+    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 14px;">
       <div class="acc-kpi-card" style="border-left: 4px solid #e74a3b;">
-        <div style="font-size: 10px; color: #666;">TỔNG VẤN ĐỀ / VA CHẠM</div>
-        <div style="font-size: 20px; font-weight: bold; color: #e74a3b;">${clashCount}</div>
+        <div style="font-size: 10px; color: #666;">TỔNG VẤN ĐỀ & VA CHẠM</div>
+        <div style="font-size: 20px; font-weight: bold; color: #e74a3b;">${totalIssues}</div>
       </div>
       <div class="acc-kpi-card" style="border-left: 4px solid #f6c23e;">
-        <div style="font-size: 10px; color: #666;">ĐANG XỬ LÝ (OPEN)</div>
-        <div style="font-size: 20px; font-weight: bold; color: #f6c23e;">${Math.round(clashCount * 0.7)}</div>
+        <div style="font-size: 10px; color: #666;">ĐANG MỞ (CẦN XỬ LÝ)</div>
+        <div style="font-size: 20px; font-weight: bold; color: #f6c23e;">${openIssues}</div>
       </div>
       <div class="acc-kpi-card" style="border-left: 4px solid #1cc88a;">
-        <div style="font-size: 10px; color: #666;">ĐÃ GIẢI QUYẾT</div>
-        <div style="font-size: 20px; font-weight: bold; color: #1cc88a;">${Math.round(clashCount * 0.3)}</div>
-      </div>
-      <div class="acc-kpi-card" style="border-left: 4px solid #4e73df;">
-        <div style="font-size: 10px; color: #666;">TB NGÀY ĐÓNG VẤN ĐỀ</div>
-        <div style="font-size: 20px; font-weight: bold; color: #4e73df;">43.5 Ngày</div>
+        <div style="font-size: 10px; color: #666;">ĐÃ ĐÓNG (HOÀN THÀNH)</div>
+        <div style="font-size: 20px; font-weight: bold; color: #1cc88a;">${closedIssues}</div>
       </div>
     </div>
 
     <!-- Charts Row -->
     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
       <div class="acc-chart-box">
-        <div style="font-weight: bold; font-size: 12px; margin-bottom: 8px;">🎯 Nguyên Nhân Gốc Rễ (Root Cause)</div>
-        <canvas id="chartIssueRootCause" height="200"></canvas>
+        <div style="font-weight: bold; font-size: 12px; margin-bottom: 8px;">🎯 Phân Loại Vấn Đề Thực Tế</div>
+        <canvas id="chartIssueType" height="200"></canvas>
       </div>
       <div class="acc-chart-box">
-        <div style="font-weight: bold; font-size: 12px; margin-bottom: 8px;">📈 Xu Hướng Phát Sinh Vấn Đề Theo Tháng</div>
-        <canvas id="chartIssueTrend" height="200"></canvas>
+        <div style="font-weight: bold; font-size: 12px; margin-bottom: 8px;">⚡ Chi Tiết Quét Va Chạm Mô Hình</div>
+        <div style="padding:10px; font-size:12px;">
+          📌 <b>Kết quả Va chạm BIM:</b> <span style="color:#d9534f; font-weight:bold;">${clashes.length} va chạm</span><br>
+          <span style="font-size:11px; color:#666;">Chạy "Check Va Chạm" ở Tab Kiểm Tra để tự động cập nhật danh sách va chạm mới nhất vào Dashboard.</span>
+        </div>
       </div>
     </div>
   `;
 
   setTimeout(() => {
-    activeCharts['issueRootCause'] = new Chart(document.getElementById('chartIssueRootCause'), {
+    activeCharts['issueType'] = new Chart(document.getElementById('chartIssueType'), {
       type: 'pie',
       data: {
-        labels: ['Xung đột Thiết kế', 'Lỗi Thi công', 'An toàn Lao động', 'Sai khác Vật liệu', 'Khác'],
-        datasets: [{ data: [45, 25, 15, 10, 5], backgroundColor: ['#e74a3b', '#f6c23e', '#4e73df', '#1cc88a', '#858796'] }]
-      },
-      options: { responsive: true, plugins: { legend: { position: 'bottom', labels: { boxWidth: 10 } } } }
-    });
-
-    activeCharts['issueTrend'] = new Chart(document.getElementById('chartIssueTrend'), {
-      type: 'line',
-      data: {
-        labels: ['T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8', 'T9', 'T10'],
-        datasets: [{ label: 'Vấn đề mới', data: [12, 19, 15, 25, 22, 30, 28, 35, 40, 20], borderColor: '#e74a3b', fill: false, tension: 0.3 }]
-      },
-      options: { responsive: true, plugins: { legend: { display: false } } }
-    });
-  }, 50);
-}
-
-// =========================================================================
-// TAB 3: PROJECT STATUS MANAGEMENT (TRẠNG THÁI DỰ ÁN & KIỂM ĐỊNH)
-// =========================================================================
-function renderProjectStatusDashboard(container) {
-  container.innerHTML = `
-    <!-- Charts Row -->
-    <div style="display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 12px;">
-      <div class="acc-chart-box">
-        <div style="font-weight: bold; font-size: 12px; margin-bottom: 8px;">🏢 Trạng Thái Tiến Độ Thi Công Theo Tầng (Location)</div>
-        <canvas id="chartStatusLocation" height="200"></canvas>
-      </div>
-      <div class="acc-chart-box">
-        <div style="font-weight: bold; font-size: 12px; margin-bottom: 8px;">📊 Tỷ Lệ Hoàn Thành Tổng Thể</div>
-        <canvas id="chartStatusOverall" height="200"></canvas>
-      </div>
-    </div>
-  `;
-
-  setTimeout(() => {
-    activeCharts['statusLocation'] = new Chart(document.getElementById('chartStatusLocation'), {
-      type: 'bar',
-      data: {
-        labels: ['Tầng B1', 'Tầng 1', 'Tầng 2', 'Tầng 3', 'Tầng 4', 'Mái'],
-        datasets: [
-          { label: 'Hoàn thành', data: [100, 100, 85, 60, 30, 0], backgroundColor: '#1cc88a' },
-          { label: 'Đang thi công', data: [0, 0, 15, 40, 50, 20], backgroundColor: '#f6c23e' },
-          { label: 'Chưa bắt đầu', data: [0, 0, 0, 0, 20, 80], backgroundColor: '#eaecf4' }
-        ]
-      },
-      options: { responsive: true, scales: { x: { stacked: true }, y: { stacked: true } } }
-    });
-
-    activeCharts['statusOverall'] = new Chart(document.getElementById('chartStatusOverall'), {
-      type: 'doughnut',
-      data: {
-        labels: ['Hoàn thành', 'Đang thực hiện', 'Chậm tiến độ'],
-        datasets: [{ data: [62, 28, 10], backgroundColor: ['#1cc88a', '#4e73df', '#e74a3b'] }]
+        labels: ['Va chạm Mô hình (Clash)', 'Vấn đề Thi công', 'An toàn / Khác'],
+        datasets: [{ data: [clashes.length, issues.length, 0], backgroundColor: ['#e74a3b', '#f6c23e', '#4e73df'] }]
       },
       options: { responsive: true, plugins: { legend: { position: 'bottom' } } }
     });
@@ -272,70 +258,107 @@ function renderProjectStatusDashboard(container) {
 }
 
 // =========================================================================
-// TAB 4: APPROVALS & SUBMITTALS (QUẢN LÝ TRÌNH DUYỆT)
+// TAB 3: PROJECT STATUS (DỮ LIỆU THỰC TỪ CDE TIMELINE 4D)
 // =========================================================================
-function renderApprovalsDashboard(container) {
+function renderProjectStatusDashboard(container) {
+  const tasks = cdeRealData.timelineTasks;
+
+  const totalTasks = tasks.length;
+  const completedTasks = tasks.filter(t => t.progress === 100 || t.status === 'Completed').length;
+  const inProgressTasks = tasks.filter(t => t.progress > 0 && t.progress < 100).length;
+  const notStartedTasks = totalTasks - completedTasks - inProgressTasks;
+
   container.innerHTML = `
     <!-- KPI Row -->
-    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 14px;">
+    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 14px;">
       <div class="acc-kpi-card" style="border-left: 4px solid #4e73df;">
-        <div style="font-size: 10px; color: #666;">TỔNG HỒ SƠ SUBMITTALS</div>
-        <div style="font-size: 20px; font-weight: bold; color: #4e73df;">1,117</div>
-      </div>
-      <div class="acc-kpi-card" style="border-left: 4px solid #f6c23e;">
-        <div style="font-size: 10px; color: #666;">ĐANG CHỜ DUYỆT</div>
-        <div style="font-size: 20px; font-weight: bold; color: #f6c23e;">105</div>
+        <div style="font-size: 10px; color: #666;">TỔNG HẠNG MỤC TIẾN ĐỘ</div>
+        <div style="font-size: 20px; font-weight: bold; color: #4e73df;">${totalTasks}</div>
       </div>
       <div class="acc-kpi-card" style="border-left: 4px solid #1cc88a;">
-        <div style="font-size: 10px; color: #666;">ĐÃ PHÊ DUYỆT</div>
-        <div style="font-size: 20px; font-weight: bold; color: #1cc88a;">904</div>
+        <div style="font-size: 10px; color: #666;">ĐÃ HOÀN THÀNH</div>
+        <div style="font-size: 20px; font-weight: bold; color: #1cc88a;">${completedTasks}</div>
       </div>
-      <div class="acc-kpi-card" style="border-left: 4px solid #e74a3b;">
-        <div style="font-size: 10px; color: #666;">YÊU CẦU SỬA ĐỔI</div>
-        <div style="font-size: 20px; font-weight: bold; color: #e74a3b;">60</div>
+      <div class="acc-kpi-card" style="border-left: 4px solid #f6c23e;">
+        <div style="font-size: 10px; color: #666;">ĐANG THI CÔNG</div>
+        <div style="font-size: 20px; font-weight: bold; color: #f6c23e;">${inProgressTasks}</div>
       </div>
     </div>
 
-    <!-- Charts Row -->
-    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-      <div class="acc-chart-box">
-        <div style="font-weight: bold; font-size: 12px; margin-bottom: 8px;">📄 Submittals theo Loại Hồ Sơ</div>
-        <canvas id="chartSubmittalType" height="200"></canvas>
-      </div>
-      <div class="acc-chart-box">
-        <div style="font-weight: bold; font-size: 12px; margin-bottom: 8px;">👷 Hồ Sơ Theo Nhà Thầu Phụ</div>
-        <canvas id="chartSubmittalContractor" height="200"></canvas>
-      </div>
+    <div class="acc-chart-box">
+      <div style="font-weight: bold; font-size: 12px; margin-bottom: 8px;">🏗️ Tỷ Lệ Tiến Độ Thi Công Thực Tế từ CDE Timeline 4D</div>
+      <canvas id="chartStatusOverall" height="180"></canvas>
     </div>
   `;
 
   setTimeout(() => {
-    activeCharts['submittalType'] = new Chart(document.getElementById('chartSubmittalType'), {
-      type: 'pie',
+    activeCharts['statusOverall'] = new Chart(document.getElementById('chartStatusOverall'), {
+      type: 'doughnut',
       data: {
-        labels: ['Bản vẽ Shopdrawing', 'Tài liệu vật liệu (Material)', 'Mẫu sản phẩm (Sample)', 'Báo cáo kiểm định'],
-        datasets: [{ data: [550, 320, 140, 107], backgroundColor: ['#4e73df', '#1cc88a', '#36b9cc', '#f6c23e'] }]
+        labels: ['Đã hoàn thành', 'Đang thực hiện', 'Chưa bắt đầu'],
+        datasets: [{ data: [completedTasks, inProgressTasks, notStartedTasks], backgroundColor: ['#1cc88a', '#f6c23e', '#eaecf4'] }]
       },
-      options: { responsive: true, plugins: { legend: { position: 'bottom', labels: { boxWidth: 10 } } } }
-    });
-
-    activeCharts['submittalContractor'] = new Chart(document.getElementById('chartSubmittalContractor'), {
-      type: 'bar',
-      data: {
-        labels: ['Nhà thầu Xây dựng A', 'Nhà thầu MEP B', 'Nhà thầu Nhôm kính C', 'Nhà thầu Nội thất D'],
-        datasets: [{ label: 'Số hồ sơ', data: [450, 380, 180, 107], backgroundColor: '#36b9cc' }]
-      },
-      options: { responsive: true, indexAxis: 'y' }
+      options: { responsive: true, plugins: { legend: { position: 'bottom' } } }
     });
   }, 50);
 }
 
 // =========================================================================
-// TAB 5: BIM QUANTITY & COST (BÓC TÁCH KHỐI LƯỢNG & CHI PHÍ BIM THỰC TẾ)
+// TAB 4: APPROVALS & SUBMITTALS (DỮ LIỆU THỰC TỪ CDE FILES ISO 19650)
+// =========================================================================
+function renderApprovalsDashboard(container) {
+  const files = cdeRealData.files;
+
+  const totalFiles = files.length;
+  const wipFiles = files.filter(f => f.state === 'WIP' || f.folder === 'WIP').length;
+  const sharedFiles = files.filter(f => f.state === 'SHARED' || f.folder === 'SHARED').length;
+  const publishedFiles = files.filter(f => f.state === 'PUBLISHED' || f.folder === 'PUBLISHED').length;
+
+  container.innerHTML = `
+    <!-- KPI Row -->
+    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 14px;">
+      <div class="acc-kpi-card" style="border-left: 4px solid #4e73df;">
+        <div style="font-size: 10px; color: #666;">TỔNG TÀI LIỆU CDE</div>
+        <div style="font-size: 20px; font-weight: bold; color: #4e73df;">${totalFiles}</div>
+      </div>
+      <div class="acc-kpi-card" style="border-left: 4px solid #858796;">
+        <div style="font-size: 10px; color: #666;">WORK IN PROGRESS (WIP)</div>
+        <div style="font-size: 20px; font-weight: bold; color: #858796;">${wipFiles}</div>
+      </div>
+      <div class="acc-kpi-card" style="border-left: 4px solid #f6c23e;">
+        <div style="font-size: 10px; color: #666;">CHỜ DUYỆT (SHARED)</div>
+        <div style="font-size: 20px; font-weight: bold; color: #f6c23e;">${sharedFiles}</div>
+      </div>
+      <div class="acc-kpi-card" style="border-left: 4px solid #1cc88a;">
+        <div style="font-size: 10px; color: #666;">ĐÃ PHÊ DUYỆT (PUBLISHED)</div>
+        <div style="font-size: 20px; font-weight: bold; color: #1cc88a;">${publishedFiles}</div>
+      </div>
+    </div>
+
+    <div class="acc-chart-box">
+      <div style="font-weight: bold; font-size: 12px; margin-bottom: 8px;">📑 Trạng Thái Trình Duyệt Tài Liệu Theo Chuẩn ISO 19650</div>
+      <canvas id="chartSubmittalIso" height="180"></canvas>
+    </div>
+  `;
+
+  setTimeout(() => {
+    activeCharts['submittalIso'] = new Chart(document.getElementById('chartSubmittalIso'), {
+      type: 'bar',
+      data: {
+        labels: ['WIP (Đang soạn)', 'SHARED (Đang xét duyệt)', 'PUBLISHED (Đã duyệt/Phát hành)'],
+        datasets: [{ label: 'Số lượng File', data: [wipFiles, sharedFiles, publishedFiles], backgroundColor: ['#858796', '#f6c23e', '#1cc88a'] }]
+      },
+      options: { responsive: true, plugins: { legend: { display: false } } }
+    });
+  }, 50);
+}
+
+// =========================================================================
+// TAB 5: BIM QUANTITY & COST (BÓC TÁCH KHỐI LƯỢNG MÔ HÌNH 3D)
 // =========================================================================
 function renderBimQuantityCostDashboard(container) {
   if (typeof viewer === 'undefined' || !viewer || !viewer.metaScene) {
-    container.innerHTML = `<div style="padding: 20px; text-align: center; color: #777;">⚠️ Chưa có mô hình BIM nào được nạp vào Viewer. Vui lòng nạp file .IFC hoặc .XKT trước.</div>`;
+    container.innerHTML = `<div style="padding: 20px; text-align: center; color: #777;">⚠️ Chưa có mô hình BIM nào được nạp vào Viewer. Vui lòng nạp file .IFC hoặc .XKT từ CDE.</div>`;
     return;
   }
 
@@ -397,14 +420,11 @@ function renderBimQuantityCostDashboard(container) {
       },
       options: {
         responsive: true,
-        plugins: {
-          legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 10 } } }
-        },
+        plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 10 } } } },
         onClick: (event, activeElements) => {
           if (activeElements.length > 0) {
             const clickedIndex = activeElements[0].index;
-            const selectedType = labels[clickedIndex];
-            filterModelByType(selectedType);
+            filterModelByType(labels[clickedIndex]);
           } else {
             resetModelVisibility();
           }
@@ -453,17 +473,13 @@ function updateTypeUnitPriceAcc(typeName, value) {
   renderBimQuantityCostDashboard(document.getElementById('acc-dashboard-content'));
 }
 
-// 4. Highlight cấu kiện 3D
 function filterModelByType(typeName) {
   if (typeof viewer === 'undefined' || !viewer) return;
-
   const metaObjects = viewer.metaScene.metaObjects;
   const matchedEntityIds = [];
 
   Object.values(metaObjects).forEach(obj => {
-    if (obj.type === typeName) {
-      matchedEntityIds.push(obj.id);
-    }
+    if (obj.type === typeName) matchedEntityIds.push(obj.id);
   });
 
   viewer.scene.setObjectsXRayed(viewer.scene.objectIds, true);
