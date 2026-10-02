@@ -1,4 +1,4 @@
-// cde-dashboard.js - Tự động đồng bộ Supabase ToDos, Tiến độ 4D & Va chạm BIM ngầm
+// cde-dashboard.js - Ưu tiên lấy đúng số lượng Va Chạm từ Lịch Sử Quét Va Chạm (Clash Panel)
 
 let isDashboardOpen = false;
 let currentAccTab = 'rfi';
@@ -42,7 +42,7 @@ function switchAccTab(tabName) {
   renderAccDashboardTab(tabName);
 }
 
-// 3. TÌM TÊN / ID DỰ ÁN DƯỚI DROPDOWN QUẢN LÝ FILE CDE
+// 3. TÌM DỰ ÁN HIỆN TẠI DƯỚI DROPDOWN QUẢN LÝ FILE CDE
 function getActiveProjectInfo() {
   let projId = window.activeProjectId || null;
   let projName = "DIEMVAN (BIM Manager)";
@@ -59,7 +59,7 @@ function getActiveProjectInfo() {
   return { id: projId, name: projName };
 }
 
-// 4. HÀM QUÉT DỮ LIỆU THỰC TỪ SUPABASE VA CHẠM, TODOS VÀ TIẾN ĐỘ
+// 4. HÀM BÓC TÁCH DỮ LIỆU CHÍNH XÁC
 async function collectAllCdeRealDataAsync() {
   const proj = getActiveProjectInfo();
 
@@ -75,6 +75,7 @@ async function collectAllCdeRealDataAsync() {
   const client = window.sb || window.supabaseClient;
 
   // --- A. LẤY TODOS TỪ SUPABASE (project_todos) ---
+  let clashFromTodosCount = 0;
   if (client && proj.id) {
     try {
       const { data: todosData } = await client
@@ -90,11 +91,9 @@ async function collectAllCdeRealDataAsync() {
           type: t.todo_type || "task"
         }));
 
-        // Đếm số va chạm được tạo dưới dạng ToDos loại 'clash'
+        // Đếm số ToDos loại va chạm để dự phòng
         const clashTodos = todosData.filter(t => t.todo_type === 'clash' || (t.title && t.title.toLowerCase().includes('va chạm')));
-        if (clashTodos.length > 0) {
-          realData.clashCount = clashTodos.length;
-        }
+        clashFromTodosCount = clashTodos.length;
       }
     } catch (e) {
       console.warn("Lỗi đọc project_todos:", e);
@@ -137,45 +136,44 @@ async function collectAllCdeRealDataAsync() {
     }));
   }
 
-  // --- C. ĐẾM VA CHẠM (CLASH) NÂNG CẤP SUPABASE + MEMORY ---
-  if (realData.clashCount === 0 && client && proj.id) {
-    // 1. Thử truy vấn bảng project_clashes hoặc clash_results
-    try {
-      const { data: clashData } = await client
-        .from("project_clashes")
-        .select("*")
-        .eq("project_id", proj.id);
+  // --- C. ĐẾM VA CHẠM (CLASH) - ƯU TIÊN SỐ LƯỢNG TỪ LỊCH SỬ QUÉT VA CHẠM ---
+  let detectedClashCount = 0;
 
-      if (clashData && clashData.length > 0) {
-        realData.clashCount = clashData.length;
+  // 1. Quét từ DOM của Khung "Kiểm Tra Va Chạm (Clash)" bên trái
+  const allElements = document.querySelectorAll('div, span, p, b');
+  for (let el of allElements) {
+    const txt = el.innerText || "";
+    if (txt.includes('Tổng:') && txt.includes('va chạm')) {
+      const match = txt.match(/Tổng:\s*(\d+)\s*va chạm/i);
+      if (match) {
+        detectedClashCount = parseInt(match[1], 10);
+        break;
       }
-    } catch (e) {
-      try {
-        const { data: clashRes } = await client
-          .from("clash_results")
-          .select("*")
-          .eq("project_id", proj.id);
-        if (clashRes && clashRes.length > 0) realData.clashCount = clashRes.length;
-      } catch (err) {}
+    } else if (txt.includes('va chạm (') && txt.includes('đâm xuyên')) {
+      const match = txt.match(/(\d+)\s*va chạm/i);
+      if (match) {
+        detectedClashCount = parseInt(match[1], 10);
+        break;
+      }
     }
   }
 
-  // 2. Quét các biến Memory toàn cục nếu chưa có từ Supabase
-  if (realData.clashCount === 0) {
+  // 2. Nếu chưa tìm thấy trong DOM, quét từ Memory Object của Clash Manager
+  if (detectedClashCount === 0) {
     if (window.lastClashResults && Array.isArray(window.lastClashResults.clashes)) {
-      realData.clashCount = window.lastClashResults.clashes.length;
+      detectedClashCount = window.lastClashResults.clashes.length;
     } else if (Array.isArray(window.clashList) && window.clashList.length > 0) {
-      realData.clashCount = window.clashList.length;
+      detectedClashCount = window.clashList.length;
     } else if (Array.isArray(window.cdeClashes) && window.cdeClashes.length > 0) {
-      realData.clashCount = window.cdeClashes.length;
+      detectedClashCount = window.cdeClashes.length;
     } else if (window.clashResultsHistory && Array.isArray(window.clashResultsHistory) && window.clashResultsHistory.length > 0) {
       const latest = window.clashResultsHistory[0];
-      realData.clashCount = latest.count || (latest.clashes ? latest.clashes.length : 0);
+      detectedClashCount = latest.count || (latest.clashes ? latest.clashes.length : 0);
     }
   }
 
-  // 3. Quét LocalStorage Sweeper
-  if (realData.clashCount === 0) {
+  // 3. Nếu vẫn chưa thấy, quét LocalStorage Lịch sử Va chạm
+  if (detectedClashCount === 0) {
     try {
       for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i);
@@ -185,17 +183,26 @@ async function collectAllCdeRealDataAsync() {
           try {
             const parsed = JSON.parse(raw);
             if (Array.isArray(parsed) && parsed.length > 0) {
-              realData.clashCount = parsed.length;
+              detectedClashCount = parsed.length;
               break;
             } else if (parsed.clashes && Array.isArray(parsed.clashes)) {
-              realData.clashCount = parsed.clashes.length;
+              detectedClashCount = parsed.clashes.length;
               break;
             }
-          } catch(e) {}
+          } catch(e) {
+            const match = raw.match(/(\d+)\s*va chạm/i) || raw.match(/Tổng:\s*(\d+)/i);
+            if (match) {
+              detectedClashCount = parseInt(match[1], 10);
+              break;
+            }
+          }
         }
       }
     } catch(e) {}
   }
+
+  // Gán kết quả: Ưu tiên số liệu quét lịch sử va chạm thực tế, nếu bằng 0 mới dùng ToDos clash
+  realData.clashCount = detectedClashCount > 0 ? detectedClashCount : clashFromTodosCount;
 
   // --- D. TRUY VẤN TÀI LIỆU CDE (PROJECT_FILES HOẶC GOOGLE DRIVE) ---
   if (client && proj.id) {
@@ -244,7 +251,7 @@ async function renderAccDashboardTab(tabName) {
   const container = document.getElementById('acc-dashboard-content');
   if (!container) return;
 
-  container.innerHTML = `<div style="padding: 20px; text-align: center; color: #0275d8;">🔄 Đang nạp dữ liệu từ CDE Supabase...</div>`;
+  container.innerHTML = `<div style="padding: 20px; text-align: center; color: #0275d8;">🔄 Đang nạp dữ liệu từ CDE...</div>`;
 
   const data = await collectAllCdeRealDataAsync();
 
@@ -394,7 +401,7 @@ function renderIssuesDashboard(container, data) {
         <div style="padding:10px; font-size:12px;">
           📌 <b>Kết quả kiểm tra:</b> <span style="color:#d9534f; font-weight:bold;">${clashCount} va chạm</span><br>
           <div style="margin-top:8px; font-size:11px; color:#555;">
-            Đã tự động tổng hợp ${clashCount} va chạm cho dự án ${data.projectName}.
+            Đã tự động quét và tổng hợp ${clashCount} va chạm từ lịch sử kiểm tra cho dự án ${data.projectName}.
           </div>
         </div>
       </div>
