@@ -809,38 +809,53 @@
       </button>
     </div>
   </div>
-      <!-- Khung Cửa Sổ Dashboard (Nâng cấp Chi Phí & %) -->
-  <div id="cde-dashboard-panel" class="panel" style="display: none; right: 20px; top: 100px; width: 440px; max-height: calc(100vh - 120px); z-index: 9999;">
-    <div class="panel-header">
-      <h4 style="margin:0; color:#0275d8;">📊 Báo Cáo Dữ Liệu & Chi Phí BIM</h4>
-      <button onclick="toggleBimDashboard()" style="border:none;background:none;cursor:pointer;font-weight:bold;">✕</button>
+     <!-- Khung Cửa Sổ Dashboard Quản Lý Chuẩn ACC (Autodesk Construction Cloud) -->
+  <div id="cde-dashboard-panel" class="panel" style="display: none; right: 20px; top: 80px; width: 850px; max-height: calc(100vh - 100px); z-index: 9999; background: #f8f9fa; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.25); border: 1px solid #dcdfe3; padding: 16px;">
+    
+    <!-- Header Dashboard -->
+    <div class="panel-header" style="border-bottom: 2px solid #e9ecef; padding-bottom: 10px; margin-bottom: 12px;">
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <span style="font-size: 20px;">📊</span>
+        <div>
+          <h3 style="margin: 0; font-size: 16px; color: #1a252f;">ACC Executive Project Dashboard</h3>
+          <span style="font-size: 11px; color: #6c757d;">Hệ thống tổng hợp & quản lý dự án theo chuẩn Autodesk Construction Cloud</span>
+        </div>
+      </div>
+      <button onclick="toggleBimDashboard()" style="border:none; background:transparent; font-size:20px; cursor:pointer; color:#6c757d;">✕</button>
     </div>
 
-    <!-- Thống kê KPI: Số lượng & Chi phí -->
-    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; margin-bottom: 12px;">
-      <div style="background: #f8f9fa; padding: 10px; border-radius: 8px; border-left: 4px solid #4e73df;">
-        <div style="font-size: 11px; color: #666;">TỔNG CẤU KIỆN</div>
-        <div id="kpi-total-objects" style="font-size: 18px; font-weight: bold; color: #333;">0</div>
-      </div>
-      <div style="background: #f8f9fa; padding: 10px; border-radius: 8px; border-left: 4px solid #1cc88a;">
-        <div style="font-size: 11px; color: #666;">TỔNG CHI PHÍ ƯỚC TÍNH</div>
-        <div id="kpi-total-cost" style="font-size: 16px; font-weight: bold; color: #1cc88a;">0 VNĐ</div>
-      </div>
+    <!-- Thanh chuyển Tab Dashboard kiểu ACC -->
+    <div style="display: flex; gap: 6px; margin-bottom: 14px; border-bottom: 1px solid #dee2e6; padding-bottom: 8px; overflow-x: auto;">
+      <button class="acc-tab-btn active" onclick="switchAccTab('rfi')" id="tab-btn-rfi">📋 RFI Management</button>
+      <button class="acc-tab-btn" onclick="switchAccTab('issues')" id="tab-btn-issues">⚡ Issue Management</button>
+      <button class="acc-tab-btn" onclick="switchAccTab('status')" id="tab-btn-status">🏗️ Project Status</button>
+      <button class="acc-tab-btn" onclick="switchAccTab('approvals')" id="tab-btn-approvals">📑 Approvals & Submittals</button>
+      <button class="acc-tab-btn" onclick="switchAccTab('bim')" id="tab-btn-bim">🧊 BIM Quantity & Cost</button>
     </div>
 
-    <!-- Biểu đồ Doughnut hiển thị % -->
-    <div style="background: #fff; padding: 10px; border-radius: 8px; border: 1px solid #f0f0f0; margin-bottom: 12px;">
-      <canvas id="chartCategories" height="220"></canvas>
+    <!-- NỘI DUNG CÁC TAB -->
+    <div id="acc-dashboard-content" style="max-height: calc(100vh - 220px); overflow-y: auto; padding-right: 4px;">
+      <!-- Nội dung sẽ tự động render bằng JS -->
     </div>
 
-    <!-- Bảng áp đơn giá theo loại cấu kiện -->
-    <div style="background: #fff; padding: 10px; border-radius: 8px; border: 1px solid #f0f0f0;">
-      <div style="font-weight: bold; font-size: 12px; margin-bottom: 6px; color: #333;">🏷️ Thiết lập đơn giá ước tính (VNĐ / Cấu kiện)</div>
-      <div id="unit-price-table-container" style="max-height: 160px; overflow-y: auto; font-size: 11px;">
-        <!-- Đơn giá từng Loại sẽ tự động tạo ở đây -->
-      </div>
-    </div>
   </div>
+
+  <style>
+    .acc-tab-btn {
+      background: #e9ecef; border: 1px solid #ced4da; padding: 6px 12px; font-size: 12px;
+      font-weight: 600; color: #495057; border-radius: 6px; cursor: pointer; white-space: nowrap; transition: all 0.2s;
+    }
+    .acc-tab-btn:hover { background: #dee2e6; color: #212529; }
+    .acc-tab-btn.active { background: #0275d8; color: #ffffff; border-color: #0275d8; }
+    .acc-kpi-card {
+      background: #ffffff; padding: 12px; border-radius: 8px; border: 1px solid #e3e6f0;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.03); text-align: center;
+    }
+    .acc-chart-box {
+      background: #ffffff; padding: 12px; border-radius: 8px; border: 1px solid #e3e6f0;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.03); margin-bottom: 12px;
+    }
+  </style>
 
   <canvas id="myCanvas"></canvas>
   <canvas id="myNavCubeCanvas" style="position:absolute; width:110px; height:110px; bottom:15px; right:15px; z-index:150;"></canvas>
