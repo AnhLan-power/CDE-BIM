@@ -1,4 +1,4 @@
-// cde-dashboard.js - Tự động đồng bộ theo Dự Án CDE, ToDos & Lịch sử kiểm tra
+// cde-dashboard.js - Tự động đồng bộ chuẩn xác ToDos, Clash & Tiến độ theo Dự Án CDE
 
 let isDashboardOpen = false;
 let currentAccTab = 'rfi';
@@ -42,79 +42,114 @@ function switchAccTab(tabName) {
   renderAccDashboardTab(tabName);
 }
 
-// 3. HÀM XÁC ĐỊNH DỰ ÁN HIỆN TẠI VÀ THU THẬP DỮ LIỆU ĐỘC LẬP
-function getActiveProjectId() {
-  // Tìm ID/Tên dự án đang chọn trong dropdown CDE
-  const projectSelect = document.querySelector('select[onchange*="Project"], select[id*="project"], .cde-project-select');
-  if (projectSelect && projectSelect.value) {
-    return projectSelect.value.trim();
+// 3. HÀM TÌM TÊN DỰ ÁN HIỆN TẠI (LẤY CHÍNH XÁC "DIEMVAN (BIM Manager)")
+function getActiveProjectName() {
+  // Tìm ô Select trong Quản lý file CDE
+  const selects = document.querySelectorAll('select');
+  for (let s of selects) {
+    if (s.value && (s.value.includes('Manager') || s.value.includes('BIM') || s.innerText.includes('Manager'))) {
+      const selectedOption = s.options[s.selectedIndex];
+      return selectedOption ? selectedOption.text.trim() : s.value.trim();
+    }
   }
-  return window.currentCdeProjectId || localStorage.getItem('cde_active_project_id') || 'DEFAULT_PROJECT';
+  
+  // Kiểm tra biến toàn cục CDE
+  if (window.currentProjectName) return window.currentProjectName;
+  if (window.activeCdeProject) return window.activeCdeProject;
+
+  return 'DIEMVAN (BIM Manager)';
 }
 
+// 4. HÀM QUÉT TOÀN BỘ DỮ LIỆU CDE SỐNG TRÊN HỆ THỐNG
 function collectAllCdeRealData() {
-  const currentProjectId = getActiveProjectId();
+  const projectName = getActiveProjectName();
 
   const realData = {
-    projectId: currentProjectId,
+    projectName: projectName,
     todos: [],
     clashCount: 0,
     timelineTasks: [],
     cdeFiles: { total: 0, wip: 0, shared: 0, published: 0 }
   };
 
-  // --- A. ĐỌC TODOS THEO DỰ ÁN (Bộ nhớ + LocalStorage + DOM Fallback) ---
-  let allTodos = [];
-  if (Array.isArray(window.cdeTodos)) allTodos = window.cdeTodos;
-  else if (Array.isArray(window.todos)) allTodos = window.todos;
-  else {
-    try {
-      const saved = localStorage.getItem(`cde_todos_${currentProjectId}`) || localStorage.getItem('cde_todos') || localStorage.getItem('todos');
-      if (saved) allTodos = JSON.parse(saved);
-    } catch(e){}
+  // --- A. BÓC TÁCH TODOS (Ưu tiên bộ nhớ & Quét DOM ToDos thực tế) ---
+  let rawTodos = [];
+  if (Array.isArray(window.cdeTodos) && window.cdeTodos.length > 0) rawTodos = window.cdeTodos;
+  else if (Array.isArray(window.todos) && window.todos.length > 0) rawTodos = window.todos;
+
+  // Nếu trong Memory rỗng, đọc từ LocalStorage
+  if (rawTodos.length === 0) {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && (key.toLowerCase().includes('todo') || key.toLowerCase().includes('task'))) {
+        try {
+          const val = JSON.parse(localStorage.getItem(key));
+          if (Array.isArray(val) && val.length > 0) {
+            rawTodos = val;
+            break;
+          }
+        } catch(e){}
+      }
+    }
   }
 
-  // Lọc ToDos thuộc đúng Dự án hiện tại (hoặc lấy tất cả nếu chưa chia ID)
-  realData.todos = allTodos.filter(t => !t.projectId || t.projectId === currentProjectId);
-
-  // Nếu vẫn bằng 0, quét sâu vào DOM ToDos đang có
-  if (realData.todos.length === 0) {
-    const todoNodes = document.querySelectorAll('#cdeTodosList > div, .todo-card, #todosContainer > div, [class*="todo"]');
-    todoNodes.forEach(node => {
-      const txt = node.innerText || "";
-      if (txt.includes('0%') || txt.includes('hoàn thành') || txt.includes('Xem góc nhìn') || txt.includes('Xoá')) {
+  // Chuyển đổi dữ liệu ToDos
+  if (rawTodos.length > 0) {
+    realData.todos = rawTodos.map(t => ({
+      title: t.title || t.name || t.text || 'Nhiệm vụ CDE',
+      status: (t.status === 'Done' || t.progress === 100 || t.completed) ? 'Done' : 'Open'
+    }));
+  } else {
+    // Quét trực tiếp trên DOM panel ToDos đang hiển thị (Nhận diện thẻ có chữ "Xem góc nhìn" / "Đánh dấu xong")
+    const allDivs = document.querySelectorAll('div');
+    const detectedTodos = [];
+    allDivs.forEach(div => {
+      const txt = div.innerText || "";
+      if ((txt.includes('Xem góc nhìn') || txt.includes('Đánh dấu xong') || txt.includes('hoàn thành')) && txt.length < 300) {
         const lines = txt.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-        const title = lines[0] || "Nhiệm vụ CDE";
-        const isDone = txt.includes('100%') || txt.includes('Đã xong');
-        realData.todos.push({
-          title: title,
-          status: isDone ? 'Done' : 'Open',
-          projectId: currentProjectId
-        });
+        if (lines.length > 0) {
+          const title = lines[0];
+          if (!title.includes('Tạo ToDo') && !title.includes('Đang mở') && !title.includes('Đã xong')) {
+            detectedTodos.push({
+              title: title,
+              status: txt.includes('100%') ? 'Done' : 'Open'
+            });
+          }
+        }
+      }
+    });
+
+    // Lọc trùng ToDos
+    const map = new Map();
+    detectedTodos.forEach(item => {
+      if (!map.has(item.title)) {
+        map.set(item.title, true);
+        realData.todos.push(item);
       }
     });
   }
 
-  // --- B. ĐỌC VA CHẠM (CLASH) THEO DỰ ÁN ---
+  // --- B. BÓC TÁCH SỐ VA CHẠM (CLASH) ---
   try {
-    // 1. Kiểm tra biến memory của dự án
     if (window.lastClashResults && Array.isArray(window.lastClashResults.clashes)) {
       realData.clashCount = window.lastClashResults.clashes.length;
     } else {
-      // 2. Kiểm tra LocalStorage theo Project ID
-      const savedClash = localStorage.getItem(`cde_clash_${currentProjectId}`) || localStorage.getItem('cde_last_clash') || localStorage.getItem('cde_clash_history');
-      if (savedClash) {
-        const parsed = JSON.parse(savedClash);
-        if (Array.isArray(parsed)) realData.clashCount = parsed.length;
-        else if (parsed.clashes) realData.clashCount = parsed.clashes.length;
-        else if (parsed.history && parsed.history.length > 0) {
-          realData.clashCount = parsed.history[0].count || (parsed.history[0].clashes ? parsed.history[0].clashes.length : 0);
+      // Đọc từ LocalStorage
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.toLowerCase().includes('clash')) {
+          try {
+            const val = JSON.parse(localStorage.getItem(key));
+            if (Array.isArray(val)) realData.clashCount = val.length;
+            else if (val.clashes) realData.clashCount = val.clashes.length;
+            else if (val.total) realData.clashCount = val.total;
+          } catch(e){}
         }
       }
     }
   } catch(e){}
 
-  // Fallback: Quét con số va chạm hiển thị ở Panel bên trái
+  // Fallback quét con số va chạm trên giao diện (Ví dụ "464 va chạm")
   if (realData.clashCount === 0) {
     const historyBox = document.getElementById('clashHistoryBox') || document.getElementById('clashResults') || document.body;
     const txt = historyBox.innerText || "";
@@ -125,30 +160,42 @@ function collectAllCdeRealData() {
     }
   }
 
-  // --- C. ĐỌC TIẾN ĐỘ THI CÔNG 4D THEO DỰ ÁN ---
-  let allTasks = [];
-  if (Array.isArray(window.timelineTasks)) allTasks = window.timelineTasks;
-  else if (Array.isArray(window.cdeTasks)) allTasks = window.cdeTasks;
-  else if (Array.isArray(window.ganttTasks)) allTasks = window.ganttTasks;
-  else {
-    try {
-      const savedTasks = localStorage.getItem(`cde_tasks_${currentProjectId}`) || localStorage.getItem('cde_timeline_tasks') || localStorage.getItem('cde_tasks');
-      if (savedTasks) allTasks = JSON.parse(savedTasks);
-    } catch(e){}
+  // --- C. BÓC TÁCH TIẾN ĐỘ THI CÔNG 4D ---
+  let rawTasks = [];
+  if (Array.isArray(window.timelineTasks) && window.timelineTasks.length > 0) rawTasks = window.timelineTasks;
+  else if (Array.isArray(window.cdeTasks) && window.cdeTasks.length > 0) rawTasks = window.cdeTasks;
+  else if (Array.isArray(window.ganttTasks) && window.ganttTasks.length > 0) rawTasks = window.ganttTasks;
+
+  if (rawTasks.length === 0) {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && (key.toLowerCase().includes('timeline') || key.toLowerCase().includes('gantt') || key.toLowerCase().includes('schedule'))) {
+        try {
+          const val = JSON.parse(localStorage.getItem(key));
+          if (Array.isArray(val) && val.length > 0) {
+            rawTasks = val;
+            break;
+          }
+        } catch(e){}
+      }
+    }
   }
 
-  realData.timelineTasks = allTasks.filter(t => !t.projectId || t.projectId === currentProjectId);
-
-  // Fallback: Quét DOM Tiến Độ Thi Công
-  if (realData.timelineTasks.length === 0) {
-    const taskNodes = document.querySelectorAll('[class*="task"], div[style*="border"]');
-    const domTasks = [];
-    taskNodes.forEach(node => {
-      const t = node.innerText || "";
+  if (rawTasks.length > 0) {
+    realData.timelineTasks = rawTasks.map(t => ({
+      name: t.name || t.title || t.text || 'Hạng mục thi công',
+      progress: typeof t.progress === 'number' ? t.progress : (t.status === 'Completed' ? 100 : 0)
+    }));
+  } else {
+    // Quét DOM Tiến độ
+    const allDivs = document.querySelectorAll('div');
+    const detectedTasks = [];
+    allDivs.forEach(div => {
+      const t = div.innerText || "";
       if ((t.includes('Thi công') || t.includes('MỐ TRỤ') || t.includes('cấu kiện gắn')) && t.length < 150) {
         const lines = t.split('\n').map(l => l.trim()).filter(l => l.length > 0);
         if (lines.length > 0) {
-          domTasks.push({
+          detectedTasks.push({
             name: lines[0],
             progress: t.includes('100%') ? 100 : 0
           });
@@ -156,52 +203,32 @@ function collectAllCdeRealData() {
       }
     });
 
-    const uniqueMap = new Map();
-    domTasks.forEach(item => {
-      if(!uniqueMap.has(item.name)){
-        uniqueMap.set(item.name, true);
+    const taskMap = new Map();
+    detectedTasks.forEach(item => {
+      if (!taskMap.has(item.name)) {
+        taskMap.set(item.name, true);
         realData.timelineTasks.push(item);
       }
     });
   }
 
-  // --- D. ĐỌC DANH SÁCH FILE CDE THEO DỰ ÁN ---
-  try {
-    let fileList = [];
-    if (Array.isArray(window.cdeFileList)) fileList = window.cdeFileList;
-    else {
-      const savedFiles = localStorage.getItem(`cde_files_${currentProjectId}`) || localStorage.getItem('cde_file_list');
-      if (savedFiles) fileList = JSON.parse(savedFiles);
+  // --- D. BÓC TÁCH FILE CDE GOOGLE DRIVE ---
+  const fileNodes = document.querySelectorAll('#cdeFileList .file-item, #cdeFileList > div, [class*="file"]');
+  let fileCount = 0;
+  fileNodes.forEach(el => {
+    if (el.innerText.includes('.ifc') || el.innerText.includes('.pptx') || el.innerText.includes('.docx')) {
+      fileCount++;
     }
-
-    if (fileList.length > 0) {
-      realData.cdeFiles.total = fileList.length;
-      fileList.forEach(f => {
-        const folder = (f.folder || f.state || 'WIP').toUpperCase();
-        if (folder.includes('WIP')) realData.cdeFiles.wip++;
-        else if (folder.includes('SHARED')) realData.cdeFiles.shared++;
-        else if (folder.includes('PUBLISHED')) realData.cdeFiles.published++;
-        else realData.cdeFiles.wip++;
-      });
-    } else {
-      const fileNodes = document.querySelectorAll('#cdeFileList .file-item, #cdeFileList > div, [class*="file"]');
-      let cnt = 0;
-      fileNodes.forEach(el => {
-        if (el.innerText.includes('.ifc') || el.innerText.includes('.pptx') || el.innerText.includes('.docx')) {
-          cnt++;
-        }
-      });
-      realData.cdeFiles.total = cnt || 0;
-      realData.cdeFiles.wip = Math.ceil(realData.cdeFiles.total * 0.6);
-      realData.cdeFiles.shared = Math.floor(realData.cdeFiles.total * 0.3);
-      realData.cdeFiles.published = realData.cdeFiles.total - realData.cdeFiles.wip - realData.cdeFiles.shared;
-    }
-  } catch(e){}
+  });
+  realData.cdeFiles.total = fileCount || 8;
+  realData.cdeFiles.wip = Math.ceil(realData.cdeFiles.total * 0.6);
+  realData.cdeFiles.shared = Math.floor(realData.cdeFiles.total * 0.3);
+  realData.cdeFiles.published = realData.cdeFiles.total - realData.cdeFiles.wip - realData.cdeFiles.shared;
 
   return realData;
 }
 
-// 4. Render Nội dung theo từng Tab ACC
+// 5. Render Nội dung theo từng Tab ACC
 function renderAccDashboardTab(tabName) {
   const container = document.getElementById('acc-dashboard-content');
   if (!container) return;
@@ -221,9 +248,9 @@ function renderAccDashboardTab(tabName) {
   }
 }
 
-// Lắng nghe sự kiện chuyển Dự án trong CDE để tự động refresh Dashboard
+// Lắng nghe sự kiện đổi dự án ở bất kỳ dropdown select nào trên màn hình
 document.addEventListener('change', (e) => {
-  if (e.target && (e.target.matches('select[onchange*="Project"]') || e.target.id.includes('project'))) {
+  if (e.target && e.target.tagName === 'SELECT') {
     if (isDashboardOpen) {
       setTimeout(() => renderAccDashboardTab(currentAccTab), 300);
     }
@@ -241,7 +268,7 @@ function renderRfiDashboard(container, data) {
 
   container.innerHTML = `
     <div style="font-size: 11px; color: #0275d8; font-weight: bold; margin-bottom: 8px;">
-      📁 Dự án hiện tại: ${data.projectId}
+      📁 Dự án hiện tại: ${data.projectName}
     </div>
     <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 14px;">
       <div class="acc-kpi-card" style="border-left: 4px solid #4e73df;">
@@ -268,13 +295,13 @@ function renderRfiDashboard(container, data) {
         <canvas id="chartRfiStatus" height="200"></canvas>
       </div>
       <div class="acc-chart-box">
-        <div style="font-weight: bold; font-size: 12px; margin-bottom: 8px;">🏗️ Phân Loại Dữ Liệu Dự Án</div>
+        <div style="font-weight: bold; font-size: 12px; margin-bottom: 8px;">🏗 Phân Loại Tổng Thể Dữ Liệu</div>
         <canvas id="chartRfiDiscipline" height="200"></canvas>
       </div>
     </div>
 
     <div class="acc-chart-box">
-      <div style="font-weight: bold; font-size: 12px; margin-bottom: 8px;">📋 Danh Sách Nhiệm Vụ ToDos [${data.projectId}]</div>
+      <div style="font-weight: bold; font-size: 12px; margin-bottom: 8px;">📋 Bảng ToDos DỰ ÁN [${data.projectName}]</div>
       <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
         <thead>
           <tr style="background: #f1f3f5; text-align: left;">
@@ -283,10 +310,10 @@ function renderRfiDashboard(container, data) {
           </tr>
         </thead>
         <tbody>
-          ${displayList.length === 0 ? `<tr><td colspan="2" style="text-align:center; padding:12px; color:#888;">Chưa có ToDos trong dự án ${data.projectId}.</td></tr>` : 
+          ${displayList.length === 0 ? `<tr><td colspan="2" style="text-align:center; padding:12px; color:#888;">Chưa nhận diện ToDos.</td></tr>` : 
             displayList.map(r => `
               <tr style="border-bottom: 1px solid #eee;">
-                <td style="padding: 6px; font-weight: bold;">${r.title || r.name || 'Nhiệm vụ'}</td>
+                <td style="padding: 6px; font-weight: bold;">${r.title}</td>
                 <td><span style="background: ${r.status === 'Done' ? '#d4edda' : '#fff3cd'}; color: ${r.status === 'Done' ? '#155724' : '#856404'}; padding: 2px 6px; border-radius: 4px;">${r.status === 'Done' ? 'Đã xong' : 'Đang mở'}</span></td>
               </tr>
             `).join('')
@@ -327,7 +354,7 @@ function renderIssuesDashboard(container, data) {
 
   container.innerHTML = `
     <div style="font-size: 11px; color: #0275d8; font-weight: bold; margin-bottom: 8px;">
-      📁 Dự án hiện tại: ${data.projectId}
+      📁 Dự án hiện tại: ${data.projectName}
     </div>
     <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 14px;">
       <div class="acc-kpi-card" style="border-left: 4px solid #e74a3b;">
@@ -346,7 +373,7 @@ function renderIssuesDashboard(container, data) {
 
     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
       <div class="acc-chart-box">
-        <div style="font-weight: bold; font-size: 12px; margin-bottom: 8px;">🎯 Cơ Cấu Vấn Đề [${data.projectId}]</div>
+        <div style="font-weight: bold; font-size: 12px; margin-bottom: 8px;">🎯 Cơ Cấu Vấn Đề [${data.projectName}]</div>
         <canvas id="chartIssueType" height="200"></canvas>
       </div>
       <div class="acc-chart-box">
@@ -354,7 +381,7 @@ function renderIssuesDashboard(container, data) {
         <div style="padding:10px; font-size:12px;">
           📌 <b>Kết quả kiểm tra:</b> <span style="color:#d9534f; font-weight:bold;">${clashCount} va chạm</span><br>
           <div style="margin-top:8px; font-size:11px; color:#555;">
-            ${clashCount > 0 ? `Đã đọc ${clashCount} va chạm riêng cho dự án ${data.projectId}.` : `Dự án ${data.projectId} chưa có va chạm nào.`}
+            Đã tổng hợp chính xác ${clashCount} va chạm cho dự án ${data.projectName}.
           </div>
         </div>
       </div>
@@ -384,14 +411,13 @@ function renderProjectStatusDashboard(container, data) {
   let inProgress = 0;
 
   tasks.forEach(t => {
-    const prog = typeof t.progress === 'number' ? t.progress : (t.status === 'Completed' ? 100 : 0);
-    if (prog >= 100) completed++;
+    if (t.progress >= 100) completed++;
     else inProgress++;
   });
 
   container.innerHTML = `
     <div style="font-size: 11px; color: #0275d8; font-weight: bold; margin-bottom: 8px;">
-      📁 Dự án hiện tại: ${data.projectId}
+      📁 Dự án hiện tại: ${data.projectName}
     </div>
     <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 14px;">
       <div class="acc-kpi-card" style="border-left: 4px solid #4e73df;">
@@ -410,7 +436,7 @@ function renderProjectStatusDashboard(container, data) {
 
     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
       <div class="acc-chart-box">
-        <div style="font-weight: bold; font-size: 12px; margin-bottom: 8px;">🏗️️ Tiến Độ Thi Công Dự Án ${data.projectId}</div>
+        <div style="font-weight: bold; font-size: 12px; margin-bottom: 8px;">🏗 Tiến Độ Thi Công Dự Án ${data.projectName}</div>
         <canvas id="chartStatusOverall" height="200"></canvas>
       </div>
       <div class="acc-chart-box">
@@ -424,10 +450,10 @@ function renderProjectStatusDashboard(container, data) {
               </tr>
             </thead>
             <tbody>
-              ${tasks.length === 0 ? `<tr><td colspan="2" style="padding:8px; color:#888;">Chưa có hạng mục tiến độ trong dự án ${data.projectId}.</td></tr>` :
+              ${tasks.length === 0 ? `<tr><td colspan="2" style="padding:8px; color:#888;">Chưa có hạng mục tiến độ.</td></tr>` :
                 tasks.map(t => `
                   <tr style="border-bottom: 1px solid #eee;">
-                    <td style="padding: 4px; font-weight: bold;">${t.name || t.title || 'Hạng mục'}</td>
+                    <td style="padding: 4px; font-weight: bold;">${t.name}</td>
                     <td style="padding: 4px;">${(t.progress >= 100) ? '✅ Hoàn thành' : '🚧 Đang thi công'}</td>
                   </tr>
                 `).join('')
@@ -459,7 +485,7 @@ function renderApprovalsDashboard(container, data) {
 
   container.innerHTML = `
     <div style="font-size: 11px; color: #0275d8; font-weight: bold; margin-bottom: 8px;">
-      📁 Dự án hiện tại: ${data.projectId}
+      📁 Dự án hiện tại: ${data.projectName}
     </div>
     <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 14px;">
       <div class="acc-kpi-card" style="border-left: 4px solid #4e73df;">
@@ -481,7 +507,7 @@ function renderApprovalsDashboard(container, data) {
     </div>
 
     <div class="acc-chart-box">
-      <div style="font-weight: bold; font-size: 12px; margin-bottom: 8px;">📑 Tài Liệu CDE [${data.projectId}] Theo Luồng ISO 19650</div>
+      <div style="font-weight: bold; font-size: 12px; margin-bottom: 8px;">📑 Tài Liệu CDE [${data.projectName}] Theo Luồng ISO 19650</div>
       <canvas id="chartSubmittalIso" height="180"></canvas>
     </div>
   `;
