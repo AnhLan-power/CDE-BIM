@@ -68,6 +68,12 @@
     const rightW = rightOpen ? DOCK_WIDTH : 0;
     const bottomH = bottomOpen ? DOCK_BOTTOM_HEIGHT : 0;
 
+    // dockBottom chỉ trải giữa 2 dock trái/phải, không đè lên chúng
+    if (dockBottom) {
+      dockBottom.style.left = leftW + "px";
+      dockBottom.style.right = rightW + "px";
+    }
+
     canvas.style.position = "fixed";
     canvas.style.top = "0";
     canvas.style.left = leftW + "px";
@@ -76,8 +82,19 @@
     canvas.style.width = `calc(100vw - ${leftW + rightW}px)`;
     canvas.style.height = `calc(100vh - ${bottomH}px)`;
 
+    // NavCube và khung tên đăng nhập luôn bám theo đúng góc của khung 3D
+    // đã co lại (không phải góc toàn màn hình nữa), để không bao giờ bị
+    // dock trái/phải/dưới che mất.
     const navCanvas = document.getElementById("myNavCubeCanvas");
-    if (navCanvas) navCanvas.style.right = (rightW + 15) + "px";
+    if (navCanvas) {
+      navCanvas.style.right = (rightW + 15) + "px";
+      navCanvas.style.bottom = (bottomH + 15) + "px";
+    }
+    const userBadge = document.getElementById("cdeUserBadge");
+    if (userBadge) {
+      userBadge.style.right = (rightW + 15) + "px";
+      userBadge.style.left = "auto";
+    }
 
     // Nhả cờ sau khi trình duyệt xử lý xong các thay đổi vừa rồi, tránh
     // observer bên dưới bị kích hoạt lặp vô hạn bởi chính lần cập nhật này.
@@ -111,20 +128,32 @@
     header.insertBefore(pinGroup, header.lastElementChild);
 
     function applyDock(newState) {
+      // Luôn tháo bọc hàng ngang trước, rồi mới bọc lại nếu cần — tránh
+      // bọc lồng bọc khi đổi qua lại nhiều lần giữa các kiểu ghim.
+      unwrapContentHorizontally(panelEl);
+
       if (newState === "float") {
         panelEl.style.position = "absolute";
         panelEl.style.width = "";
+        panelEl.style.maxWidth = "";
         panelEl.style.flexShrink = "";
         panelEl.style.marginBottom = "";
         document.body.appendChild(panelEl);
-      } else {
+      } else if (newState === "bottom") {
         panelEl.style.position = "static";
-        panelEl.style.width = newState === "bottom" ? "340px" : "100%";
+        panelEl.style.width = "auto";
+        panelEl.style.maxWidth = "none";
         panelEl.style.flexShrink = "0";
         panelEl.style.marginBottom = "0";
-        const zone = document.getElementById(
-          newState === "left" ? "dockLeft" : newState === "right" ? "dockRight" : "dockBottom"
-        );
+        document.getElementById("dockBottom").appendChild(panelEl);
+        wrapContentHorizontally(panelEl);
+      } else {
+        panelEl.style.position = "static";
+        panelEl.style.width = "100%";
+        panelEl.style.maxWidth = "";
+        panelEl.style.flexShrink = "0";
+        panelEl.style.marginBottom = "0";
+        const zone = document.getElementById(newState === "left" ? "dockLeft" : "dockRight");
         zone.appendChild(panelEl);
       }
       updateViewportInsets();
