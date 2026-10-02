@@ -1,4 +1,4 @@
-// cde-dashboard.js - Tự động đồng bộ ToDos, Tiến Độ 4D & Đếm File ISO 19650 chính xác theo CDE
+// cde-dashboard.js - Kết nối trực tiếp Supabase Database (sb, activeProjectId) & Viewer
 
 let isDashboardOpen = false;
 let currentAccTab = 'rfi';
@@ -21,7 +21,6 @@ async function toggleBimDashboard() {
   panel.style.display = isDashboardOpen ? 'block' : 'none';
 
   if (isDashboardOpen) {
-    await forceSyncActiveProjectData();
     renderAccDashboardTab(currentAccTab);
   }
 }
@@ -43,43 +42,25 @@ function switchAccTab(tabName) {
   renderAccDashboardTab(tabName);
 }
 
-// 3. XÁC ĐỊNH CHÍNH XÁC TÊN DỰ ÁN DƯỚI DROPDOWN QUẢN LÝ FILE CDE
+// 3. TÌM TÊN / ID DỰ ÁN DƯỚI DROPDOWN TỰ ĐỘNG
 function getActiveProjectInfo() {
+  let projId = window.activeProjectId || null;
+  let projName = "DIEMVAN (BIM Manager)";
+
   const selects = document.querySelectorAll('select');
   for (let s of selects) {
     if (s.value && (s.value.includes('Manager') || s.value.includes('BIM') || s.innerText.includes('Manager') || s.innerText.includes('Task'))) {
       const opt = s.options[s.selectedIndex];
-      const projName = opt ? opt.text.trim() : s.value.trim();
-      return {
-        id: projName.split(' ')[0] || 'DIEMVAN',
-        name: projName
-      };
+      projName = opt ? opt.text.trim() : s.value.trim();
+      break;
     }
   }
-  return {
-    id: window.currentProjectId || 'DIEMVAN',
-    name: window.currentProjectName || 'DIEMVAN (BIM Manager)'
-  };
+
+  return { id: projId, name: projName };
 }
 
-// 4. BỘ KÍCH HOẠT NẠP DỮ LIỆU NGẦM TỪ CÁC CÔNG CỤ CDE
-async function forceSyncActiveProjectData() {
-  const proj = getActiveProjectInfo();
-
-  // Kích hoạt ngầm load ToDos
-  if (typeof window.loadTodos === 'function') try { await window.loadTodos(proj.name); } catch(e){}
-  if (typeof window.fetchCdeTodos === 'function') try { await window.fetchCdeTodos(proj.name); } catch(e){}
-
-  // Kích hoạt ngầm load Tiến độ 4D
-  if (typeof window.loadTimelineTasks === 'function') try { await window.loadTimelineTasks(proj.name); } catch(e){}
-  if (typeof window.fetchProjectTimeline === 'function') try { await window.fetchProjectTimeline(proj.name); } catch(e){}
-
-  // Kích hoạt ngầm load Va chạm
-  if (typeof window.loadClashHistory === 'function') try { await window.loadClashHistory(proj.name); } catch(e){}
-}
-
-// 5. THU THẬP TẤT CẢ DỮ LIỆU TỰ ĐỘNG KHÔNG PHỤ THUỘC VÀO BẢNG UI
-function collectAllCdeRealData() {
+// 4. HÀM QUÉT DỮ LIỆU THỰC TỪ SUPABASE (project_todos, project_tasks, project_files)
+async function collectAllCdeRealDataAsync() {
   const proj = getActiveProjectInfo();
 
   const realData = {
@@ -88,76 +69,108 @@ function collectAllCdeRealData() {
     todos: [],
     clashCount: 0,
     timelineTasks: [],
-    cdeFiles: { total: 0, wip: 0, shared: 0, published: 0, archived: 0 }
+    cdeFiles: { total: 0, wip: 0, shared: 0, published: 0 }
   };
 
-  // --- A. BÓC TÁCH TODOS CỰC TẬP TRUNG (Mem + LocalStorage Sweeper) ---
-  let rawTodos = [];
-  if (Array.isArray(window.cdeTodos) && window.cdeTodos.length > 0) rawTodos = window.cdeTodos;
-  else if (Array.isArray(window.todos) && window.todos.length > 0) rawTodos = window.todos;
+  // Tận dụng Supabase Client 'sb' dùng chung trong cde-todos.js và cde-timeline.js
+  const client = window.sb || window.supabaseClient;
 
-  // Quét toàn bộ LocalStorage để gom ToDos đúng tên/ID Dự Án
-  if (rawTodos.length === 0) {
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key && (key.toLowerCase().includes('todo') || key.toLowerCase().includes('issue'))) {
-        try {
-          const item = JSON.parse(localStorage.getItem(key));
-          if (Array.isArray(item)) {
-            rawTodos = rawTodos.concat(item);
-          }
-        } catch(e){}
+  // --- A. TRUY VẤN TODOS TỪ SUPABASE (project_todos) ---
+  if (client && proj.id) {
+    try {
+      const { data: todosData } = await client
+        .from("project_todos")
+        .select("*")
+        .eq("project_id", proj.id);
+
+      if (todosData && todosData.length > 0) {
+        realData.todos = todosData.map(t => ({
+          title: t.title || "Nhiệm vụ CDE",
+          status: t.status === "closed" ? "Done" : "Open",
+          priority: t.priority || "normal",
+          type: t.todo_type || "task"
+        }));
       }
+    } catch (e) {
+      console.warn("Lỗi đọc Supabase project_todos:", e);
     }
   }
 
-  // Quét DOM fallback nếu bảng ToDos đang mở
-  if (rawTodos.length === 0) {
-    const allDivs = document.querySelectorAll('div');
-    allDivs.forEach(div => {
-      const txt = div.innerText || "";
-      if ((txt.includes('Xem góc nhìn') || txt.includes('Đánh dấu xong') || txt.includes('hoàn thành')) && txt.length < 350) {
-        const lines = txt.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-        if (lines.length > 0 && !lines[0].includes('Tạo ToDo')) {
-          rawTodos.push({
-            title: lines[0],
-            status: txt.includes('100%') ? 'Done' : 'Open'
-          });
+  // Fallback nếu không có Supabase client hoặc chưa chọn proj.id
+  if (realData.todos.length === 0) {
+    if (Array.isArray(window.cdeTodos) && window.cdeTodos.length > 0) {
+      realData.todos = window.cdeTodos.map(t => ({
+        title: t.title || "Nhiệm vụ CDE",
+        status: t.status === "closed" ? "Done" : "Open"
+      }));
+    } else {
+      // Quét DOM ToDos nếu panel đang mở
+      const allDivs = document.querySelectorAll('div');
+      allDivs.forEach(div => {
+        const txt = div.innerText || "";
+        if ((txt.includes('Xem góc nhìn') || txt.includes('Đánh dấu xong') || txt.includes('hoàn thành')) && txt.length < 350) {
+          const lines = txt.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+          if (lines.length > 0 && !lines[0].includes('Tạo ToDo')) {
+            realData.todos.push({
+              title: lines[0],
+              status: txt.includes('100%') ? 'Done' : 'Open'
+            });
+          }
         }
-      }
-    });
-  }
-
-  // Lọc trùng ToDos
-  const todoMap = new Map();
-  rawTodos.forEach(t => {
-    const title = t.title || t.name || t.text || 'Nhiệm vụ CDE';
-    if (!todoMap.has(title)) {
-      todoMap.set(title, true);
-      realData.todos.push({
-        title: title,
-        status: (t.status === 'Done' || t.progress === 100 || t.completed) ? 'Done' : 'Open'
       });
     }
-  });
+  }
 
-  // --- B. BÓC TÁCH VA CHẠM (CLASH) ---
+  // --- B. TRUY VẤN TIẾN ĐỘ THI CÔNG 4D TỪ SUPABASE (project_tasks) ---
+  if (client && proj.id) {
+    try {
+      const { data: tasksData } = await client
+        .from("project_tasks")
+        .select("*")
+        .eq("project_id", proj.id);
+
+      if (tasksData && tasksData.length > 0) {
+        realData.timelineTasks = tasksData.map(t => ({
+          name: t.name || "Công việc thi công",
+          type: t.task_type || "construction",
+          start: t.planned_start,
+          end: t.planned_end,
+          progress: new Date(t.planned_end) <= new Date() ? 100 : 0
+        }));
+      }
+    } catch (e) {
+      console.warn("Lỗi đọc Supabase project_tasks:", e);
+    }
+  }
+
+  // Fallback nếu dùng cache timelineTasks của cde-timeline.js
+  if (realData.timelineTasks.length === 0) {
+    if (Array.isArray(window.timelineTasks) && window.timelineTasks.length > 0) {
+      realData.timelineTasks = window.timelineTasks.map(t => ({
+        name: t.name || "Công việc thi công",
+        progress: new Date(t.planned_end) <= new Date() ? 100 : 0
+      }));
+    } else {
+      const allDivs = document.querySelectorAll('div');
+      allDivs.forEach(div => {
+        const t = div.innerText || "";
+        if ((t.includes('Thi công') || t.includes('MỐ TRỤ') || t.includes('cấu kiện gắn')) && t.length < 150) {
+          const lines = t.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+          if (lines.length > 0) {
+            realData.timelineTasks.push({
+              name: lines[0],
+              progress: t.includes('100%') ? 100 : 0
+            });
+          }
+        }
+      });
+    }
+  }
+
+  // --- C. TRUY VẤN SỐ LƯỢNG VA CHẠM (CLASH) ---
   if (window.lastClashResults && Array.isArray(window.lastClashResults.clashes)) {
     realData.clashCount = window.lastClashResults.clashes.length;
   } else {
-    try {
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (key && key.toLowerCase().includes('clash')) {
-          const val = JSON.parse(localStorage.getItem(key));
-          if (Array.isArray(val)) realData.clashCount = val.length;
-          else if (val.clashes) realData.clashCount = val.clashes.length;
-        }
-      }
-    } catch(e){}
-  }
-
-  if (realData.clashCount === 0) {
     const historyBox = document.getElementById('clashHistoryBox') || document.getElementById('clashResults') || document.body;
     const txt = historyBox.innerText || "";
     const matches = txt.match(/Tổng:\s*(\d+)\s*va chạm/g) || txt.match(/(\d+)\s*va chạm/g);
@@ -167,67 +180,30 @@ function collectAllCdeRealData() {
     }
   }
 
-  // --- C. BÓC TÁCH TIẾN ĐỘ THI CÔNG 4D ---
-  let rawTasks = [];
-  if (Array.isArray(window.timelineTasks) && window.timelineTasks.length > 0) rawTasks = window.timelineTasks;
-  else if (Array.isArray(window.cdeTasks) && window.cdeTasks.length > 0) rawTasks = window.cdeTasks;
-  else if (Array.isArray(window.ganttTasks) && window.ganttTasks.length > 0) rawTasks = window.ganttTasks;
+  // --- D. TRUY VẤN FILE CDE (PROJECT_FILES HOẶC GOOGLE DRIVE) ---
+  if (client && proj.id) {
+    try {
+      const { data: filesData } = await client
+        .from("project_files")
+        .select("*")
+        .eq("project_id", proj.id);
 
-  if (rawTasks.length === 0) {
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key && (key.toLowerCase().includes('timeline') || key.toLowerCase().includes('task') || key.toLowerCase().includes('gantt'))) {
-        try {
-          const val = JSON.parse(localStorage.getItem(key));
-          if (Array.isArray(val) && val.length > 0) {
-            rawTasks = rawTasks.concat(val);
-          }
-        } catch(e){}
+      if (filesData && filesData.length > 0) {
+        realData.cdeFiles.total = filesData.length;
+        filesData.forEach(f => {
+          const folder = (f.folder_type || f.state || 'WIP').toUpperCase();
+          if (folder.includes('WIP')) realData.cdeFiles.wip++;
+          else if (folder.includes('SHARED')) realData.cdeFiles.shared++;
+          else if (folder.includes('PUBLISHED')) realData.cdeFiles.published++;
+          else realData.cdeFiles.wip++;
+        });
       }
-    }
+    } catch (e) {}
   }
 
-  // Quét DOM fallback nếu panel Tiến độ đang mở
-  if (rawTasks.length === 0) {
-    const allDivs = document.querySelectorAll('div');
-    allDivs.forEach(div => {
-      const t = div.innerText || "";
-      if ((t.includes('Thi công') || t.includes('MỐ TRỤ') || t.includes('cấu kiện gắn')) && t.length < 150) {
-        const lines = t.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-        if (lines.length > 0) {
-          rawTasks.push({
-            name: lines[0],
-            progress: t.includes('100%') ? 100 : 0
-          });
-        }
-      }
-    });
-  }
-
-  // Lọc trùng Task Tiến độ
-  const taskMap = new Map();
-  rawTasks.forEach(t => {
-    const name = t.name || t.title || t.text || 'Hạng mục thi công';
-    if (!taskMap.has(name)) {
-      taskMap.set(name, true);
-      realData.timelineTasks.push({
-        name: name,
-        progress: typeof t.progress === 'number' ? t.progress : (t.status === 'Completed' ? 100 : 0)
-      });
-    }
-  });
-
-  // --- D. BÓC TÁCH CHÍNH XÁC FILE THEO THƯ MỤC WIP, SHARED, PUBLISHED, ARCHIVED ---
-  if (window.cdeFilesByFolder) {
-    realData.cdeFiles.wip = (window.cdeFilesByFolder.wip || []).length;
-    realData.cdeFiles.shared = (window.cdeFilesByFolder.shared || []).length;
-    realData.cdeFiles.published = (window.cdeFilesByFolder.published || []).length;
-    realData.cdeFiles.archived = (window.cdeFilesByFolder.archived || []).length;
-    realData.cdeFiles.total = realData.cdeFiles.wip + realData.cdeFiles.shared + realData.cdeFiles.published;
-  } else {
-    // Đếm file hiển thị trực tiếp trên danh sách CDE
-    let wip = 0, shared = 0, published = 0;
+  if (realData.cdeFiles.total === 0) {
     const fileItems = document.querySelectorAll('#cdeFileList .file-item, #cdeFileList > div, [class*="file"]');
+    let wip = 0, shared = 0, published = 0;
     fileItems.forEach(el => {
       const txt = el.innerText || "";
       if (txt.includes('.ifc') || txt.includes('.pptx') || txt.includes('.docx') || txt.includes('.pdf')) {
@@ -246,12 +222,14 @@ function collectAllCdeRealData() {
   return realData;
 }
 
-// 6. Render Nội dung từng Tab ACC
-function renderAccDashboardTab(tabName) {
+// 5. Render Nội dung từng Tab ACC
+async function renderAccDashboardTab(tabName) {
   const container = document.getElementById('acc-dashboard-content');
   if (!container) return;
 
-  const data = collectAllCdeRealData();
+  container.innerHTML = `<div style="padding: 20px; text-align: center; color: #0275d8;">🔄 Đang tải dữ liệu thực từ CDE Supabase...</div>`;
+
+  const data = await collectAllCdeRealDataAsync();
 
   if (tabName === 'rfi') {
     renderRfiDashboard(container, data);
@@ -267,16 +245,9 @@ function renderAccDashboardTab(tabName) {
 }
 
 // LẮNG NGHE SỰ KIỆN ĐỔI DỰ ÁN VÀ RENDER LẠI LẬP TỨC
-document.addEventListener('change', async (e) => {
+document.addEventListener('change', (e) => {
   if (e.target && e.target.tagName === 'SELECT') {
-    window.cdeTodos = [];
-    window.todos = [];
-    window.lastClashResults = null;
-    window.timelineTasks = [];
-    window.cdeTasks = [];
-
     if (isDashboardOpen) {
-      await forceSyncActiveProjectData();
       setTimeout(() => renderAccDashboardTab(currentAccTab), 300);
     }
   }
@@ -406,7 +377,7 @@ function renderIssuesDashboard(container, data) {
         <div style="padding:10px; font-size:12px;">
           📌 <b>Kết quả kiểm tra:</b> <span style="color:#d9534f; font-weight:bold;">${clashCount} va chạm</span><br>
           <div style="margin-top:8px; font-size:11px; color:#555;">
-            Đã tự động tổng hợp ${clashCount} va chạm cho dự án ${data.projectName}.
+            Đã tự động tổng hợp ${clashCount} va chạm của dự án ${data.projectName}.
           </div>
         </div>
       </div>
@@ -503,7 +474,7 @@ function renderProjectStatusDashboard(container, data) {
 }
 
 // =========================================================================
-// TAB 4: APPROVALS & SUBMITTALS (TỰ ĐỘNG ĐẾM ĐÚNG THEO FOLDER GOOGLE DRIVE)
+// TAB 4: APPROVALS & SUBMITTALS
 // =========================================================================
 function renderApprovalsDashboard(container, data) {
   const f = data.cdeFiles;
