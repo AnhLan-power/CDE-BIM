@@ -1,4 +1,4 @@
-// cde-dashboard.js - Tự động nạp ngầm dữ liệu ToDos, Clash & Tiến độ khi chuyển Dự án
+// cde-dashboard.js - Tự động đồng bộ ToDos, Tiến Độ 4D & Đếm File ISO 19650 chính xác theo CDE
 
 let isDashboardOpen = false;
 let currentAccTab = 'rfi';
@@ -21,7 +21,7 @@ async function toggleBimDashboard() {
   panel.style.display = isDashboardOpen ? 'block' : 'none';
 
   if (isDashboardOpen) {
-    await forceSyncActiveProjectData(); // Ép hệ thống nạp ngầm dữ liệu dự án hiện tại
+    await forceSyncActiveProjectData();
     renderAccDashboardTab(currentAccTab);
   }
 }
@@ -43,15 +43,16 @@ function switchAccTab(tabName) {
   renderAccDashboardTab(tabName);
 }
 
-// 3. HÀM TÌM DỰ ÁN HIỆN TẠI ĐANG CHỌN TRÊN CDE
+// 3. XÁC ĐỊNH CHÍNH XÁC TÊN DỰ ÁN DƯỚI DROPDOWN QUẢN LÝ FILE CDE
 function getActiveProjectInfo() {
   const selects = document.querySelectorAll('select');
   for (let s of selects) {
-    if (s.value && (s.value.includes('Manager') || s.value.includes('BIM') || s.innerText.includes('Manager'))) {
+    if (s.value && (s.value.includes('Manager') || s.value.includes('BIM') || s.innerText.includes('Manager') || s.innerText.includes('Task'))) {
       const opt = s.options[s.selectedIndex];
+      const projName = opt ? opt.text.trim() : s.value.trim();
       return {
-        id: s.value.trim(),
-        name: opt ? opt.text.trim() : s.value.trim()
+        id: projName.split(' ')[0] || 'DIEMVAN',
+        name: projName
       };
     }
   }
@@ -61,100 +62,97 @@ function getActiveProjectInfo() {
   };
 }
 
-// 4. BỘ NẠP DỮ LIỆU NGẦM CHỦ ĐỘNG (KÍCH HOẠT HỆ THỐNG MÀ KHÔNG CẦN BẤM MỞ BẢNG)
+// 4. BỘ KÍCH HOẠT NẠP DỮ LIỆU NGẦM TỪ CÁC CÔNG CỤ CDE
 async function forceSyncActiveProjectData() {
-  const project = getActiveProjectInfo();
+  const proj = getActiveProjectInfo();
 
-  // 4.1. Gọi ngầm hàm nạp ToDos của hệ thống nếu có
-  if (typeof window.loadTodos === 'function') {
-    try { await window.loadTodos(project.id); } catch(e){}
-  } else if (typeof window.fetchCdeTodos === 'function') {
-    try { await window.fetchCdeTodos(project.id); } catch(e){}
-  }
+  // Kích hoạt ngầm load ToDos
+  if (typeof window.loadTodos === 'function') try { await window.loadTodos(proj.name); } catch(e){}
+  if (typeof window.fetchCdeTodos === 'function') try { await window.fetchCdeTodos(proj.name); } catch(e){}
 
-  // 4.2. Gọi ngầm hàm nạp Va chạm (Clash) của hệ thống nếu có
-  if (typeof window.loadClashHistory === 'function') {
-    try { await window.loadClashHistory(project.id); } catch(e){}
-  } else if (typeof window.fetchClashResults === 'function') {
-    try { await window.fetchClashResults(project.id); } catch(e){}
-  }
+  // Kích hoạt ngầm load Tiến độ 4D
+  if (typeof window.loadTimelineTasks === 'function') try { await window.loadTimelineTasks(proj.name); } catch(e){}
+  if (typeof window.fetchProjectTimeline === 'function') try { await window.fetchProjectTimeline(proj.name); } catch(e){}
 
-  // 4.3. Gọi ngầm hàm nạp Tiến độ (Timeline) của hệ thống nếu có
-  if (typeof window.loadTimelineTasks === 'function') {
-    try { await window.loadTimelineTasks(project.id); } catch(e){}
-  } else if (typeof window.fetchProjectTimeline === 'function') {
-    try { await window.fetchProjectTimeline(project.id); } catch(e){}
-  }
+  // Kích hoạt ngầm load Va chạm
+  if (typeof window.loadClashHistory === 'function') try { await window.loadClashHistory(proj.name); } catch(e){}
 }
 
-// 5. QUÉT THU THẬP TẤT CẢ DỮ LIỆU ĐÃ NẠP THEO DỰ ÁN
+// 5. THU THẬP TẤT CẢ DỮ LIỆU TỰ ĐỘNG KHÔNG PHỤ THUỘC VÀO BẢNG UI
 function collectAllCdeRealData() {
-  const project = getActiveProjectInfo();
+  const proj = getActiveProjectInfo();
 
   const realData = {
-    projectId: project.id,
-    projectName: project.name,
+    projectId: proj.id,
+    projectName: proj.name,
     todos: [],
     clashCount: 0,
     timelineTasks: [],
-    cdeFiles: { total: 0, wip: 0, shared: 0, published: 0 }
+    cdeFiles: { total: 0, wip: 0, shared: 0, published: 0, archived: 0 }
   };
 
-  // --- A. THU THẬP TODOS THỰC TẾ ---
+  // --- A. BÓC TÁCH TODOS CỰC TẬP TRUNG (Mem + LocalStorage Sweeper) ---
   let rawTodos = [];
-  if (Array.isArray(window.cdeTodos)) rawTodos = window.cdeTodos;
-  else if (Array.isArray(window.todos)) rawTodos = window.todos;
-  
+  if (Array.isArray(window.cdeTodos) && window.cdeTodos.length > 0) rawTodos = window.cdeTodos;
+  else if (Array.isArray(window.todos) && window.todos.length > 0) rawTodos = window.todos;
+
+  // Quét toàn bộ LocalStorage để gom ToDos đúng tên/ID Dự Án
   if (rawTodos.length === 0) {
-    try {
-      const saved = localStorage.getItem(`todos_${project.id}`) || localStorage.getItem(`cde_todos_${project.id}`) || localStorage.getItem('todos');
-      if (saved) rawTodos = JSON.parse(saved);
-    } catch(e){}
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && (key.toLowerCase().includes('todo') || key.toLowerCase().includes('issue'))) {
+        try {
+          const item = JSON.parse(localStorage.getItem(key));
+          if (Array.isArray(item)) {
+            rawTodos = rawTodos.concat(item);
+          }
+        } catch(e){}
+      }
+    }
   }
 
-  if (rawTodos.length > 0) {
-    realData.todos = rawTodos.map(t => ({
-      title: t.title || t.name || t.text || 'Nhiệm vụ CDE',
-      status: (t.status === 'Done' || t.progress === 100 || t.completed) ? 'Done' : 'Open'
-    }));
-  } else {
-    // Sweeping DOM ToDos nếu panel đang mở
+  // Quét DOM fallback nếu bảng ToDos đang mở
+  if (rawTodos.length === 0) {
     const allDivs = document.querySelectorAll('div');
-    const domTodos = [];
     allDivs.forEach(div => {
       const txt = div.innerText || "";
-      if ((txt.includes('Xem góc nhìn') || txt.includes('Đánh dấu xong') || txt.includes('hoàn thành')) && txt.length < 300) {
+      if ((txt.includes('Xem góc nhìn') || txt.includes('Đánh dấu xong') || txt.includes('hoàn thành')) && txt.length < 350) {
         const lines = txt.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-        if (lines.length > 0) {
-          const title = lines[0];
-          if (!title.includes('Tạo ToDo') && !title.includes('Đang mở') && !title.includes('Đã xong')) {
-            domTodos.push({
-              title: title,
-              status: txt.includes('100%') ? 'Done' : 'Open'
-            });
-          }
+        if (lines.length > 0 && !lines[0].includes('Tạo ToDo')) {
+          rawTodos.push({
+            title: lines[0],
+            status: txt.includes('100%') ? 'Done' : 'Open'
+          });
         }
       }
     });
-    const map = new Map();
-    domTodos.forEach(item => {
-      if (!map.has(item.title)) {
-        map.set(item.title, true);
-        realData.todos.push(item);
-      }
-    });
   }
 
-  // --- B. THU THẬP SỐ LƯỢNG VA CHẠM (CLASH) ---
+  // Lọc trùng ToDos
+  const todoMap = new Map();
+  rawTodos.forEach(t => {
+    const title = t.title || t.name || t.text || 'Nhiệm vụ CDE';
+    if (!todoMap.has(title)) {
+      todoMap.set(title, true);
+      realData.todos.push({
+        title: title,
+        status: (t.status === 'Done' || t.progress === 100 || t.completed) ? 'Done' : 'Open'
+      });
+    }
+  });
+
+  // --- B. BÓC TÁCH VA CHẠM (CLASH) ---
   if (window.lastClashResults && Array.isArray(window.lastClashResults.clashes)) {
     realData.clashCount = window.lastClashResults.clashes.length;
   } else {
     try {
-      const savedClash = localStorage.getItem(`clash_${project.id}`) || localStorage.getItem(`cde_clash_${project.id}`) || localStorage.getItem('cde_last_clash');
-      if (savedClash) {
-        const parsed = JSON.parse(savedClash);
-        if (Array.isArray(parsed)) realData.clashCount = parsed.length;
-        else if (parsed.clashes) realData.clashCount = parsed.clashes.length;
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.toLowerCase().includes('clash')) {
+          const val = JSON.parse(localStorage.getItem(key));
+          if (Array.isArray(val)) realData.clashCount = val.length;
+          else if (val.clashes) realData.clashCount = val.clashes.length;
+        }
       }
     } catch(e){}
   }
@@ -169,66 +167,86 @@ function collectAllCdeRealData() {
     }
   }
 
-  // --- C. THU THẬP TIẾN ĐỘ THI CÔNG 4D ---
+  // --- C. BÓC TÁCH TIẾN ĐỘ THI CÔNG 4D ---
   let rawTasks = [];
   if (Array.isArray(window.timelineTasks) && window.timelineTasks.length > 0) rawTasks = window.timelineTasks;
   else if (Array.isArray(window.cdeTasks) && window.cdeTasks.length > 0) rawTasks = window.cdeTasks;
   else if (Array.isArray(window.ganttTasks) && window.ganttTasks.length > 0) rawTasks = window.ganttTasks;
 
   if (rawTasks.length === 0) {
-    try {
-      const savedTasks = localStorage.getItem(`tasks_${project.id}`) || localStorage.getItem(`cde_tasks_${project.id}`) || localStorage.getItem('cde_timeline_tasks');
-      if (savedTasks) rawTasks = JSON.parse(savedTasks);
-    } catch(e){}
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && (key.toLowerCase().includes('timeline') || key.toLowerCase().includes('task') || key.toLowerCase().includes('gantt'))) {
+        try {
+          const val = JSON.parse(localStorage.getItem(key));
+          if (Array.isArray(val) && val.length > 0) {
+            rawTasks = rawTasks.concat(val);
+          }
+        } catch(e){}
+      }
+    }
   }
 
-  if (rawTasks.length > 0) {
-    realData.timelineTasks = rawTasks.map(t => ({
-      name: t.name || t.title || t.text || 'Hạng mục thi công',
-      progress: typeof t.progress === 'number' ? t.progress : (t.status === 'Completed' ? 100 : 0)
-    }));
-  } else {
+  // Quét DOM fallback nếu panel Tiến độ đang mở
+  if (rawTasks.length === 0) {
     const allDivs = document.querySelectorAll('div');
-    const domTasks = [];
     allDivs.forEach(div => {
       const t = div.innerText || "";
       if ((t.includes('Thi công') || t.includes('MỐ TRỤ') || t.includes('cấu kiện gắn')) && t.length < 150) {
         const lines = t.split('\n').map(l => l.trim()).filter(l => l.length > 0);
         if (lines.length > 0) {
-          domTasks.push({
+          rawTasks.push({
             name: lines[0],
             progress: t.includes('100%') ? 100 : 0
           });
         }
       }
     });
-
-    const taskMap = new Map();
-    domTasks.forEach(item => {
-      if (!taskMap.has(item.name)) {
-        taskMap.set(item.name, true);
-        realData.timelineTasks.push(item);
-      }
-    });
   }
 
-  // --- D. THU THẬP TÀI LIỆU CDE GOOGLE DRIVE ---
-  const fileNodes = document.querySelectorAll('#cdeFileList .file-item, #cdeFileList > div, [class*="file"]');
-  let fileCount = 0;
-  fileNodes.forEach(el => {
-    if (el.innerText.includes('.ifc') || el.innerText.includes('.pptx') || el.innerText.includes('.docx')) {
-      fileCount++;
+  // Lọc trùng Task Tiến độ
+  const taskMap = new Map();
+  rawTasks.forEach(t => {
+    const name = t.name || t.title || t.text || 'Hạng mục thi công';
+    if (!taskMap.has(name)) {
+      taskMap.set(name, true);
+      realData.timelineTasks.push({
+        name: name,
+        progress: typeof t.progress === 'number' ? t.progress : (t.status === 'Completed' ? 100 : 0)
+      });
     }
   });
-  realData.cdeFiles.total = fileCount || 8;
-  realData.cdeFiles.wip = Math.ceil(realData.cdeFiles.total * 0.6);
-  realData.cdeFiles.shared = Math.floor(realData.cdeFiles.total * 0.3);
-  realData.cdeFiles.published = realData.cdeFiles.total - realData.cdeFiles.wip - realData.cdeFiles.shared;
+
+  // --- D. BÓC TÁCH CHÍNH XÁC FILE THEO THƯ MỤC WIP, SHARED, PUBLISHED, ARCHIVED ---
+  if (window.cdeFilesByFolder) {
+    realData.cdeFiles.wip = (window.cdeFilesByFolder.wip || []).length;
+    realData.cdeFiles.shared = (window.cdeFilesByFolder.shared || []).length;
+    realData.cdeFiles.published = (window.cdeFilesByFolder.published || []).length;
+    realData.cdeFiles.archived = (window.cdeFilesByFolder.archived || []).length;
+    realData.cdeFiles.total = realData.cdeFiles.wip + realData.cdeFiles.shared + realData.cdeFiles.published;
+  } else {
+    // Đếm file hiển thị trực tiếp trên danh sách CDE
+    let wip = 0, shared = 0, published = 0;
+    const fileItems = document.querySelectorAll('#cdeFileList .file-item, #cdeFileList > div, [class*="file"]');
+    fileItems.forEach(el => {
+      const txt = el.innerText || "";
+      if (txt.includes('.ifc') || txt.includes('.pptx') || txt.includes('.docx') || txt.includes('.pdf')) {
+        if (txt.includes('SHARED') || txt.includes('Shared')) shared++;
+        else if (txt.includes('PUBLISHED') || txt.includes('Published')) published++;
+        else wip++;
+      }
+    });
+
+    realData.cdeFiles.wip = wip || (fileItems.length > 0 ? fileItems.length : 0);
+    realData.cdeFiles.shared = shared;
+    realData.cdeFiles.published = published;
+    realData.cdeFiles.total = realData.cdeFiles.wip + realData.cdeFiles.shared + realData.cdeFiles.published;
+  }
 
   return realData;
 }
 
-// 6. Render Nội dung Tab ACC
+// 6. Render Nội dung từng Tab ACC
 function renderAccDashboardTab(tabName) {
   const container = document.getElementById('acc-dashboard-content');
   if (!container) return;
@@ -248,10 +266,9 @@ function renderAccDashboardTab(tabName) {
   }
 }
 
-// LẮNG NGHE SỰ KIỆN ĐỔI DỰ ÁN VÀ TỰ ĐỘNG REFRESH DASHBOARD LẬP TỨC
+// LẮNG NGHE SỰ KIỆN ĐỔI DỰ ÁN VÀ RENDER LẠI LẬP TỨC
 document.addEventListener('change', async (e) => {
   if (e.target && e.target.tagName === 'SELECT') {
-    // Xóa bộ nhớ đệm tạm thời
     window.cdeTodos = [];
     window.todos = [];
     window.lastClashResults = null;
@@ -389,7 +406,7 @@ function renderIssuesDashboard(container, data) {
         <div style="padding:10px; font-size:12px;">
           📌 <b>Kết quả kiểm tra:</b> <span style="color:#d9534f; font-weight:bold;">${clashCount} va chạm</span><br>
           <div style="margin-top:8px; font-size:11px; color:#555;">
-            Đã tự động tổng hợp ${clashCount} va chạm của dự án ${data.projectName}.
+            Đã tự động tổng hợp ${clashCount} va chạm cho dự án ${data.projectName}.
           </div>
         </div>
       </div>
@@ -486,7 +503,7 @@ function renderProjectStatusDashboard(container, data) {
 }
 
 // =========================================================================
-// TAB 4: APPROVALS & SUBMITTALS
+// TAB 4: APPROVALS & SUBMITTALS (TỰ ĐỘNG ĐẾM ĐÚNG THEO FOLDER GOOGLE DRIVE)
 // =========================================================================
 function renderApprovalsDashboard(container, data) {
   const f = data.cdeFiles;
