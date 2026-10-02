@@ -1,4 +1,4 @@
-// cde-dashboard.js - Kết nối trực tiếp Supabase Database (sb, activeProjectId) & Viewer
+// cde-dashboard.js - Tự động đồng bộ Supabase ToDos, Tiến độ 4D & Lịch sử Va Chạm LocalStorage
 
 let isDashboardOpen = false;
 let currentAccTab = 'rfi';
@@ -42,7 +42,7 @@ function switchAccTab(tabName) {
   renderAccDashboardTab(tabName);
 }
 
-// 3. TÌM TÊN / ID DỰ ÁN DƯỚI DROPDOWN TỰ ĐỘNG
+// 3. TÌM DỰ ÁN HIỆN TẠI DƯỚI DROPDOWN QUẢN LÝ FILE CDE
 function getActiveProjectInfo() {
   let projId = window.activeProjectId || null;
   let projName = "DIEMVAN (BIM Manager)";
@@ -59,7 +59,7 @@ function getActiveProjectInfo() {
   return { id: projId, name: projName };
 }
 
-// 4. HÀM QUÉT DỮ LIỆU THỰC TỪ SUPABASE (project_todos, project_tasks, project_files)
+// 4. HÀM QUÉT DỮ LIỆU ĐỒNG BỘ CẢ SUPABASE VÀ LOCALSTORAGE VA CHẠM
 async function collectAllCdeRealDataAsync() {
   const proj = getActiveProjectInfo();
 
@@ -72,10 +72,9 @@ async function collectAllCdeRealDataAsync() {
     cdeFiles: { total: 0, wip: 0, shared: 0, published: 0 }
   };
 
-  // Tận dụng Supabase Client 'sb' dùng chung trong cde-todos.js và cde-timeline.js
   const client = window.sb || window.supabaseClient;
 
-  // --- A. TRUY VẤN TODOS TỪ SUPABASE (project_todos) ---
+  // --- A. LẤY TODOS TỪ SUPABASE (project_todos) ---
   if (client && proj.id) {
     try {
       const { data: todosData } = await client
@@ -92,36 +91,18 @@ async function collectAllCdeRealDataAsync() {
         }));
       }
     } catch (e) {
-      console.warn("Lỗi đọc Supabase project_todos:", e);
+      console.warn("Lỗi đọc project_todos:", e);
     }
   }
 
-  // Fallback nếu không có Supabase client hoặc chưa chọn proj.id
-  if (realData.todos.length === 0) {
-    if (Array.isArray(window.cdeTodos) && window.cdeTodos.length > 0) {
-      realData.todos = window.cdeTodos.map(t => ({
-        title: t.title || "Nhiệm vụ CDE",
-        status: t.status === "closed" ? "Done" : "Open"
-      }));
-    } else {
-      // Quét DOM ToDos nếu panel đang mở
-      const allDivs = document.querySelectorAll('div');
-      allDivs.forEach(div => {
-        const txt = div.innerText || "";
-        if ((txt.includes('Xem góc nhìn') || txt.includes('Đánh dấu xong') || txt.includes('hoàn thành')) && txt.length < 350) {
-          const lines = txt.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-          if (lines.length > 0 && !lines[0].includes('Tạo ToDo')) {
-            realData.todos.push({
-              title: lines[0],
-              status: txt.includes('100%') ? 'Done' : 'Open'
-            });
-          }
-        }
-      });
-    }
+  if (realData.todos.length === 0 && Array.isArray(window.cdeTodos) && window.cdeTodos.length > 0) {
+    realData.todos = window.cdeTodos.map(t => ({
+      title: t.title || "Nhiệm vụ CDE",
+      status: t.status === "closed" ? "Done" : "Open"
+    }));
   }
 
-  // --- B. TRUY VẤN TIẾN ĐỘ THI CÔNG 4D TỪ SUPABASE (project_tasks) ---
+  // --- B. LẤY TIẾN ĐỘ THI CÔNG 4D TỪ SUPABASE (project_tasks) ---
   if (client && proj.id) {
     try {
       const { data: tasksData } = await client
@@ -139,48 +120,74 @@ async function collectAllCdeRealDataAsync() {
         }));
       }
     } catch (e) {
-      console.warn("Lỗi đọc Supabase project_tasks:", e);
+      console.warn("Lỗi đọc project_tasks:", e);
     }
   }
 
-  // Fallback nếu dùng cache timelineTasks của cde-timeline.js
-  if (realData.timelineTasks.length === 0) {
-    if (Array.isArray(window.timelineTasks) && window.timelineTasks.length > 0) {
-      realData.timelineTasks = window.timelineTasks.map(t => ({
-        name: t.name || "Công việc thi công",
-        progress: new Date(t.planned_end) <= new Date() ? 100 : 0
-      }));
-    } else {
-      const allDivs = document.querySelectorAll('div');
-      allDivs.forEach(div => {
-        const t = div.innerText || "";
-        if ((t.includes('Thi công') || t.includes('MỐ TRỤ') || t.includes('cấu kiện gắn')) && t.length < 150) {
-          const lines = t.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-          if (lines.length > 0) {
-            realData.timelineTasks.push({
-              name: lines[0],
-              progress: t.includes('100%') ? 100 : 0
-            });
-          }
-        }
-      });
-    }
+  if (realData.timelineTasks.length === 0 && Array.isArray(window.timelineTasks) && window.timelineTasks.length > 0) {
+    realData.timelineTasks = window.timelineTasks.map(t => ({
+      name: t.name || "Công việc thi công",
+      progress: new Date(t.planned_end) <= new Date() ? 100 : 0
+    }));
   }
 
-  // --- C. TRUY VẤN SỐ LƯỢNG VA CHẠM (CLASH) ---
+  // --- C. LẤY KẾT QUẢ VA CHẠM (CLASH) TỪ MEMORY VÀ LOCALSTORAGE SWEEPER ---
+  // 1. Quét biến Memory
   if (window.lastClashResults && Array.isArray(window.lastClashResults.clashes)) {
     realData.clashCount = window.lastClashResults.clashes.length;
-  } else {
+  } else if (window.clashResultsHistory && Array.isArray(window.clashResultsHistory)) {
+    const latest = window.clashResultsHistory[0];
+    realData.clashCount = latest ? (latest.count || (latest.clashes ? latest.clashes.length : 0)) : 0;
+  }
+
+  // 2. Quét LocalStorage nếu chưa lấy được từ Memory
+  if (realData.clashCount === 0) {
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && (key.toLowerCase().includes('clash') || key.toLowerCase().includes('va_cham'))) {
+          const raw = localStorage.getItem(key);
+          if (!raw) continue;
+          
+          try {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              // Nếu lưu mảng va chạm
+              realData.clashCount = parsed.length;
+              break;
+            } else if (parsed.clashes && Array.isArray(parsed.clashes)) {
+              realData.clashCount = parsed.clashes.length;
+              break;
+            } else if (parsed.history && Array.isArray(parsed.history) && parsed.history.length > 0) {
+              const item = parsed.history[0];
+              realData.clashCount = item.count || (item.clashes ? item.clashes.length : 0);
+              break;
+            }
+          } catch(e) {
+            // Nếu lưu dạng Text đơn giản
+            const match = raw.match(/(\d+)\s*va chạm/i) || raw.match(/Tổng:\s*(\d+)/i);
+            if (match) {
+              realData.clashCount = parseInt(match[1], 10);
+              break;
+            }
+          }
+        }
+      }
+    } catch(e) {}
+  }
+
+  // 3. Fallback quét DOM Lịch sử Va chạm
+  if (realData.clashCount === 0) {
     const historyBox = document.getElementById('clashHistoryBox') || document.getElementById('clashResults') || document.body;
     const txt = historyBox.innerText || "";
-    const matches = txt.match(/Tổng:\s*(\d+)\s*va chạm/g) || txt.match(/(\d+)\s*va chạm/g);
+    const matches = txt.match(/Tổng:\s*(\d+)\s*va chạm/gi) || txt.match(/(\d+)\s*va chạm/gi);
     if (matches && matches.length > 0) {
       const numMatch = matches[0].match(/\d+/);
       if (numMatch) realData.clashCount = parseInt(numMatch[0], 10);
     }
   }
 
-  // --- D. TRUY VẤN FILE CDE (PROJECT_FILES HOẶC GOOGLE DRIVE) ---
+  // --- D. TRUY VẤN TÀI LIỆU CDE GOOGLE DRIVE / PROJECT_FILES ---
   if (client && proj.id) {
     try {
       const { data: filesData } = await client
@@ -227,7 +234,7 @@ async function renderAccDashboardTab(tabName) {
   const container = document.getElementById('acc-dashboard-content');
   if (!container) return;
 
-  container.innerHTML = `<div style="padding: 20px; text-align: center; color: #0275d8;">🔄 Đang tải dữ liệu thực từ CDE Supabase...</div>`;
+  container.innerHTML = `<div style="padding: 20px; text-align: center; color: #0275d8;">🔄 Đang tải dữ liệu thực từ CDE...</div>`;
 
   const data = await collectAllCdeRealDataAsync();
 
@@ -244,7 +251,7 @@ async function renderAccDashboardTab(tabName) {
   }
 }
 
-// LẮNG NGHE SỰ KIỆN ĐỔI DỰ ÁN VÀ RENDER LẠI LẬP TỨC
+// LẮNG NGHE SỰ KIỆN ĐỔI DỰ ÁN DƯỚI DROPDOWN VÀ RENDER LẠI
 document.addEventListener('change', (e) => {
   if (e.target && e.target.tagName === 'SELECT') {
     if (isDashboardOpen) {
@@ -377,7 +384,7 @@ function renderIssuesDashboard(container, data) {
         <div style="padding:10px; font-size:12px;">
           📌 <b>Kết quả kiểm tra:</b> <span style="color:#d9534f; font-weight:bold;">${clashCount} va chạm</span><br>
           <div style="margin-top:8px; font-size:11px; color:#555;">
-            Đã tự động tổng hợp ${clashCount} va chạm của dự án ${data.projectName}.
+            Đã tự động quét và tổng hợp ${clashCount} va chạm cho dự án ${data.projectName}.
           </div>
         </div>
       </div>
