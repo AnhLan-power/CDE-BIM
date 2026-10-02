@@ -1,4 +1,4 @@
-// cde-dashboard.js - Ưu tiên lấy đúng số lượng Va Chạm từ Lịch Sử Quét Va Chạm (Clash Panel)
+// cde-dashboard.js - Tự động đồng bộ và lưu vĩnh viễn số lượng Va Chạm chuẩn theo Dự Án
 
 let isDashboardOpen = false;
 let currentAccTab = 'rfi';
@@ -42,10 +42,10 @@ function switchAccTab(tabName) {
   renderAccDashboardTab(tabName);
 }
 
-// 3. TÌM DỰ ÁN HIỆN TẠI DƯỚI DROPDOWN QUẢN LÝ FILE CDE
+// 3. TÌM TÊN / ID DỰ ÁN DƯỚI DROPDOWN QUẢN LÝ FILE CDE
 function getActiveProjectInfo() {
   let projId = window.activeProjectId || null;
-  let projName = "DIEMVAN (BIM Manager)";
+  let projName = "PHUOCSON (BIM Manager)";
 
   const selects = document.querySelectorAll('select');
   for (let s of selects) {
@@ -59,7 +59,7 @@ function getActiveProjectInfo() {
   return { id: projId, name: projName };
 }
 
-// 4. HÀM BÓC TÁCH DỮ LIỆU CHÍNH XÁC
+// 4. HÀM BÓC TÁCH DỮ LIỆU CHÍNH XÁC & BỔ SUNG LƯU LOCALSTORAGE VĨNH VIỄN
 async function collectAllCdeRealDataAsync() {
   const proj = getActiveProjectInfo();
 
@@ -91,7 +91,6 @@ async function collectAllCdeRealDataAsync() {
           type: t.todo_type || "task"
         }));
 
-        // Đếm số ToDos loại va chạm để dự phòng
         const clashTodos = todosData.filter(t => t.todo_type === 'clash' || (t.title && t.title.toLowerCase().includes('va chạm')));
         clashFromTodosCount = clashTodos.length;
       }
@@ -136,10 +135,10 @@ async function collectAllCdeRealDataAsync() {
     }));
   }
 
-  // --- C. ĐẾM VA CHẠM (CLASH) - ƯU TIÊN SỐ LƯỢNG TỪ LỊCH SỬ QUÉT VA CHẠM ---
+  // --- C. ĐẾM VA CHẠM (CLASH) TRUY XUẤT ĐA NGUỒN ---
   let detectedClashCount = 0;
 
-  // 1. Quét từ DOM của Khung "Kiểm Tra Va Chạm (Clash)" bên trái
+  // 1. Quét từ DOM nếu bảng va chạm đang mở
   const allElements = document.querySelectorAll('div, span, p, b');
   for (let el of allElements) {
     const txt = el.innerText || "";
@@ -158,7 +157,7 @@ async function collectAllCdeRealDataAsync() {
     }
   }
 
-  // 2. Nếu chưa tìm thấy trong DOM, quét từ Memory Object của Clash Manager
+  // 2. Quét từ Bộ nhớ JS / Window
   if (detectedClashCount === 0) {
     if (window.lastClashResults && Array.isArray(window.lastClashResults.clashes)) {
       detectedClashCount = window.lastClashResults.clashes.length;
@@ -172,7 +171,19 @@ async function collectAllCdeRealDataAsync() {
     }
   }
 
-  // 3. Nếu vẫn chưa thấy, quét LocalStorage Lịch sử Va chạm
+  // 3. Đọc từ LocalStorage theo dự án (Nếu đã từng quét 1 lần)
+  const storageKey = `clash_count_${proj.name.replace(/[^a-zA-Z0-9]/g, '_')}`;
+  if (detectedClashCount > 0) {
+    // Lưu lại cho các lần mở sau ngay cả khi đóng khung va chạm
+    localStorage.setItem(storageKey, detectedClashCount);
+  } else {
+    const savedCount = localStorage.getItem(storageKey);
+    if (savedCount && parseInt(savedCount, 10) > 0) {
+      detectedClashCount = parseInt(savedCount, 10);
+    }
+  }
+
+  // 4. Quét tổng quát LocalStorage
   if (detectedClashCount === 0) {
     try {
       for (let i = 0; i < localStorage.length; i++) {
@@ -201,10 +212,10 @@ async function collectAllCdeRealDataAsync() {
     } catch(e) {}
   }
 
-  // Gán kết quả: Ưu tiên số liệu quét lịch sử va chạm thực tế, nếu bằng 0 mới dùng ToDos clash
+  // Gán kết quả va chạm
   realData.clashCount = detectedClashCount > 0 ? detectedClashCount : clashFromTodosCount;
 
-  // --- D. TRUY VẤN TÀI LIỆU CDE (PROJECT_FILES HOẶC GOOGLE DRIVE) ---
+  // --- D. TRUY VẤN TÀI LIỆU CDE ---
   if (client && proj.id) {
     try {
       const { data: filesData } = await client
@@ -401,7 +412,7 @@ function renderIssuesDashboard(container, data) {
         <div style="padding:10px; font-size:12px;">
           📌 <b>Kết quả kiểm tra:</b> <span style="color:#d9534f; font-weight:bold;">${clashCount} va chạm</span><br>
           <div style="margin-top:8px; font-size:11px; color:#555;">
-            Đã tự động quét và tổng hợp ${clashCount} va chạm từ lịch sử kiểm tra cho dự án ${data.projectName}.
+            Đã tự động tổng hợp ${clashCount} va chạm cho dự án ${data.projectName}.
           </div>
         </div>
       </div>
