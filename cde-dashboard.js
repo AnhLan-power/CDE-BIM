@@ -1,4 +1,4 @@
-// cde-dashboard.js - Tự động nạp dữ liệu ToDos, Clash & Tiến độ chính xác theo giao diện CDE
+// cde-dashboard.js - Tự động đồng bộ và lưu vĩnh viễn số lượng Va Chạm chuẩn theo Dự Án
 
 let isDashboardOpen = false;
 let currentAccTab = 'rfi';
@@ -21,7 +21,6 @@ async function toggleBimDashboard() {
   panel.style.display = isDashboardOpen ? 'block' : 'none';
 
   if (isDashboardOpen) {
-    await forceSyncActiveProjectData();
     renderAccDashboardTab(currentAccTab);
   }
 }
@@ -43,236 +42,197 @@ function switchAccTab(tabName) {
   renderAccDashboardTab(tabName);
 }
 
-// 3. HÀM TÌM DỰ ÁN HIỆN TẠI ĐANG CHỌN TRÊN CDE
+// 3. TÌM TÊN / ID DỰ ÁN DƯỚI DROPDOWN QUẢN LÝ FILE CDE
 function getActiveProjectInfo() {
+  let projId = window.activeProjectId || null;
+  let projName = "PHUOCSON (BIM Manager)";
+
   const selects = document.querySelectorAll('select');
   for (let s of selects) {
-    if (s.value && (s.value.includes('Manager') || s.value.includes('BIM') || s.innerText.includes('Manager'))) {
+    if (s.value && (s.value.includes('Manager') || s.value.includes('BIM') || s.innerText.includes('Manager') || s.innerText.includes('Task'))) {
       const opt = s.options[s.selectedIndex];
-      return {
-        id: s.value.trim(),
-        name: opt ? opt.text.trim() : s.value.trim()
-      };
+      projName = opt ? opt.text.trim() : s.value.trim();
+      break;
     }
   }
-  return {
-    id: window.currentProjectId || 'DIEMVAN',
-    name: window.currentProjectName || 'DIEMVAN (BIM Manager)'
-  };
+
+  return { id: projId, name: projName };
 }
 
-// 4. BỘ NẠP DỮ LIỆU NGẦM CHỦ ĐỘNG
-async function forceSyncActiveProjectData() {
-  const project = getActiveProjectInfo();
-
-  // Nạp Todos
-  if (typeof window.loadTodos === 'function') {
-    try { await window.loadTodos(project.id); } catch(e){}
-  } else if (typeof window.fetchCdeTodos === 'function') {
-    try { await window.fetchCdeTodos(project.id); } catch(e){}
-  }
-
-  // Nạp Va chạm (Clashes)
-  if (typeof window.loadClashHistory === 'function') {
-    try { await window.loadClashHistory(project.id); } catch(e){}
-  } else if (typeof window.fetchClashResults === 'function') {
-    try { await window.fetchClashResults(project.id); } catch(e){}
-  } else if (typeof window.checkClashes === 'function') {
-    try { await window.checkClashes(project.id); } catch(e){}
-  } else if (typeof window.runClashDetection === 'function') {
-    try { await window.runClashDetection(project.id); } catch(e){}
-  }
-
-  // Nạp Tiến độ (Timeline)
-  if (typeof window.loadTimelineTasks === 'function') {
-    try { await window.loadTimelineTasks(project.id); } catch(e){}
-  } else if (typeof window.fetchProjectTimeline === 'function') {
-    try { await window.fetchProjectTimeline(project.id); } catch(e){}
-  }
-}
-
-// 5. QUÉT THU THẬP TẤT CẢ DỮ LIỆU ĐÃ NẠP THEO DỰ ÁN
-function collectAllCdeRealData() {
-  const project = getActiveProjectInfo();
+// 4. HÀM BÓC TÁCH DỮ LIỆU CHÍNH XÁC & ĐỒNG BỘ VA CHẠM DỰ ÁN
+async function collectAllCdeRealDataAsync() {
+  const proj = getActiveProjectInfo();
 
   const realData = {
-    projectId: project.id,
-    projectName: project.name,
+    projectId: proj.id,
+    projectName: proj.name,
     todos: [],
     clashCount: 0,
+    clashDetails: [], // Danh sách va chạm chi tiết
     timelineTasks: [],
     cdeFiles: { total: 0, wip: 0, shared: 0, published: 0 }
   };
 
-  // --- A. THU THẬP TODOS THỰC TẾ ---
-  let rawTodos = [];
-  if (Array.isArray(window.cdeTodos)) rawTodos = window.cdeTodos;
-  else if (Array.isArray(window.todos)) rawTodos = window.todos;
+  const client = window.sb || window.supabaseClient;
 
-  if (rawTodos.length === 0) {
+  // --- A. LẤY TODOS TỪ SUPABASE (project_todos) ---
+  let clashFromTodosCount = 0;
+  if (client && proj.id) {
     try {
-      const saved = localStorage.getItem(`todos_${project.id}`) || localStorage.getItem(`cde_todos_${project.id}`) || localStorage.getItem('todos');
-      if (saved) rawTodos = JSON.parse(saved);
-    } catch(e){}
+      const { data: todosData } = await client
+        .from("project_todos")
+        .select("*")
+        .eq("project_id", proj.id);
+
+      if (todosData && todosData.length > 0) {
+        realData.todos = todosData.map(t => ({
+          title: t.title || "Nhiệm vụ CDE",
+          status: t.status === "closed" ? "Done" : "Open",
+          priority: t.priority || "normal",
+          type: t.todo_type || "task"
+        }));
+
+        const clashTodos = todosData.filter(t => t.todo_type === 'clash' || (t.title && t.title.toLowerCase().includes('va chạm')));
+        clashFromTodosCount = clashTodos.length;
+      }
+    } catch (e) {
+      console.warn("Lỗi đọc project_todos:", e);
+    }
   }
 
-  if (Array.isArray(rawTodos) && rawTodos.length > 0) {
-    realData.todos = rawTodos.map(t => ({
-      title: t.title || t.name || t.text || 'Nhiệm vụ CDE',
-      status: (t.status === 'Done' || t.progress === 100 || t.completed) ? 'Done' : 'Open'
+  if (realData.todos.length === 0 && Array.isArray(window.cdeTodos) && window.cdeTodos.length > 0) {
+    realData.todos = window.cdeTodos.map(t => ({
+      title: t.title || "Nhiệm vụ CDE",
+      status: t.status === "closed" ? "Done" : "Open"
     }));
+  }
+
+  // --- B. LẤY TIẾN ĐỘ THI CÔNG 4D TỪ SUPABASE (project_tasks) ---
+  if (client && proj.id) {
+    try {
+      const { data: tasksData } = await client
+        .from("project_tasks")
+        .select("*")
+        .eq("project_id", proj.id);
+
+      if (tasksData && tasksData.length > 0) {
+        realData.timelineTasks = tasksData.map(t => ({
+          name: t.name || "Công việc thi công",
+          type: t.task_type || "construction",
+          start: t.planned_start,
+          end: t.planned_end,
+          progress: new Date(t.planned_end) <= new Date() ? 100 : 0
+        }));
+      }
+    } catch (e) {
+      console.warn("Lỗi đọc project_tasks:", e);
+    }
+  }
+
+  if (realData.timelineTasks.length === 0 && Array.isArray(window.timelineTasks) && window.timelineTasks.length > 0) {
+    realData.timelineTasks = window.timelineTasks.map(t => ({
+      name: t.name || "Công việc thi công",
+      progress: new Date(t.planned_end) <= new Date() ? 100 : 0
+    }));
+  }
+
+  // --- C. TRUY XUẤT THÔNG TIN VA CHẠM (CLASH) CHUẨN XÁC ---
+  let detectedClashes = [];
+
+  // 1. Lấy trực tiếp từ các biến toàn cục (Global Variables) của mô hình
+  if (window.lastClashResults && Array.isArray(window.lastClashResults.clashes)) {
+    detectedClashes = window.lastClashResults.clashes;
+  } else if (Array.isArray(window.clashList) && window.clashList.length > 0) {
+    detectedClashes = window.clashList;
+  } else if (Array.isArray(window.cdeClashes) && window.cdeClashes.length > 0) {
+    detectedClashes = window.cdeClashes;
+  } else if (window.clashResultsHistory && Array.isArray(window.clashResultsHistory) && window.clashResultsHistory.length > 0) {
+    const latest = window.clashResultsHistory[0];
+    detectedClashes = latest.clashes || [];
+  }
+
+  const projSlug = proj.name.replace(/[^a-zA-Z0-9]/g, '_');
+  const storageClashKey = `cde_clashes_${projSlug}`;
+  const storageCountKey = `clash_count_${projSlug}`;
+
+  // 2. Lưu/Đọc dữ liệu va chạm vào LocalStorage theo Dự Án
+  if (detectedClashes.length > 0) {
+    localStorage.setItem(storageClashKey, JSON.stringify(detectedClashes));
+    localStorage.setItem(storageCountKey, detectedClashes.length.toString());
   } else {
-    // Thu thập từ giao diện ToDos nếu có danh sách rendering
-    const todoElements = document.querySelectorAll('.todo-item, [class*="todo"]');
-    todoElements.forEach(el => {
-      const txt = el.innerText || "";
-      if (txt.trim() && !txt.includes('Tạo ToDo') && !txt.includes('ToDos Dự Án')) {
-        realData.todos.push({
-          title: txt.split('\n')[0].trim(),
-          status: txt.includes('100%') || txt.includes('Hoàn thành') ? 'Done' : 'Open'
+    try {
+      const savedClashes = localStorage.getItem(storageClashKey);
+      if (savedClashes) {
+        detectedClashes = JSON.parse(savedClashes);
+      }
+    } catch (e) {
+      console.warn("Lỗi parse va chạm từ LocalStorage:", e);
+    }
+  }
+
+  // 3. Nếu chưa có danh sách chi tiết, dùng số lượng đã lưu
+  let detectedClashCount = detectedClashes.length;
+  if (detectedClashCount === 0) {
+    const savedCount = localStorage.getItem(storageCountKey);
+    if (savedCount && parseInt(savedCount, 10) > 0) {
+      detectedClashCount = parseInt(savedCount, 10);
+    }
+  }
+
+  // Gán thông tin va chạm đã xử lý vào realData
+  realData.clashCount = detectedClashCount > 0 ? detectedClashCount : clashFromTodosCount;
+  realData.clashDetails = detectedClashes;
+
+  // --- D. TRUY VẤN TÀI LIỆU CDE ---
+  if (client && proj.id) {
+    try {
+      const { data: filesData } = await client
+        .from("project_files")
+        .select("*")
+        .eq("project_id", proj.id);
+
+      if (filesData && filesData.length > 0) {
+        realData.cdeFiles.total = filesData.length;
+        filesData.forEach(f => {
+          const folder = (f.folder_type || f.state || 'WIP').toUpperCase();
+          if (folder.includes('WIP')) realData.cdeFiles.wip++;
+          else if (folder.includes('SHARED')) realData.cdeFiles.shared++;
+          else if (folder.includes('PUBLISHED')) realData.cdeFiles.published++;
+          else realData.cdeFiles.wip++;
         });
       }
+    } catch (e) {}
+  }
+
+  if (realData.cdeFiles.total === 0) {
+    const fileItems = document.querySelectorAll('#cdeFileList .file-item, #cdeFileList > div, [class*="file"]');
+    let wip = 0, shared = 0, published = 0;
+    fileItems.forEach(el => {
+      const txt = el.innerText || "";
+      if (txt.includes('.ifc') || txt.includes('.pptx') || txt.includes('.docx') || txt.includes('.pdf')) {
+        if (txt.includes('SHARED') || txt.includes('Shared')) shared++;
+        else if (txt.includes('PUBLISHED') || txt.includes('Published')) published++;
+        else wip++;
+      }
     });
+
+    realData.cdeFiles.wip = wip || (fileItems.length > 0 ? fileItems.length : 0);
+    realData.cdeFiles.shared = shared;
+    realData.cdeFiles.published = published;
+    realData.cdeFiles.total = realData.cdeFiles.wip + realData.cdeFiles.shared + realData.cdeFiles.published;
   }
-
-  // --- B. THU THẬP SỐ LƯỢNG VA CHẠM (CLASH) CHÍNH XÁC ---
-  let detectedClashesCount = -1;
-
-  // 1. Kiểm tra các biến JS Toàn cục (Global Window Variables)
-  if (window.lastClashResults) {
-    if (Array.isArray(window.lastClashResults.clashes)) detectedClashesCount = window.lastClashResults.clashes.length;
-    else if (typeof window.lastClashResults.count === 'number') detectedClashesCount = window.lastClashResults.count;
-    else if (Array.isArray(window.lastClashResults)) detectedClashesCount = window.lastClashResults.length;
-  }
-  
-  if (detectedClashesCount < 0) {
-    const rawClashes = window.clashResults || window.clashes || window.detectedClashes || window.bimClashes || window.clashList;
-    if (Array.isArray(rawClashes)) {
-      detectedClashesCount = rawClashes.length;
-    } else if (rawClashes && Array.isArray(rawClashes.clashes)) {
-      detectedClashesCount = rawClashes.clashes.length;
-    }
-  }
-
-  // 2. Kiểm tra các đối tượng Clash Manager / Bim Viewer
-  if (detectedClashesCount < 0) {
-    if (window.clashManager && Array.isArray(window.clashManager.clashes)) {
-      detectedClashesCount = window.clashManager.clashes.length;
-    } else if (window.viewer && window.viewer.clashes && Array.isArray(window.viewer.clashes)) {
-      detectedClashesCount = window.viewer.clashes.length;
-    }
-  }
-
-  // 3. Kiểm tra trong LocalStorage
-  if (detectedClashesCount < 0) {
-    try {
-      const keysToTry = [
-        `clash_${project.id}`,
-        `cde_clash_${project.id}`,
-        `clashes_${project.id}`,
-        'cde_last_clash',
-        'clash_results',
-        'clashes'
-      ];
-      for (let key of keysToTry) {
-        const savedClash = localStorage.getItem(key);
-        if (savedClash) {
-          const parsed = JSON.parse(savedClash);
-          if (Array.isArray(parsed)) {
-            detectedClashesCount = parsed.length;
-            break;
-          } else if (parsed && Array.isArray(parsed.clashes)) {
-            detectedClashesCount = parsed.clashes.length;
-            break;
-          } else if (parsed && typeof parsed.count === 'number') {
-            detectedClashesCount = parsed.count;
-            break;
-          }
-        }
-      }
-    } catch(e){}
-  }
-
-  // 4. Nếu chưa tìm thấy ở JS/Storage, quét DOM UI Va chạm
-  if (detectedClashesCount < 0) {
-    // Ưu tiên đọc Element hiển thị số lượng cụ thể
-    const clashBadge = document.querySelector('#clash-count, .clash-count, #clash-total, .clash-badge');
-    if (clashBadge && clashBadge.innerText) {
-      const match = clashBadge.innerText.match(/\d+/);
-      if (match) detectedClashesCount = parseInt(match[0], 10);
-    }
-  }
-
-  if (detectedClashesCount < 0) {
-    // Đếm số lượng item va chạm trong danh sách DOM nếu có
-    const clashItems = document.querySelectorAll('.clash-item, .clash-row, [class*="clash-result"]');
-    if (clashItems.length > 0) {
-      detectedClashesCount = clashItems.length;
-    }
-  }
-
-  if (detectedClashesCount < 0) {
-    // Quét toàn bộ Text DOM tìm từ khóa va chạm
-    const clashNodes = document.querySelectorAll('h1, h2, h3, h4, h5, div, span, p, b, td');
-    for (let el of clashNodes) {
-      if (el.children.length === 0 && el.innerText) {
-        const txt = el.innerText.trim();
-        if (/va chạm|clash|xung đột/i.test(txt)) {
-          const match = txt.match(/\d+/);
-          if (match) {
-            detectedClashesCount = parseInt(match[0], 10);
-            break;
-          }
-        }
-      }
-    }
-  }
-
-  // Gán kết quả (nếu không tìm thấy thì mặc định là 0)
-  realData.clashCount = detectedClashesCount > 0 ? detectedClashesCount : 0;
-
-  // --- C. THU THẬP TIẾN ĐỘ THI CÔNG 4D ---
-  let rawTasks = [];
-  if (Array.isArray(window.timelineTasks) && window.timelineTasks.length > 0) rawTasks = window.timelineTasks;
-  else if (Array.isArray(window.cdeTasks) && window.cdeTasks.length > 0) rawTasks = window.cdeTasks;
-  else if (Array.isArray(window.ganttTasks) && window.ganttTasks.length > 0) rawTasks = window.ganttTasks;
-
-  if (rawTasks.length === 0) {
-    try {
-      const savedTasks = localStorage.getItem(`tasks_${project.id}`) || localStorage.getItem(`cde_tasks_${project.id}`) || localStorage.getItem('cde_timeline_tasks');
-      if (savedTasks) rawTasks = JSON.parse(savedTasks);
-    } catch(e){}
-  }
-
-  if (Array.isArray(rawTasks) && rawTasks.length > 0) {
-    realData.timelineTasks = rawTasks.map(t => ({
-      name: t.name || t.title || t.text || 'Hạng mục thi công',
-      progress: typeof t.progress === 'number' ? t.progress : (t.status === 'Completed' ? 100 : 0)
-    }));
-  }
-
-  // --- D. THU THẬP TÀI LIỆU CDE GOOGLE DRIVE ---
-  const fileNodes = document.querySelectorAll('#cdeFileList .file-item, #cdeFileList > div, [class*="file"]');
-  let fileCount = 0;
-  fileNodes.forEach(el => {
-    if (el.innerText.includes('.ifc') || el.innerText.includes('.pptx') || el.innerText.includes('.docx')) {
-      fileCount++;
-    }
-  });
-  realData.cdeFiles.total = fileCount || 8;
-  realData.cdeFiles.wip = Math.ceil(realData.cdeFiles.total * 0.6);
-  realData.cdeFiles.shared = Math.floor(realData.cdeFiles.total * 0.3);
-  realData.cdeFiles.published = realData.cdeFiles.total - realData.cdeFiles.wip - realData.cdeFiles.shared;
 
   return realData;
 }
 
-// 6. Render Nội dung Tab ACC
-function renderAccDashboardTab(tabName) {
+// 5. Render Nội dung từng Tab ACC
+async function renderAccDashboardTab(tabName) {
   const container = document.getElementById('acc-dashboard-content');
   if (!container) return;
 
-  const data = collectAllCdeRealData();
+  container.innerHTML = `<div style="padding: 20px; text-align: center; color: #0275d8;">🔄 Đang nạp dữ liệu từ CDE...</div>`;
+
+  const data = await collectAllCdeRealDataAsync();
 
   if (tabName === 'rfi') {
     renderRfiDashboard(container, data);
@@ -287,18 +247,10 @@ function renderAccDashboardTab(tabName) {
   }
 }
 
-// LẮNG NGHE SỰ KIỆN ĐỔI DỰ ÁN VÀ TỰ ĐỘNG REFRESH DASHBOARD
-document.addEventListener('change', async (e) => {
+// LẮNG NGHE SỰ KIỆN ĐỔI DỰ ÁN DƯỚI DROPDOWN
+document.addEventListener('change', (e) => {
   if (e.target && e.target.tagName === 'SELECT') {
-    window.cdeTodos = [];
-    window.todos = [];
-    window.lastClashResults = null;
-    window.clashResults = null;
-    window.timelineTasks = [];
-    window.cdeTasks = [];
-
     if (isDashboardOpen) {
-      await forceSyncActiveProjectData();
       setTimeout(() => renderAccDashboardTab(currentAccTab), 300);
     }
   }
@@ -347,7 +299,7 @@ function renderRfiDashboard(container, data) {
       </div>
     </div>
 
-    <div class="acc-chart-box">
+    <div class="acc-chart-box" style="margin-top: 12px;">
       <div style="font-weight: bold; font-size: 12px; margin-bottom: 8px;">📋 Bảng ToDos DỰ ÁN [${data.projectName}]</div>
       <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
         <thead>
@@ -392,12 +344,13 @@ function renderRfiDashboard(container, data) {
 }
 
 // =========================================================================
-// TAB 2: ISSUE MANAGEMENT
+// TAB 2: ISSUE MANAGEMENT (CẬP NHẬT TRUY XUẤT VA CHẠM THỰC TẾ)
 // =========================================================================
 function renderIssuesDashboard(container, data) {
   const clashCount = data.clashCount;
   const todoCount = data.todos.length;
   const totalIssues = clashCount + todoCount;
+  const clashes = data.clashDetails || [];
 
   container.innerHTML = `
     <div style="font-size: 11px; color: #0275d8; font-weight: bold; margin-bottom: 8px;">
@@ -424,12 +377,34 @@ function renderIssuesDashboard(container, data) {
         <canvas id="chartIssueType" height="200"></canvas>
       </div>
       <div class="acc-chart-box">
-        <div style="font-weight: bold; font-size: 12px; margin-bottom: 8px;">⚡ Ghi Nhận Va Chạm Mô Hình 3D</div>
-        <div style="padding:10px; font-size:12px;">
-          📌 <b>Kết quả kiểm tra:</b> <span style="color:#d9534f; font-weight:bold;">${clashCount} va chạm</span><br>
-          <div style="margin-top:8px; font-size:11px; color:#555;">
-            Đã tự động tổng hợp ${clashCount} va chạm của dự án ${data.projectName}.
-          </div>
+        <div style="font-weight: bold; font-size: 12px; margin-bottom: 8px;">⚡ Chi Tiết Va Chạm Mô Hình 3D</div>
+        <div style="max-height: 200px; overflow-y: auto; font-size: 11px;">
+          ${clashes.length === 0 ? `
+            <div style="padding:12px; text-align:center; color:#666;">
+              📌 Tổng số va chạm ghi nhận: <b style="color:#e74a3b;">${clashCount}</b><br>
+              <span style="font-size:10px; color:#888;">Hãy thực hiện kiểm tra va chạm trên mô hình 3D để cập nhật bảng danh sách chi tiết.</span>
+            </div>
+          ` : `
+            <table style="width: 100%; border-collapse: collapse;">
+              <thead>
+                <tr style="background: #f1f3f5; text-align: left;">
+                  <th style="padding: 4px;">#</th>
+                  <th style="padding: 4px;">Cấu kiện A</th>
+                  <th style="padding: 4px;">Cấu kiện B</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${clashes.slice(0, 15).map((c, idx) => `
+                  <tr style="border-bottom: 1px solid #eee;">
+                    <td style="padding: 4px; color:#888;">${idx + 1}</td>
+                    <td style="padding: 4px; font-weight: bold; color:#e74a3b;">${c.itemA || c.elemA || 'Cấu kiện 1'}</td>
+                    <td style="padding: 4px; font-weight: bold; color:#4e73df;">${c.itemB || c.elemB || 'Cấu kiện 2'}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+            ${clashes.length > 15 ? `<div style="text-align:center; padding:4px; font-size:10px; color:#888;">...và ${clashes.length - 15} va chạm khác</div>` : ''}
+          `}
         </div>
       </div>
     </div>
@@ -576,7 +551,7 @@ function renderApprovalsDashboard(container, data) {
 // =========================================================================
 function renderBimQuantityCostDashboard(container) {
   if (typeof viewer === 'undefined' || !viewer || !viewer.metaScene) {
-    container.innerHTML = `<div style="padding: 20px; text-align: center; color: #777;">⚠️️ Chưa có mô hình BIM nào được nạp vào Viewer.</div>`;
+    container.innerHTML = `<div style="padding: 20px; text-align: center; color: #777;">⚠️ Chưa có mô hình BIM nào được nạp vào Viewer.</div>`;
     return;
   }
 
@@ -615,7 +590,7 @@ function renderBimQuantityCostDashboard(container) {
         <canvas id="chartBimCategoryRatio" height="220"></canvas>
       </div>
       <div class="acc-chart-box">
-        <div style="font-weight: bold; font-size: 12px; margin-bottom: 8px;">🏷 Thiết lập Đơn giá Ước tính (VNĐ/Cấu kiện)</div>
+        <div style="font-weight: bold; font-size: 12px; margin-bottom: 8px;">🏷️️ Thiết lập Đơn giá Ước tính (VNĐ/Cấu kiện)</div>
         <div id="acc-unit-price-table-container" style="max-height: 200px; overflow-y: auto; font-size: 11px;"></div>
       </div>
     </div>
