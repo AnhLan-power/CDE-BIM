@@ -112,6 +112,47 @@
     obs.observe(zone, { childList: true, subtree: true, attributes: true, attributeFilter: ["style"] });
   }
 
+  // Khi ghim DƯỚI, khung rất rộng nhưng thấp — gói toàn bộ nội dung panel
+  // (trừ phần tiêu đề) vào 1 hàng ngang cuộn được, mỗi khối rộng cố định,
+  // thay vì xếp dọc rất dài gây phải cuộn nhiều. Không đụng tới code của
+  // từng file panel — chỉ di chuyển đúng các <div> con đã có sẵn.
+  function wrapContentHorizontally(panelEl) {
+    if (panelEl.dataset.horizWrapped) return;
+    const header = panelEl.querySelector(".panel-header");
+    const rest = [...panelEl.children].filter(c => c !== header);
+    if (rest.length === 0) return;
+
+    const wrapper = document.createElement("div");
+    wrapper.className = "cde-dock-bottom-row";
+    wrapper.style.cssText = "display:flex; flex-direction:row; gap:10px; overflow-x:auto; align-items:flex-start; padding-top:6px; width:100%;";
+    rest.forEach(el => {
+      el.dataset.origFlex = el.style.flex || "";
+      el.dataset.origMaxHeight = el.style.maxHeight || "";
+      el.dataset.origOverflowY = el.style.overflowY || "";
+      el.style.flex = "0 0 280px";
+      el.style.maxHeight = (DOCK_BOTTOM_HEIGHT - 60) + "px";
+      el.style.overflowY = "auto";
+      wrapper.appendChild(el);
+    });
+    panelEl.appendChild(wrapper);
+    panelEl.dataset.horizWrapped = "1";
+  }
+
+  function unwrapContentHorizontally(panelEl) {
+    if (!panelEl.dataset.horizWrapped) return;
+    const wrapper = panelEl.querySelector(":scope > .cde-dock-bottom-row");
+    if (wrapper) {
+      [...wrapper.children].forEach(el => {
+        el.style.flex = el.dataset.origFlex || "";
+        el.style.maxHeight = el.dataset.origMaxHeight || "";
+        el.style.overflowY = el.dataset.origOverflowY || "";
+        panelEl.appendChild(el);
+      });
+      wrapper.remove();
+    }
+    delete panelEl.dataset.horizWrapped;
+  }
+
   window.makeDockable = function (panelEl) {
     const header = panelEl.querySelector(".panel-header");
     if (!header || header.dataset.dockified) return;
