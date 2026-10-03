@@ -260,6 +260,8 @@ async function collectAllCdeRealDataAsync() {
     realData.cdeFiles.published = published;
     realData.cdeFiles.total = wip + shared + published;
   }
+  return realData; // <--- Đã trả về realData
+} // <--- ĐÃ BỔ SUNG NGOẶC ĐÓNG HÀM TẠI ĐÂY
 
 // 5. Render Nội dung từng Tab ACC
 async function renderAccDashboardTab(tabName) {
