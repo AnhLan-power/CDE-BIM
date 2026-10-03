@@ -183,7 +183,7 @@ async function collectAllCdeRealDataAsync() {
   realData.clashCount = detectedClashCount > 0 ? detectedClashCount : clashFromTodosCount;
   realData.clashDetails = detectedClashes;
 
-  // --- D. TRUY VẤN TÀI LIỆU CDE ---
+  // --- D. TRUY VẤN TÀI LIỆU CDE (Đã sửa lỗi đồng bộ chính xác số lượng file) ---
   if (client && proj.id) {
     try {
       const { data: filesData } = await client
@@ -201,29 +201,65 @@ async function collectAllCdeRealDataAsync() {
           else realData.cdeFiles.wip++;
         });
       }
-    } catch (e) {}
+    } catch (e) {
+      console.warn("Lỗi đọc project_files từ Supabase:", e);
+    }
   }
 
+  // Ưu tiên 1: Lấy từ mảng dữ liệu CDE / Google Drive lưu trữ trong bộ nhớ Javascript (nếu có)
+  const globalFiles = window.cdeFileList || window.googleDriveFiles || window.currentLoadedCdeFiles || [];
+  if (realData.cdeFiles.total === 0 && Array.isArray(globalFiles) && globalFiles.length > 0) {
+    realData.cdeFiles.total = globalFiles.length;
+    globalFiles.forEach(f => {
+      const folder = (f.folder || f.state || f.folder_type || 'WIP').toUpperCase();
+      if (folder.includes('SHARED')) realData.cdeFiles.shared++;
+      else if (folder.includes('PUBLISHED')) realData.cdeFiles.published++;
+      else realData.cdeFiles.wip++;
+    });
+  }
+
+  // Ưu tiên 2: Tự động kích hoạt tải danh sách file nếu DOM chưa nạp đủ hoặc gọi hàm lấy file Drive
   if (realData.cdeFiles.total === 0) {
-    const fileItems = document.querySelectorAll('#cdeFileList .file-item, #cdeFileList > div, [class*="file"]');
+    // Nếu có hàm nạp/lấy file Google Drive toàn cục, gọi trực tiếp
+    if (typeof window.loadCdeFileListAsync === 'function') {
+      try {
+        const driveFiles = await window.loadCdeFileListAsync();
+        if (Array.isArray(driveFiles) && driveFiles.length > 0) {
+          realData.cdeFiles.total = driveFiles.length;
+          realData.cdeFiles.wip = driveFiles.length; // Mặc định WIP nếu chưa phân loại
+        }
+      } catch (err) {}
+    } else if (typeof window.fetchGoogleDriveFiles === 'function') {
+      try {
+        const driveFiles = await window.fetchGoogleDriveFiles();
+        if (Array.isArray(driveFiles) && driveFiles.length > 0) {
+          realData.cdeFiles.total = driveFiles.length;
+          realData.cdeFiles.wip = driveFiles.length;
+        }
+      } catch (err) {}
+    }
+  }
+
+  // Ưu tiên 3: Fallback quét DOM (Đã tối ưu selector quét chính xác các thẻ file)
+  if (realData.cdeFiles.total === 0) {
+    const fileItems = document.querySelectorAll('#cdeFileList .file-item, #cdeFileList > div, [class*="file-item"]');
     let wip = 0, shared = 0, published = 0;
+    
     fileItems.forEach(el => {
       const txt = el.innerText || "";
-      if (txt.includes('.ifc') || txt.includes('.pptx') || txt.includes('.docx') || txt.includes('.pdf')) {
+      // Chỉ đếm các phần tử thực sự là file (chứa đuôi file hoặc dung lượng KB/MB)
+      if (/\.(ifc|pdf|docx|xlsx|pptx|dwg|rvt)/i.test(txt) || /KB|MB|GB/i.test(txt)) {
         if (txt.includes('SHARED') || txt.includes('Shared')) shared++;
         else if (txt.includes('PUBLISHED') || txt.includes('Published')) published++;
         else wip++;
       }
     });
 
-    realData.cdeFiles.wip = wip || (fileItems.length > 0 ? fileItems.length : 0);
+    realData.cdeFiles.wip = wip;
     realData.cdeFiles.shared = shared;
     realData.cdeFiles.published = published;
-    realData.cdeFiles.total = realData.cdeFiles.wip + realData.cdeFiles.shared + realData.cdeFiles.published;
+    realData.cdeFiles.total = wip + shared + published;
   }
-
-  return realData;
-}
 
 // 5. Render Nội dung từng Tab ACC
 async function renderAccDashboardTab(tabName) {
