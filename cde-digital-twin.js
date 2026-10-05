@@ -1,5 +1,6 @@
 // --- MODULE QUẢN LÝ TÀI SẢN DIGITAL TWIN (FA/AM) ---
-
+const DT_SUPABASE_URL = 'https://znzakqzdezxzqzfplmgv.supabase.co/rest/v1/'; 
+const DT_SUPABASE_KEY = 'sb_publishable_Ks8amYP0KOO6IdUkRDSbLw_4NGI5G9r'; 
 /**
  * Hàm lấy đối tượng Supabase Client chuẩn trong dự án CDE
  */
