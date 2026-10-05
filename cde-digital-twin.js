@@ -1,11 +1,11 @@
 // --- MODULE QUẢN LÝ TÀI SẢN DIGITAL TWIN (FA/AM) ---
 
-// Cấu hình URL & Key Supabase dự phòng (Nếu hệ thống chưa tự nhận diện được client)
+// Cấu hình URL & Key Supabase dự phòng
 const DT_SUPABASE_URL = window.SUPABASE_URL || 'https://znzakqzdezxzqzfplmgv.supabase.co'; 
 const DT_SUPABASE_KEY = window.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpuemFrcXpkZXp4enF6ZnBsbWd2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc4MTQyNzAsImV4cCI6MjEwMzM5MDI3MH0.aV5YaOLxTySiB26ror4CRzJvQsjANNI1DwbtbxcNe4A';
 
 /**
- * Hàm lấy đối tượng Supabase Client chuẩn trong dự án CDE
+ * Hàm lấy đối tượng Supabase Client
  */
 function getDigitalTwinSupabaseClient() {
   if (window.supabaseClient && typeof window.supabaseClient.from === 'function') {
@@ -29,13 +29,13 @@ function getDigitalTwinSupabaseClient() {
 }
 
 /**
- * Khởi tạo và nhúng Side Panel vào DOM (Vị trí bên TRÁI & Hiển thị rõ GlobalID)
+ * Khởi tạo và nhúng Side Panel vào DOM (Đã thêm các trường Bảo Trì & Nhật Ký)
  */
 function injectDigitalTwinPanel() {
   if (document.getElementById('dt-asset-panel')) return;
 
   const panelHtml = `
-    <div id="dt-asset-panel" style="display:none; position:fixed; left:20px; top:80px; width:360px; background:#fff; border-radius:10px; box-shadow: 0 4px 20px rgba(0,0,0,0.2); z-index:9999; padding:20px; font-family:sans-serif; user-select:none;">
+    <div id="dt-asset-panel" style="display:none; position:fixed; left:20px; top:80px; width:380px; max-height:85vh; overflow-y:auto; background:#fff; border-radius:10px; box-shadow: 0 4px 20px rgba(0,0,0,0.2); z-index:9999; padding:20px; font-family:sans-serif; user-select:none;">
       <!-- Header kéo thả di chuyển panel -->
       <div id="dt-panel-header" style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #eee; padding-bottom:10px; margin-bottom:15px; cursor:move; background:#f8f9fa; margin:-20px -20px 15px -20px; padding:15px 20px; border-radius:10px 10px 0 0;">
         <h3 style="margin:0; font-size:15px; color:#1a73e8; pointer-events:none;">🏷️ Quản Lý Tài Sản (Digital Twin)</h3>
@@ -48,7 +48,6 @@ function injectDigitalTwinPanel() {
 
         <div style="margin-bottom:10px;">
           <label style="font-size:12px; font-weight:bold; color:#333;">GlobalID IFC:</label>
-          <!-- Sử dụng readonly thay disabled và đổi kiểu chữ đậm để hiển thị rõ ràng -->
           <input type="text" id="dt_display_global_id" readonly style="width:100%; padding:8px; background:#eef3fc; border:1px solid #b6d4fe; border-radius:4px; font-size:12px; color:#0d6efd; font-weight:bold;" />
         </div>
 
@@ -80,6 +79,24 @@ function injectDigitalTwinPanel() {
             <label style="font-size:11px;">Hạn Bảo Hành:</label>
             <input type="date" id="dt_warranty_date" style="width:100%; padding:4px; border:1px solid #ccc; border-radius:4px;" />
           </div>
+        </div>
+
+        <!-- BỔ SUNG TRƯỜNG NGÀY BẢO TRÌ & LỊCH BẢO TRÌ KẾ TIẾP -->
+        <div style="display:flex; gap:10px; margin-bottom:10px;">
+          <div style="flex:1;">
+            <label style="font-size:11px; font-weight:bold; color:#d93025;">🔧 Bảo Trì Gần Nhất:</label>
+            <input type="date" id="dt_last_maint_date" style="width:100%; padding:4px; border:1px solid #ccc; border-radius:4px;" />
+          </div>
+          <div style="flex:1;">
+            <label style="font-size:11px; font-weight:bold; color:#1a73e8;">📅 Lịch Bảo Trì Kế:</label>
+            <input type="date" id="dt_next_maint_date" style="width:100%; padding:4px; border:1px solid #ccc; border-radius:4px;" />
+          </div>
+        </div>
+
+        <!-- BỔ SUNG Ô NHẬT KÝ VẬN HÀNH -->
+        <div style="margin-bottom:10px;">
+          <label style="font-size:12px; font-weight:bold;">📝 Nhật Ký Vận Hành / Bảo Trì:</label>
+          <textarea id="dt_maint_log" rows="3" placeholder="Nhập ghi chú tình trạng, lịch sử sửa chữa, thay dầu..." style="width:100%; padding:6px; border:1px solid #ccc; border-radius:4px; font-size:12px; resize:vertical;"></textarea>
         </div>
 
         <div style="margin-bottom:15px;">
@@ -139,7 +156,7 @@ function makePanelDraggable() {
 }
 
 /**
- * Hiển thị Panel và nạp dữ liệu khi người dùng chọn đối tượng 3D
+ * Hiển thị Panel và nạp dữ liệu khi chọn đối tượng 3D
  */
 async function openDigitalTwinPanel(expressID, globalID, assetName = '') {
   injectDigitalTwinPanel();
@@ -147,16 +164,13 @@ async function openDigitalTwinPanel(expressID, globalID, assetName = '') {
   const panel = document.getElementById('dt-asset-panel');
   panel.style.display = 'block';
 
-  // Đặt vị trí mặc định bên TRÁI
   panel.style.left = '20px';
   panel.style.top = '80px';
   panel.style.right = 'auto';
 
-  // 1. Reset Form TRƯỚC khi điền giá trị mới để tránh bị xoá dữ liệu
   document.getElementById('dt-asset-form').reset();
   document.getElementById('dt_doc_list').innerHTML = '';
 
-  // 2. Hàm bóc tách "ID Cấu Kiện" từ bảng thuộc tính bên phải DOM
   function getIfcGlobalIdFromDOM() {
     const elements = Array.from(document.querySelectorAll('tr, div, td, span'));
     for (const el of elements) {
@@ -174,14 +188,12 @@ async function openDigitalTwinPanel(expressID, globalID, assetName = '') {
     return '';
   }
 
-  // Lấy ID cấu kiện từ DOM nếu tham số globalID truyền vào bị thiếu/trùng expressID
   let finalGlobalID = globalID;
   if (!finalGlobalID || String(finalGlobalID) === String(expressID)) {
     const domId = getIfcGlobalIdFromDOM();
     if (domId) finalGlobalID = domId;
   }
 
-  // 3. Gán giá trị chuẩn vào Form
   const applyValuesToForm = (gId, eId, aName) => {
     document.getElementById('dt_global_id').value = gId || eId || '';
     document.getElementById('dt_express_id').value = eId || '';
@@ -193,7 +205,6 @@ async function openDigitalTwinPanel(expressID, globalID, assetName = '') {
 
   applyValuesToForm(finalGlobalID, expressID, assetName);
 
-  // Thử lại sau 150ms để bắt kịch bản bảng thuộc tính IFC render chậm hơn
   setTimeout(() => {
     const delayedId = getIfcGlobalIdFromDOM();
     if (delayedId) {
@@ -202,7 +213,7 @@ async function openDigitalTwinPanel(expressID, globalID, assetName = '') {
     }
   }, 150);
 
-  // 4. Truy vấn dữ liệu tài sản đã có từ Supabase CSDL
+  // Truy vấn dữ liệu tài sản đã có
   const client = getDigitalTwinSupabaseClient();
   const searchId = finalGlobalID || expressID;
 
@@ -225,6 +236,11 @@ async function openDigitalTwinPanel(expressID, globalID, assetName = '') {
         document.getElementById('dt_status').value = existingAsset.status || 'OPERATIONAL';
         document.getElementById('dt_install_date').value = existingAsset.installation_date || '';
         document.getElementById('dt_warranty_date').value = existingAsset.warranty_expiry || '';
+        
+        // Nạp dữ liệu Bảo Trì & Nhật Ký
+        document.getElementById('dt_last_maint_date').value = existingAsset.last_maintenance_date || '';
+        document.getElementById('dt_next_maint_date').value = existingAsset.next_maintenance_date || '';
+        document.getElementById('dt_maint_log').value = existingAsset.maintenance_log || '';
 
         if (existingAsset.asset_documents && existingAsset.asset_documents.length > 0) {
           let docsHtml = '<b>Tài liệu đã đính kèm:</b><br>';
@@ -237,8 +253,6 @@ async function openDigitalTwinPanel(expressID, globalID, assetName = '') {
     } catch (e) {
       console.warn('Lỗi truy vấn CSDL:', e);
     }
-  } else if (!client) {
-    console.warn('⚠ Cảnh báo: Chưa tìm thấy Supabase Client hợp lệ trên window.');
   }
 }
 
@@ -251,7 +265,7 @@ function closeAssetPanel() {
 }
 
 /**
- * Lưu dữ liệu tài sản và upload tài liệu lên Supabase Storage
+ * Lưu dữ liệu tài sản + thông tin bảo trì & upload tài liệu
  */
 async function saveAssetToDatabase() {
   const globalId = document.getElementById('dt_global_id').value;
@@ -261,6 +275,12 @@ async function saveAssetToDatabase() {
   const status = document.getElementById('dt_status').value;
   const installDate = document.getElementById('dt_install_date').value || null;
   const warrantyDate = document.getElementById('dt_warranty_date').value || null;
+  
+  // Lấy dữ liệu Ngày Bảo Trì & Nhật Ký
+  const lastMaintDate = document.getElementById('dt_last_maint_date').value || null;
+  const nextMaintDate = document.getElementById('dt_next_maint_date').value || null;
+  const maintLog = document.getElementById('dt_maint_log').value || '';
+
   const fileInput = document.getElementById('dt_file_input');
 
   if (!assetCode || !assetName) {
@@ -272,12 +292,12 @@ async function saveAssetToDatabase() {
   const projectId = window.currentProjectId || 'DEFAULT_PROJ';
 
   if (!client) {
-    alert('Chưa kết nối CSDL Supabase! Vui lòng kiểm tra biến cấu hình Supabase Client.');
+    alert('Chưa kết nối CSDL Supabase!');
     return;
   }
 
   try {
-    // 1. Lưu/Cập nhật thông tin vào bảng project_assets
+    // 1. Lưu thông tin vào CSDL
     const { data: assetData, error: assetErr } = await client
       .from('project_assets')
       .upsert({
@@ -289,6 +309,9 @@ async function saveAssetToDatabase() {
         status: status,
         installation_date: installDate,
         warranty_expiry: warrantyDate,
+        last_maintenance_date: lastMaintDate,
+        next_maintenance_date: nextMaintDate,
+        maintenance_log: maintLog,
         updated_at: new Date()
       }, { onConflict: 'global_id' })
       .select()
@@ -296,11 +319,9 @@ async function saveAssetToDatabase() {
 
     if (assetErr) throw assetErr;
 
-    // 2. Upload file đính kèm vào Storage (nếu có)
+    // 2. Upload file đính kèm (nếu có)
     if (fileInput.files.length > 0 && assetData) {
       const file = fileInput.files[0];
-      
-      // Chuyển đổi tên file sang dạng an toàn (loại bỏ ký tự đặc biệt/khoảng trắng)
       const safeFileName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
       const filePath = `assets/${assetData.id}/${Date.now()}_${safeFileName}`;
 
@@ -313,15 +334,12 @@ async function saveAssetToDatabase() {
         });
 
       if (uploadErr) {
-        console.error('Lỗi chi tiết khi upload file:', uploadErr);
-        alert('Cập nhật thông tin thành công, nhưng lỗi upload file: ' + (uploadErr.message || uploadErr.error));
+        alert('Đã lưu thông tin tài sản nhưng lỗi upload file: ' + uploadErr.message);
         return;
       }
 
-      // Lấy URL công khai của file
       const { data: publicUrlData } = client.storage.from('asset-docs').getPublicUrl(filePath);
       
-      // Lưu thông tin file vào bảng asset_documents
       await client.from('asset_documents').insert({
         asset_id: assetData.id,
         file_name: file.name,
@@ -329,7 +347,7 @@ async function saveAssetToDatabase() {
       });
     }
 
-    alert('✅ Đã lưu hồ sơ thiết bị và upload tài liệu thành công!');
+    alert('✅ Đã lưu hồ sơ thiết bị và nhật ký bảo trì thành công!');
     closeAssetPanel();
   } catch (err) {
     console.error('Lỗi khi lưu tài sản:', err);
