@@ -1,14 +1,45 @@
 // --- MODULE QUẢN LÝ TÀI SẢN DIGITAL TWIN (FA/AM) ---
 
-// 1. Hàm khởi tạo và nhúng Side Panel vào DOM
+/**
+ * Hàm lấy đối tượng Supabase Client chuẩn trong dự án CDE
+ */
+function getDigitalTwinSupabaseClient() {
+  // 1. Kiểm tra các biến Supabase Client phổ biến đã khởi tạo trên window
+  if (window.supabaseClient && typeof window.supabaseClient.from === 'function') {
+    return window.supabaseClient;
+  }
+  if (window.supabase && typeof window.supabase.from === 'function') {
+    return window.supabase;
+  }
+  if (window.dbClient && typeof window.dbClient.from === 'function') {
+    return window.dbClient;
+  }
+
+  // 2. Nếu thư viện Supabase CDN đã nạp nhưng chưa tạo instance, tự khởi tạo từ cấu hình toàn cục
+  if (window.supabase && typeof window.supabase.createClient === 'function') {
+    const url = window.SUPABASE_URL || localStorage.getItem('SUPABASE_URL');
+    const key = window.SUPABASE_ANON_KEY || window.SUPABASE_KEY || localStorage.getItem('SUPABASE_KEY');
+    
+    if (url && key) {
+      window.supabaseClient = window.supabase.createClient(url, key);
+      return window.supabaseClient;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Khởi tạo và nhúng Side Panel vào DOM
+ */
 function injectDigitalTwinPanel() {
   if (document.getElementById('dt-asset-panel')) return;
 
   const panelHtml = `
     <div id="dt-asset-panel" style="display:none; position:fixed; right:20px; top:80px; width:360px; background:#fff; border-radius:10px; box-shadow: 0 4px 20px rgba(0,0,0,0.15); z-index:9999; padding:20px; font-family:sans-serif;">
       <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #eee; padding-bottom:10px; margin-bottom:15px;">
-        <h3 style="margin:0; font-size:16px; color:#1a73e8;">🏷️ Quản Lý Tài Sản (Digital Twin)</h3>
-        <button onclick="closeAssetPanel()" style="border:none; background:none; cursor:pointer; font-size:18px;">✕</button>
+        <h3 style="margin:0; font-size:16px; color:#1a73e8;">🏷️️ Quản Lý Tài Sản (Digital Twin)</h3>
+        <button type="button" onclick="closeAssetPanel()" style="border:none; background:none; cursor:pointer; font-size:18px;">✕</button>
       </div>
 
       <form id="dt-asset-form">
@@ -63,28 +94,35 @@ function injectDigitalTwinPanel() {
   document.body.insertAdjacentHTML('beforeend', panelHtml);
 }
 
-// 2. Lắng nghe click đối tượng 3D trên Viewer
+/**
+ * Hiển thị Panel và nạp dữ liệu khi người dùng chọn đối tượng 3D
+ */
 async function openDigitalTwinPanel(expressID, globalID) {
   injectDigitalTwinPanel();
 
   const panel = document.getElementById('dt-asset-panel');
   panel.style.display = 'block';
 
-  document.getElementById('dt_global_id').value = globalID;
-  document.getElementById('dt_express_id').value = expressID;
-  document.getElementById('dt_display_global_id').value = globalID;
+  document.getElementById('dt_global_id').value = globalID || '';
+  document.getElementById('dt_express_id').value = expressID || '';
+  document.getElementById('dt_display_global_id').value = globalID || '';
 
   document.getElementById('dt-asset-form').reset();
   document.getElementById('dt_doc_list').innerHTML = '';
 
-  const client = window.supabaseClient || window.supabase;
-  if (client) {
+  const client = getDigitalTwinSupabaseClient();
+  if (client && globalID) {
     try {
-      const { data: existingAsset } = await client
+      const { data: existingAsset, error } = await client
         .from('project_assets')
         .select('*, asset_documents(*)')
         .eq('global_id', globalID)
         .maybeSingle();
+
+      if (error) {
+        console.warn('Lỗi khi truy vấn dữ liệu tài sản:', error.message);
+        return;
+      }
 
       if (existingAsset) {
         document.getElementById('dt_asset_code').value = existingAsset.asset_code || '';
@@ -96,24 +134,30 @@ async function openDigitalTwinPanel(expressID, globalID) {
         if (existingAsset.asset_documents && existingAsset.asset_documents.length > 0) {
           let docsHtml = '<b>Tài liệu đã đính kèm:</b><br>';
           existingAsset.asset_documents.forEach(doc => {
-            docsHtml += `📄 <a href="${doc.file_url}" target="_blank" style="color:#1a73e8;">${doc.file_name}</a><br>`;
+            docsHtml += `📄 <a href="${doc.file_url}" target="_blank" style="color:#1a73e8; text-decoration:none;">${doc.file_name}</a><br>`;
           });
           document.getElementById('dt_doc_list').innerHTML = docsHtml;
         }
       }
     } catch (e) {
-      console.warn('Chưa cấu hình Supabase hoặc lỗi kết nối:', e);
+      console.warn('Không thể kết nối Supabase:', e);
     }
+  } else if (!client) {
+    console.warn('⚠️ Cảnh báo: Chưa tìm thấy Supabase Client hợp lệ trên window.');
   }
 }
 
-// 3. Đóng Panel
+/**
+ * Đóng Panel
+ */
 function closeAssetPanel() {
   const panel = document.getElementById('dt-asset-panel');
   if (panel) panel.style.display = 'none';
 }
 
-// 4. Lưu dữ liệu tài sản & Upload file lên Supabase
+/**
+ * Lưu dữ liệu tài sản và upload tài liệu lên Supabase Storage
+ */
 async function saveAssetToDatabase() {
   const globalId = document.getElementById('dt_global_id').value;
   const expressId = document.getElementById('dt_express_id').value;
@@ -129,15 +173,16 @@ async function saveAssetToDatabase() {
     return;
   }
 
-  const client = window.supabaseClient || window.supabase;
+  const client = getDigitalTwinSupabaseClient();
   const projectId = window.currentProjectId || 'DEFAULT_PROJ';
 
   if (!client) {
-    alert('Chưa kết nối Supabase CSDL!');
+    alert('Chưa kết nối CSDL Supabase! Vui lòng kiểm tra biến cấu hình Supabase Client.');
     return;
   }
 
   try {
+    // 1. Lưu thông tin vào bảng project_assets
     const { data: assetData, error: assetErr } = await client
       .from('project_assets')
       .upsert({
@@ -156,6 +201,7 @@ async function saveAssetToDatabase() {
 
     if (assetErr) throw assetErr;
 
+    // 2. Upload file đính kèm vào Storage (nếu có)
     if (fileInput.files.length > 0 && assetData) {
       const file = fileInput.files[0];
       const filePath = `assets/${assetData.id}/${Date.now()}_${file.name}`;
@@ -165,7 +211,10 @@ async function saveAssetToDatabase() {
         .from('asset-docs')
         .upload(filePath, file);
 
-      if (!uploadErr) {
+      if (uploadErr) {
+        console.error('Lỗi khi upload file:', uploadErr);
+        alert('Cập nhật tài sản thành công nhưng không thể upload tài liệu đính kèm.');
+      } else {
         const { data: publicUrlData } = client.storage.from('asset-docs').getPublicUrl(filePath);
         
         await client.from('asset_documents').insert({
