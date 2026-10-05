@@ -179,10 +179,10 @@ async function collectAllCdeRealDataAsync() {
   realData.clashCount = detectedClashCount > 0 ? detectedClashCount : clashFromTodosCount;
   realData.clashDetails = detectedClashes;
 
-  // --- D. TRUY VẤN TÀI LIỆU CDE (AUTO-DETECT MỌI NGUỒN) ---
+  // --- D. TRUY VẤN TÀI LIỆU CDE (BÓC TÁCH TÊN FILE ĐỘC NHẤT TỪ DOM & DATA) ---
   let fileListFound = [];
 
-  // 1. Lấy từ Supabase
+  // 1. Kiểm tra Supabase
   if (client && proj.id) {
     try {
       const { data: filesData } = await client
@@ -193,22 +193,18 @@ async function collectAllCdeRealDataAsync() {
     } catch (e) {}
   }
 
-  // 2. Tự động tìm trong tất cả các biến toàn cục trên window
+  // 2. Tìm các biến dữ liệu mảng trên window
   if (fileListFound.length === 0) {
-    const windowKeys = Object.keys(window);
-    for (let key of windowKeys) {
-      if ((key.toLowerCase().includes('file') || key.toLowerCase().includes('drive')) && Array.isArray(window[key])) {
-        if (window[key].length > 0 && (window[key][0].name || window[key][0].title || window[key][0].id)) {
-          fileListFound = window[key];
-          // Tự động lưu lại biến chuẩn
-          window.cdeFileList = fileListFound;
-          break;
-        }
+    const candidateKeys = ['cdeFileList', 'googleDriveFiles', 'currentLoadedCdeFiles', 'driveFiles', 'cdeFiles'];
+    for (let key of candidateKeys) {
+      if (Array.isArray(window[key]) && window[key].length > 0) {
+        fileListFound = window[key];
+        break;
       }
     }
   }
 
-  // 3. Nếu có dữ liệu mảng file -> Đếm trực tiếp
+  // 3. Xử lý khi có mảng dữ liệu
   if (fileListFound.length > 0) {
     realData.cdeFiles.total = fileListFound.length;
     fileListFound.forEach(f => {
@@ -218,36 +214,47 @@ async function collectAllCdeRealDataAsync() {
       else realData.cdeFiles.wip++;
     });
   } 
-  // 4. Nếu không có mảng dữ liệu -> Quét DOM chính xác theo khối Card chứa nút "Nạp vào Viewer"
+  // 4. Bóc tách trực tiếp từ Giao diện HTML (Tránh trùng lặp 100%)
   else {
-    const fileCards = Array.from(document.querySelectorAll('div, li, tr')).filter(el => {
-      const txt = el.innerText || "";
-      const hasFileName = /\.(ifc|pdf|dwg|rvt|xlsx|docx)/i.test(txt);
-      const hasActionBtn = txt.includes('Nạp vào Viewer') || txt.includes('Tải xuống');
-      // Lấy khung chứa chính (tránh đếm lặp thẻ con)
-      return hasFileName && hasActionBtn && el.children.length >= 1 && el.children.length <= 6;
+    // Tìm tất cả phần tử văn bản trên trang
+    const allElements = Array.from(document.querySelectorAll('div, b, p, span, h3, h4, td'));
+    
+    // Tìm các chuỗi văn bản có đuôi file IFC, PDF, DWG...
+    const uniqueFileNames = new Set();
+    const fileRegex = /([a-zA-Z0-9_\-]+\.(ifc|pdf|dwg|rvt|xlsx|docx))/gi;
+
+    allElements.forEach(el => {
+      // Chỉ lấy phần tử nhỏ nhất không chứa nhiều con (để tránh lấy cả đoạn text dài)
+      if (el.children.length === 0 && el.innerText) {
+        const matches = el.innerText.match(fileRegex);
+        if (matches) {
+          matches.forEach(name => uniqueFileNames.add(name.trim().toLowerCase()));
+        }
+      }
     });
 
-    if (fileCards.length > 0) {
-      realData.cdeFiles.total = fileCards.length;
+    const totalDetectedFiles = uniqueFileNames.size;
 
-      // Nhận biết Tab CDE đang chọn bên thanh Quản Lý File CDE (WIP / Shared / Published)
-      let currentTabState = 'WIP';
-      const activeTab = document.querySelector('.btn-group .active, button.active, [class*="tab"].active');
-      if (activeTab) {
-        const tabText = activeTab.innerText.toUpperCase();
-        if (tabText.includes('SHARED')) currentTabState = 'SHARED';
-        else if (tabText.includes('PUBLISHED')) currentTabState = 'PUBLISHED';
+    if (totalDetectedFiles > 0) {
+      realData.cdeFiles.total = totalDetectedFiles;
+
+      // Xác định Tab CDE hiện tại đang mở bên phải (WIP / Shared / Published / Archived)
+      let currentActiveTab = 'WIP';
+      const activeTabBtn = document.querySelector('.btn-group .active, button.active, [class*="tab"].active');
+      if (activeTabBtn) {
+        const txt = activeTabBtn.innerText.toUpperCase();
+        if (txt.includes('SHARED')) currentActiveTab = 'SHARED';
+        else if (txt.includes('PUBLISHED')) currentActiveTab = 'PUBLISHED';
       }
 
-      fileCards.forEach(card => {
-        const cardTxt = card.innerText.toUpperCase();
-        if (cardTxt.includes('SHARED')) realData.cdeFiles.shared++;
-        else if (cardTxt.includes('PUBLISHED')) realData.cdeFiles.published++;
-        else if (currentTabState === 'SHARED') realData.cdeFiles.shared++;
-        else if (currentTabState === 'PUBLISHED') realData.cdeFiles.published++;
-        else realData.cdeFiles.wip++;
-      });
+      // Phân bổ số lượng file đúng theo Tab đang mở
+      if (currentActiveTab === 'SHARED') {
+        realData.cdeFiles.shared = totalDetectedFiles;
+      } else if (currentActiveTab === 'PUBLISHED') {
+        realData.cdeFiles.published = totalDetectedFiles;
+      } else {
+        realData.cdeFiles.wip = totalDetectedFiles;
+      }
     }
   }
 
