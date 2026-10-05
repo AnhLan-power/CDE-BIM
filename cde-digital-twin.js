@@ -1,8 +1,8 @@
 // --- MODULE QUẢN LÝ TÀI SẢN DIGITAL TWIN (FA/AM) ---
 
 // Cấu hình URL & Key Supabase dự phòng (Nếu hệ thống chưa tự nhận diện được client)
-const DT_SUPABASE_URL = window.SUPABASE_URL || 'https://your-project.supabase.co'; 
-const DT_SUPABASE_KEY = window.SUPABASE_ANON_KEY || 'your-anon-key';
+const DT_SUPABASE_URL = window.SUPABASE_URL || 'https://znzakqzdezxzqzfplmgv.supabase.co'; 
+const DT_SUPABASE_KEY = window.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpuemFrcXpkZXp4enF6ZnBsbWd2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc4MTQyNzAsImV4cCI6MjEwMzM5MDI3MH0.aV5YaOLxTySiB26ror4CRzJvQsjANNI1DwbtbxcNe4A';
 
 /**
  * Hàm lấy đối tượng Supabase Client chuẩn trong dự án CDE
