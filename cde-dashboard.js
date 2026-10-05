@@ -179,7 +179,7 @@ async function collectAllCdeRealDataAsync() {
   realData.clashCount = detectedClashCount > 0 ? detectedClashCount : clashFromTodosCount;
   realData.clashDetails = detectedClashes;
 
-  // --- D. TRUY VẤN TÀI LIỆU CDE (BÓC TÁCH TÊN FILE ĐỘC NHẤT TỪ DOM & DATA) ---
+  // --- D. TRUY VẤN TÀI LIỆU CDE (NHẬN DIỆN ĐA DẠNG ĐỊNH DẠNG FILE CDE) ---
   let fileListFound = [];
 
   // 1. Kiểm tra Supabase
@@ -193,7 +193,7 @@ async function collectAllCdeRealDataAsync() {
     } catch (e) {}
   }
 
-  // 2. Tìm các biến dữ liệu mảng trên window
+  // 2. Tìm các biến dữ liệu mảng toàn cục trên window
   if (fileListFound.length === 0) {
     const candidateKeys = ['cdeFileList', 'googleDriveFiles', 'currentLoadedCdeFiles', 'driveFiles', 'cdeFiles'];
     for (let key of candidateKeys) {
@@ -204,7 +204,7 @@ async function collectAllCdeRealDataAsync() {
     }
   }
 
-  // 3. Xử lý khi có mảng dữ liệu
+  // 3. Xử lý khi tìm thấy mảng dữ liệu trong bộ nhớ
   if (fileListFound.length > 0) {
     realData.cdeFiles.total = fileListFound.length;
     fileListFound.forEach(f => {
@@ -214,31 +214,51 @@ async function collectAllCdeRealDataAsync() {
       else realData.cdeFiles.wip++;
     });
   } 
-  // 4. Bóc tách trực tiếp từ Giao diện HTML (Tránh trùng lặp 100%)
+  // 4. Quét trực tiếp Giao diện HTML (Mở rộng cho TẤT CẢ các loại định dạng file CDE)
   else {
-    // Tìm tất cả phần tử văn bản trên trang
-    const allElements = Array.from(document.querySelectorAll('div, b, p, span, h3, h4, td'));
-    
-    // Tìm các chuỗi văn bản có đuôi file IFC, PDF, DWG...
+    const allElements = Array.from(document.querySelectorAll('div, b, p, span, h3, h4, td, a'));
     const uniqueFileNames = new Set();
-    const fileRegex = /([a-zA-Z0-9_\-]+\.(ifc|pdf|dwg|rvt|xlsx|docx))/gi;
+
+    // RegEx bao phủ hầu hết các định dạng file phổ biến trong CDE / Google Drive
+    const multiExtRegex = /([a-zA-Z0-9_\-\.\^\s]+\.(ifc|pdf|dwg|dxf|rvt|nwd|skp|docx?|xlsx?|pptx?|jpg|jpeg|png|gif|svg|zip|rar|txt|csv))/gi;
 
     allElements.forEach(el => {
-      // Chỉ lấy phần tử nhỏ nhất không chứa nhiều con (để tránh lấy cả đoạn text dài)
+      // Chỉ kiểm tra các phần tử nhỏ nhất (chứa văn bản gốc)
       if (el.children.length === 0 && el.innerText) {
-        const matches = el.innerText.match(fileRegex);
+        const text = el.innerText.trim();
+        const matches = text.match(multiExtRegex);
         if (matches) {
-          matches.forEach(name => uniqueFileNames.add(name.trim().toLowerCase()));
+          matches.forEach(name => {
+            // Lọc loại trừ nếu lầm tên nút hoặc văn bản rác
+            const cleanName = name.trim().toLowerCase();
+            if (cleanName.length > 3 && !cleanName.startsWith('http')) {
+              uniqueFileNames.add(cleanName);
+            }
+          });
         }
       }
     });
+
+    // Trường hợp dự phòng 2: Bóc tách dựa trên các Card chứa nút "Xem trước", "Nạp vào Viewer", "Tải xuống"
+    if (uniqueFileNames.size === 0) {
+      const cardNodes = Array.from(document.querySelectorAll('div')).filter(el => {
+        const txt = el.innerText || "";
+        const hasActionBtn = txt.includes('Tải xuống') || txt.includes('Xem trước') || txt.includes('Nạp vào Viewer');
+        const hasSize = /(KB|MB|GB|sửa lúc)/i.test(txt);
+        return hasActionBtn && hasSize && el.children.length >= 1 && el.children.length <= 8;
+      });
+      
+      cardNodes.forEach((card, idx) => {
+        uniqueFileNames.add(`file_card_${idx}`);
+      });
+    }
 
     const totalDetectedFiles = uniqueFileNames.size;
 
     if (totalDetectedFiles > 0) {
       realData.cdeFiles.total = totalDetectedFiles;
 
-      // Xác định Tab CDE hiện tại đang mở bên phải (WIP / Shared / Published / Archived)
+      // Xác định Tab CDE đang active bên thanh phải
       let currentActiveTab = 'WIP';
       const activeTabBtn = document.querySelector('.btn-group .active, button.active, [class*="tab"].active');
       if (activeTabBtn) {
@@ -247,7 +267,7 @@ async function collectAllCdeRealDataAsync() {
         else if (txt.includes('PUBLISHED')) currentActiveTab = 'PUBLISHED';
       }
 
-      // Phân bổ số lượng file đúng theo Tab đang mở
+      // Phân bổ số lượng file đúng theo Tab CDE
       if (currentActiveTab === 'SHARED') {
         realData.cdeFiles.shared = totalDetectedFiles;
       } else if (currentActiveTab === 'PUBLISHED') {
@@ -257,7 +277,6 @@ async function collectAllCdeRealDataAsync() {
       }
     }
   }
-
   return realData;
 }
 // 5. Render Nội dung từng Tab ACC
