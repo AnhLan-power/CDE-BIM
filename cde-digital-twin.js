@@ -31,7 +31,7 @@ function getDigitalTwinSupabaseClient() {
 }
 
 /**
- * Khởi tạo và nhúng Side Panel vào DOM (Tích hợp tính năng Drag & Drop Header)
+ * Khởi tạo và nhúng Side Panel vào DOM (Mặc định ở bên TRÁI & Drag & Drop Header)
  */
 function injectDigitalTwinPanel() {
   if (document.getElementById('dt-asset-panel')) return;
@@ -153,25 +153,64 @@ async function openDigitalTwinPanel(expressID, globalID, assetName = '') {
   panel.style.top = '80px';
   panel.style.right = 'auto';
 
-  document.getElementById('dt_global_id').value = globalID || '';
+  // --- 🔥 HÀM TỰ ĐỘNG BÓC TÁCH "ID CẤU KIỆN" TỪ BẢNG IFC BÊN PHẢI ---
+  function getIfcGlobalIdFromDOM() {
+    const elements = Array.from(document.querySelectorAll('tr, div, td, span'));
+    for (const el of elements) {
+      if (el.innerText && el.innerText.trim() === 'ID Cấu Kiện') {
+        const parentRow = el.closest('tr') || el.parentElement;
+        if (parentRow) {
+          const cells = parentRow.querySelectorAll('td, span, div');
+          if (cells.length > 1) {
+            const val = cells[1].innerText.trim();
+            if (val && val !== 'ID Cấu Kiện') return val;
+          }
+        }
+      }
+    }
+    return '';
+  }
+
+  // Quét tìm ID từ DOM nếu param globalID truyền vào bị thiếu hoặc bị gán trùng với expressID
+  let finalGlobalID = globalID;
+  if (!finalGlobalID || String(finalGlobalID) === String(expressID)) {
+    const domId = getIfcGlobalIdFromDOM();
+    if (domId) finalGlobalID = domId;
+  }
+
+  // Gán giá trị ban đầu vào form
+  document.getElementById('dt_global_id').value = finalGlobalID || expressID || '';
   document.getElementById('dt_express_id').value = expressID || '';
-  document.getElementById('dt_display_global_id').value = globalID || '';
+  document.getElementById('dt_display_global_id').value = finalGlobalID || expressID || '';
+
+  // Chờ 150ms để phòng trường hợp bảng thuộc tính IFC bên phải render sau
+  setTimeout(() => {
+    const delayedId = getIfcGlobalIdFromDOM();
+    if (delayedId) {
+      finalGlobalID = delayedId;
+      document.getElementById('dt_global_id').value = delayedId;
+      document.getElementById('dt_display_global_id').value = delayedId;
+    }
+  }, 150);
 
   document.getElementById('dt-asset-form').reset();
   document.getElementById('dt_doc_list').innerHTML = '';
 
-  // Điền trước thông tin lấy từ mô hình IFC nếu có
+  // Điền Tên thiết bị
   if (assetName) {
     document.getElementById('dt_asset_name').value = assetName;
   }
 
+  // Truy vấn dữ liệu tài sản từ Supabase
   const client = getDigitalTwinSupabaseClient();
-  if (client && globalID) {
+  const searchId = finalGlobalID || expressID;
+
+  if (client && searchId) {
     try {
       const { data: existingAsset, error } = await client
         .from('project_assets')
         .select('*, asset_documents(*)')
-        .eq('global_id', globalID)
+        .eq('global_id', searchId)
         .maybeSingle();
 
       if (error) {
@@ -198,7 +237,7 @@ async function openDigitalTwinPanel(expressID, globalID, assetName = '') {
       console.warn('Lỗi truy vấn CSDL:', e);
     }
   } else if (!client) {
-    console.warn('⚠️️ Cảnh báo: Chưa tìm thấy Supabase Client hợp lệ trên window.');
+    console.warn('⚠ Cảnh báo: Chưa tìm thấy Supabase Client hợp lệ trên window.');
   }
 }
 
