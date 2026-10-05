@@ -2389,6 +2389,20 @@
 
       bar.classList.add("open");
       updateSelHideLabel();
+      // 🔥 THÊM ĐOẠN NÀY cho DigitalTwin
+      // =========================================================
+       if (typeof openDigitalTwinPanel === 'function') {
+     // 1. Lấy expressId từ entity (ID nguyên)
+         const expressID = entity.id;
+
+     // 2. Lấy GlobalID từ metaObject (mã IFC dài như 'TS-SIBA-ME-ZZ...')
+         const globalID = (metaObject && metaObject.originalSystemId) 
+                  || (metaObject && metaObject.id) 
+                  || entity.id;
+
+     // 3. Tự động gọi mở Panel Quản Lý Tài Sản Digital Twin
+     openDigitalTwinPanel(expressID, globalID);
+     }
     }
 
     function closeSelectionToolbar() {
