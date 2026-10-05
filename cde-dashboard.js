@@ -68,14 +68,14 @@ async function collectAllCdeRealDataAsync() {
     projectName: proj.name,
     todos: [],
     clashCount: 0,
-    clashDetails: [], // Danh sách va chạm chi tiết
+    clashDetails: [],
     timelineTasks: [],
     cdeFiles: { total: 0, wip: 0, shared: 0, published: 0 }
   };
 
   const client = window.sb || window.supabaseClient;
 
-  // --- A. LẤY TODOS TỪ SUPABASE (project_todos) ---
+  // --- A. LẤY TODOS TỪ SUPABASE ---
   let clashFromTodosCount = 0;
   if (client && proj.id) {
     try {
@@ -107,7 +107,7 @@ async function collectAllCdeRealDataAsync() {
     }));
   }
 
-  // --- B. LẤY TIẾN ĐỘ THI CÔNG 4D TỪ SUPABASE (project_tasks) ---
+  // --- B. LẤY TIẾN ĐỘ THI CÔNG 4D TỪ SUPABASE ---
   if (client && proj.id) {
     try {
       const { data: tasksData } = await client
@@ -139,7 +139,6 @@ async function collectAllCdeRealDataAsync() {
   // --- C. TRUY XUẤT THÔNG TIN VA CHẠM (CLASH) CHUẨN XÁC ---
   let detectedClashes = [];
 
-  // 1. Lấy trực tiếp từ các biến toàn cục (Global Variables) của mô hình
   if (window.lastClashResults && Array.isArray(window.lastClashResults.clashes)) {
     detectedClashes = window.lastClashResults.clashes;
   } else if (Array.isArray(window.clashList) && window.clashList.length > 0) {
@@ -155,7 +154,6 @@ async function collectAllCdeRealDataAsync() {
   const storageClashKey = `cde_clashes_${projSlug}`;
   const storageCountKey = `clash_count_${projSlug}`;
 
-  // 2. Lưu/Đọc dữ liệu va chạm vào LocalStorage theo Dự Án
   if (detectedClashes.length > 0) {
     localStorage.setItem(storageClashKey, JSON.stringify(detectedClashes));
     localStorage.setItem(storageCountKey, detectedClashes.length.toString());
@@ -170,7 +168,6 @@ async function collectAllCdeRealDataAsync() {
     }
   }
 
-  // 3. Nếu chưa có danh sách chi tiết, dùng số lượng đã lưu
   let detectedClashCount = detectedClashes.length;
   if (detectedClashCount === 0) {
     const savedCount = localStorage.getItem(storageCountKey);
@@ -179,105 +176,83 @@ async function collectAllCdeRealDataAsync() {
     }
   }
 
-  // Gán thông tin va chạm đã xử lý vào realData
   realData.clashCount = detectedClashCount > 0 ? detectedClashCount : clashFromTodosCount;
   realData.clashDetails = detectedClashes;
 
-  // --- D. TRUY VẤN TÀI LIỆU CDE (TỔNG HỢP TOÀN BỘ TỪ DATA BỘ NHỚ & CHUẨN HÓA) ---
-  let allFiles = [];
+  // --- D. TRUY VẤN TÀI LIỆU CDE (AUTO-DETECT MỌI NGUỒN) ---
+  let fileListFound = [];
 
-  // 1. Lấy từ Supabase (nếu có kết nối DB)
+  // 1. Lấy từ Supabase
   if (client && proj.id) {
     try {
       const { data: filesData } = await client
         .from("project_files")
         .select("*")
         .eq("project_id", proj.id);
-
-      if (filesData && filesData.length > 0) {
-        allFiles = filesData;
-      }
-    } catch (e) {
-      console.warn("Lỗi đọc project_files từ Supabase:", e);
-    }
-  }
-
-  // 2. Nếu Supabase không có, lấy từ tất cả các biến toàn cục khả thi của Google Drive / CDE
-  if (allFiles.length === 0) {
-    const candidateLists = [
-      window.cdeFileList,
-      window.googleDriveFiles,
-      window.currentLoadedCdeFiles,
-      window.driveFiles,
-      window.cdeFiles
-    ];
-
-    for (let list of candidateLists) {
-      if (Array.isArray(list) && list.length > 0) {
-        allFiles = list;
-        break;
-      }
-    }
-  }
-
-  // 3. Nếu vẫn trống, thử lấy từ LocalStorage được lưu trữ từ lượt nạp Drive trước đó
-  if (allFiles.length === 0) {
-    try {
-      const cached = localStorage.getItem(`cde_files_${projSlug}`) || localStorage.getItem('cde_files_cache');
-      if (cached) {
-        allFiles = JSON.parse(cached);
-      }
+      if (filesData && filesData.length > 0) fileListFound = filesData;
     } catch (e) {}
   }
 
-  // 4. Nếu tìm thấy dữ liệu mảng file, phân loại chính xác theo ISO 19650
-  if (Array.isArray(allFiles) && allFiles.length > 0) {
-    realData.cdeFiles.total = allFiles.length;
-    let wip = 0, shared = 0, published = 0;
-
-    allFiles.forEach(f => {
-      // Nhận diện thư mục/trạng thái file
-      const state = (f.folder || f.state || f.folder_type || f.category || 'WIP').toString().toUpperCase();
-      
-      if (state.includes('SHARED')) {
-        shared++;
-      } else if (state.includes('PUBLISHED') || state.includes('APPROVED')) {
-        published++;
-      } else {
-        wip++; // Mặc định các file còn lại vào WIP
+  // 2. Tự động tìm trong tất cả các biến toàn cục trên window
+  if (fileListFound.length === 0) {
+    const windowKeys = Object.keys(window);
+    for (let key of windowKeys) {
+      if ((key.toLowerCase().includes('file') || key.toLowerCase().includes('drive')) && Array.isArray(window[key])) {
+        if (window[key].length > 0 && (window[key][0].name || window[key][0].title || window[key][0].id)) {
+          fileListFound = window[key];
+          // Tự động lưu lại biến chuẩn
+          window.cdeFileList = fileListFound;
+          break;
+        }
       }
+    }
+  }
+
+  // 3. Nếu có dữ liệu mảng file -> Đếm trực tiếp
+  if (fileListFound.length > 0) {
+    realData.cdeFiles.total = fileListFound.length;
+    fileListFound.forEach(f => {
+      const folder = (f.folder || f.state || f.folder_type || f.category || 'WIP').toString().toUpperCase();
+      if (folder.includes('SHARED')) realData.cdeFiles.shared++;
+      else if (folder.includes('PUBLISHED') || folder.includes('APPROVED')) realData.cdeFiles.published++;
+      else realData.cdeFiles.wip++;
+    });
+  } 
+  // 4. Nếu không có mảng dữ liệu -> Quét DOM chính xác theo khối Card chứa nút "Nạp vào Viewer"
+  else {
+    const fileCards = Array.from(document.querySelectorAll('div, li, tr')).filter(el => {
+      const txt = el.innerText || "";
+      const hasFileName = /\.(ifc|pdf|dwg|rvt|xlsx|docx)/i.test(txt);
+      const hasActionBtn = txt.includes('Nạp vào Viewer') || txt.includes('Tải xuống');
+      // Lấy khung chứa chính (tránh đếm lặp thẻ con)
+      return hasFileName && hasActionBtn && el.children.length >= 1 && el.children.length <= 6;
     });
 
-    realData.cdeFiles.wip = wip;
-    realData.cdeFiles.shared = shared;
-    realData.cdeFiles.published = published;
-  } 
-  // 5. Giải pháp dự phòng cuối cùng: Quét DOM toàn bộ thẻ file (kể cả phần bị khuất cuộn)
-  else {
-    const fileContainer = document.getElementById('cdeFileList') || document.querySelector('[class*="cde-file-list"]') || document.body;
-    // Bắt tất cả đoạn văn bản chứa thông tin dung lượng file (VD: 128429 KB, 84422 KB,...)
-    const matches = fileContainer.innerText.match(/\d+\s*(KB|MB|GB)\s*-\s*sửa lúc/gi) || [];
-    
-    if (matches.length > 0) {
-      realData.cdeFiles.total = matches.length;
-      
-      // Kiểm tra nút Tab CDE đang chọn bên thanh phải
-      const activeTabBtn = document.querySelector('.btn-group .active, [class*="tab"].active');
-      const activeTabText = activeTabBtn ? activeTabBtn.innerText.toUpperCase() : 'WIP';
+    if (fileCards.length > 0) {
+      realData.cdeFiles.total = fileCards.length;
 
-      if (activeTabText.includes('SHARED')) {
-        realData.cdeFiles.shared = matches.length;
-      } else if (activeTabText.includes('PUBLISHED')) {
-        realData.cdeFiles.published = matches.length;
-      } else {
-        realData.cdeFiles.wip = matches.length;
+      // Nhận biết Tab CDE đang chọn bên thanh Quản Lý File CDE (WIP / Shared / Published)
+      let currentTabState = 'WIP';
+      const activeTab = document.querySelector('.btn-group .active, button.active, [class*="tab"].active');
+      if (activeTab) {
+        const tabText = activeTab.innerText.toUpperCase();
+        if (tabText.includes('SHARED')) currentTabState = 'SHARED';
+        else if (tabText.includes('PUBLISHED')) currentTabState = 'PUBLISHED';
       }
+
+      fileCards.forEach(card => {
+        const cardTxt = card.innerText.toUpperCase();
+        if (cardTxt.includes('SHARED')) realData.cdeFiles.shared++;
+        else if (cardTxt.includes('PUBLISHED')) realData.cdeFiles.published++;
+        else if (currentTabState === 'SHARED') realData.cdeFiles.shared++;
+        else if (currentTabState === 'PUBLISHED') realData.cdeFiles.published++;
+        else realData.cdeFiles.wip++;
+      });
     }
   }
 
   return realData;
 }
-
 // 5. Render Nội dung từng Tab ACC
 async function renderAccDashboardTab(tabName) {
   const container = document.getElementById('acc-dashboard-content');
