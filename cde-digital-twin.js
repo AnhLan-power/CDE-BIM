@@ -277,7 +277,7 @@ async function saveAssetToDatabase() {
   }
 
   try {
-    // 1. Lưu thông tin vào bảng project_assets
+    // 1. Lưu/Cập nhật thông tin vào bảng project_assets
     const { data: assetData, error: assetErr } = await client
       .from('project_assets')
       .upsert({
@@ -299,28 +299,37 @@ async function saveAssetToDatabase() {
     // 2. Upload file đính kèm vào Storage (nếu có)
     if (fileInput.files.length > 0 && assetData) {
       const file = fileInput.files[0];
-      const filePath = `assets/${assetData.id}/${Date.now()}_${file.name}`;
+      
+      // Chuyển đổi tên file sang dạng an toàn (loại bỏ ký tự đặc biệt/khoảng trắng)
+      const safeFileName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
+      const filePath = `assets/${assetData.id}/${Date.now()}_${safeFileName}`;
 
       const { error: uploadErr } = await client
         .storage
         .from('asset-docs')
-        .upload(filePath, file);
+        .upload(filePath, file, {
+          cacheControl: '3600',
+          upsert: true
+        });
 
       if (uploadErr) {
-        console.error('Lỗi khi upload file:', uploadErr);
-        alert('Cập nhật tài sản thành công nhưng không thể upload tài liệu đính kèm.');
-      } else {
-        const { data: publicUrlData } = client.storage.from('asset-docs').getPublicUrl(filePath);
-        
-        await client.from('asset_documents').insert({
-          asset_id: assetData.id,
-          file_name: file.name,
-          file_url: publicUrlData.publicUrl
-        });
+        console.error('Lỗi chi tiết khi upload file:', uploadErr);
+        alert('Cập nhật thông tin thành công, nhưng lỗi upload file: ' + (uploadErr.message || uploadErr.error));
+        return;
       }
+
+      // Lấy URL công khai của file
+      const { data: publicUrlData } = client.storage.from('asset-docs').getPublicUrl(filePath);
+      
+      // Lưu thông tin file vào bảng asset_documents
+      await client.from('asset_documents').insert({
+        asset_id: assetData.id,
+        file_name: file.name,
+        file_url: publicUrlData.publicUrl
+      });
     }
 
-    alert('✅ Đã lưu thông tin tài sản thành công!');
+    alert('✅ Đã lưu hồ sơ thiết bị và upload tài liệu thành công!');
     closeAssetPanel();
   } catch (err) {
     console.error('Lỗi khi lưu tài sản:', err);
