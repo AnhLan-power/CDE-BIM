@@ -2390,20 +2390,28 @@
       bar.classList.add("open");
       updateSelHideLabel();
       // 🔥 THÊM ĐOẠN NÀY cho DigitalTwin
-      // =========================================================
-       if (typeof openDigitalTwinPanel === 'function') {
-     // 1. Lấy expressId từ entity (ID nguyên)
-         const expressID = entity.id;
+      // --- TRUYỀN DỮ LIỆU SANG DIGITAL TWIN PANEL ---
+     if (typeof openDigitalTwinPanel === 'function') {
+        const expressID = entity.id;
 
-     // 2. Lấy GlobalID từ metaObject (mã IFC dài như 'TS-SIBA-ME-ZZ...')
-         const globalID = (metaObject && metaObject.originalSystemId) 
-                  || (metaObject && metaObject.id) 
-                  || entity.id;
-
-     // 3. Tự động gọi mở Panel Quản Lý Tài Sản Digital Twin
-     openDigitalTwinPanel(expressID, globalID);
+     // Trích xuất GlobalID chính xác từ metaObject của Xeokit
+     let globalID = '';
+     if (metaObject) {
+       if (metaObject.metaPairs && Array.isArray(metaObject.metaPairs)) {
+         const gIdPair = metaObject.metaPairs.find(p => p.name === 'GlobalId' || p.name === 'GlobalID' || p.name === 'Tag');
+         if (gIdPair) globalID = gIdPair.value;
+       }
+       if (!globalID) globalID = metaObject.globalId || metaObject.GlobalId || metaObject.id;
      }
+     if (!globalID) globalID = expressID;
+
+     // Tên thiết bị
+     const assetName = (metaObject && metaObject.name) ? metaObject.name : '';
+
+     // Mở Panel và tự động điền dữ liệu
+     openDigitalTwinPanel(expressID, globalID, assetName);
     }
+  }
 
     function closeSelectionToolbar() {
       document.getElementById("selectionToolbar").classList.remove("open");
