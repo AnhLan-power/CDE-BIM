@@ -148,6 +148,11 @@ async function openDigitalTwinPanel(expressID, globalID, assetName = '') {
   const panel = document.getElementById('dt-asset-panel');
   panel.style.display = 'block';
 
+  // Đặt vị trí mặc định bên TRÁI
+  panel.style.left = '20px';
+  panel.style.top = '80px';
+  panel.style.right = 'auto';
+
   document.getElementById('dt_global_id').value = globalID || '';
   document.getElementById('dt_express_id').value = expressID || '';
   document.getElementById('dt_display_global_id').value = globalID || '';
@@ -190,7 +195,7 @@ async function openDigitalTwinPanel(expressID, globalID, assetName = '') {
         }
       }
     } catch (e) {
-      console.warn('Không thể kết nối Supabase:', e);
+      console.warn('Lỗi truy vấn CSDL:', e);
     }
   } else if (!client) {
     console.warn('⚠️️ Cảnh báo: Chưa tìm thấy Supabase Client hợp lệ trên window.');
