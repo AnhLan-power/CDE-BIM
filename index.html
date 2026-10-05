@@ -2391,48 +2391,45 @@
       updateSelHideLabel();
       // 🔥 THÊM ĐOẠN NÀY cho DigitalTwin
       // --- TRUYỀN DỮ LIỆU SANG DIGITAL TWIN PANEL ---
-       if (typeof openDigitalTwinPanel === 'function') {
-        const expressID = entity.id;
+      if (typeof openDigitalTwinPanel === 'function') {
+       const expressID = entity.id;
+       let globalID = '';
+       let assetName = (metaObject && metaObject.name) ? metaObject.name : '';
 
-       // 1. Tên thiết bị
-      const assetName = (metaObject && metaObject.name) ? metaObject.name : '';
-
-       // 2. Tìm GlobalID chuẩn dạng IFC (chuỗi dài như TS-SRA-ME-ZZ...)
-      let globalID = '';
-
+     // 1. Thử lấy từ metaObject
      if (metaObject) {
-       // Ưu tiên 1: Lấy từ id của metaObject (Nếu metaObject đại diện cho IFC Object)
-       if (metaObject.id && typeof metaObject.id === 'string' && metaObject.id.includes('-')) {
-         globalID = metaObject.id;
-       }
-
-       // Ưu tiên 2: Tìm trong mảng metaPairs / properties
-       if (!globalID && metaObject.metaPairs && Array.isArray(metaObject.metaPairs)) {
-         const found = metaObject.metaPairs.find(p => 
-          p.name && (p.name.toLowerCase() === 'globalid' || p.name.toLowerCase() === 'id cấu kiện' || p.name === 'Tag')
-         );
-         if (found) globalID = found.value;
-       }
-
-       // Ưu tiên 3: Tìm thuộc tính GlobalId trực tiếp
-       if (!globalID) {
-         globalID = metaObject.globalId || metaObject.originalSystemId || metaObject.GlobalId;
-       }
+       if (metaObject.originalSystemId) globalID = metaObject.originalSystemId;
+       else if (metaObject.globalId) globalID = metaObject.globalId;
+       else if (metaObject.id && String(metaObject.id).includes('-')) globalID = metaObject.id;
      }
 
-     // Ưu tiên 4: Kiểm tra trực tiếp thuộc tính trên entity
+     // 2. Thử lấy từ entity
      if (!globalID && entity.globalId) {
        globalID = entity.globalId;
      }
 
-     // Dự phòng cuối cùng: dùng expressID
-     if (!globalID) {
-       globalID = expressID;
-     }
+     // 3. Dự phòng thông minh: Đọc trực tiếp từ bảng "Chi Tiết Thuộc Tính IFC" trên DOM (nếu có)
+     setTimeout(() => {
+       if (!globalID) {
+        // Tìm ô chứa "ID Cấu Kiện" trên bảng bên phải
+        const rows = document.querySelectorAll('tr, div');
+        rows.forEach(row => {
+          if (row.innerText && row.innerText.includes('ID Cấu Kiện')) {
+            const nextTd = row.querySelector('td:last-child') || row.nextElementSibling;
+            if (nextTd && nextTd.innerText) {
+              globalID = nextTd.innerText.trim();
+            }
+          }
+        });
+      }
 
-     // Mở Panel Quản Lý Tài Sản
-     openDigitalTwinPanel(expressID, globalID, assetName);
-    }
+      // Nếu vẫn trống thì gán tạm bằng expressID
+      if (!globalID) globalID = expressID;
+
+      // Mở Panel bên trái với đầy đủ thông tin
+      openDigitalTwinPanel(expressID, globalID, assetName);
+     }, 100); // Trễ 100ms để đảm bảo bảng IFC đã kịp render dữ liệu
+   }
   }
 
     function closeSelectionToolbar() {
