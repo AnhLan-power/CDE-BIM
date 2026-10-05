@@ -1,6 +1,9 @@
 // --- MODULE QUẢN LÝ TÀI SẢN DIGITAL TWIN (FA/AM) ---
-const DT_SUPABASE_URL = 'https://znzakqzdezxzqzfplmgv.supabase.co/rest/v1/'; 
-const DT_SUPABASE_KEY = 'sb_publishable_Ks8amYP0KOO6IdUkRDSbLw_4NGI5G9r'; 
+
+// Cấu hình URL & Key Supabase dự phòng (Nếu hệ thống chưa tự nhận diện được client)
+const DT_SUPABASE_URL = window.SUPABASE_URL || 'https://your-project.supabase.co'; 
+const DT_SUPABASE_KEY = window.SUPABASE_ANON_KEY || 'your-anon-key';
+
 /**
  * Hàm lấy đối tượng Supabase Client chuẩn trong dự án CDE
  */
@@ -16,31 +19,29 @@ function getDigitalTwinSupabaseClient() {
     return window.dbClient;
   }
 
-  // 2. Nếu thư viện Supabase CDN đã nạp nhưng chưa tạo instance, tự khởi tạo từ cấu hình toàn cục
+  // 2. Khởi tạo trực tiếp nếu thư viện window.supabase đã nạp qua CDN
   if (window.supabase && typeof window.supabase.createClient === 'function') {
-    const url = window.SUPABASE_URL || localStorage.getItem('SUPABASE_URL');
-    const key = window.SUPABASE_ANON_KEY || window.SUPABASE_KEY || localStorage.getItem('SUPABASE_KEY');
-    
-    if (url && key) {
-      window.supabaseClient = window.supabase.createClient(url, key);
-      return window.supabaseClient;
+    if (!window._dtSupabaseInstance && DT_SUPABASE_URL.includes('http')) {
+      window._dtSupabaseInstance = window.supabase.createClient(DT_SUPABASE_URL, DT_SUPABASE_KEY);
     }
+    return window._dtSupabaseInstance || null;
   }
 
   return null;
 }
 
 /**
- * Khởi tạo và nhúng Side Panel vào DOM
+ * Khởi tạo và nhúng Side Panel vào DOM (Tích hợp tính năng Drag & Drop Header)
  */
 function injectDigitalTwinPanel() {
   if (document.getElementById('dt-asset-panel')) return;
 
   const panelHtml = `
-    <div id="dt-asset-panel" style="display:none; position:fixed; right:20px; top:80px; width:360px; background:#fff; border-radius:10px; box-shadow: 0 4px 20px rgba(0,0,0,0.15); z-index:9999; padding:20px; font-family:sans-serif;">
-      <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #eee; padding-bottom:10px; margin-bottom:15px;">
-        <h3 style="margin:0; font-size:16px; color:#1a73e8;">🏷️️ Quản Lý Tài Sản (Digital Twin)</h3>
-        <button type="button" onclick="closeAssetPanel()" style="border:none; background:none; cursor:pointer; font-size:18px;">✕</button>
+    <div id="dt-asset-panel" style="display:none; position:fixed; right:20px; top:80px; width:360px; background:#fff; border-radius:10px; box-shadow: 0 4px 20px rgba(0,0,0,0.2); z-index:9999; padding:20px; font-family:sans-serif; user-select:none;">
+      <!-- Header kéo thả di chuyển panel -->
+      <div id="dt-panel-header" style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #eee; padding-bottom:10px; margin-bottom:15px; cursor:move; background:#f8f9fa; margin:-20px -20px 15px -20px; padding:15px 20px; border-radius:10px 10px 0 0;">
+        <h3 style="margin:0; font-size:15px; color:#1a73e8; pointer-events:none;">🏷️ Quản Lý Tài Sản (Digital Twin)</h3>
+        <button type="button" onclick="closeAssetPanel()" style="border:none; background:none; cursor:pointer; font-size:18px; font-weight:bold;">✕</button>
       </div>
 
       <form id="dt-asset-form">
@@ -49,12 +50,12 @@ function injectDigitalTwinPanel() {
 
         <div style="margin-bottom:10px;">
           <label style="font-size:12px; color:#666;">GlobalID IFC:</label>
-          <input type="text" id="dt_display_global_id" disabled style="width:100%; padding:6px; background:#f5f5f5; border:1px solid #ddd; border-radius:4px;" />
+          <input type="text" id="dt_display_global_id" disabled style="width:100%; padding:6px; background:#f5f5f5; border:1px solid #ddd; border-radius:4px; font-size:12px;" />
         </div>
 
         <div style="margin-bottom:10px;">
           <label style="font-size:12px; font-weight:bold;">Mã Tài Sản (Asset Tag) <span style="color:red">*</span>:</label>
-          <input type="text" id="dt_asset_code" placeholder="VD: PUMP-001" required style="width:100%; padding:6px; border:1px solid #ccc; border-radius:4px;" />
+          <input type="text" id="dt_asset_code" placeholder="VD: TS-PUMP-001" required style="width:100%; padding:6px; border:1px solid #ccc; border-radius:4px;" />
         </div>
 
         <div style="margin-bottom:10px;">
@@ -93,12 +94,55 @@ function injectDigitalTwinPanel() {
     </div>
   `;
   document.body.insertAdjacentHTML('beforeend', panelHtml);
+  makePanelDraggable();
+}
+
+/**
+ * Hàm hỗ trợ di chuyển Cửa sổ Panel bằng chuột (Drag & Drop)
+ */
+function makePanelDraggable() {
+  const panel = document.getElementById('dt-asset-panel');
+  const header = document.getElementById('dt-panel-header');
+
+  if (!panel || !header || panel.dataset.draggable === 'true') return;
+  panel.dataset.draggable = 'true';
+
+  let posX = 0, posY = 0, mouseX = 0, mouseY = 0;
+
+  header.onmousedown = dragMouseDown;
+
+  function dragMouseDown(e) {
+    e = e || window.event;
+    e.preventDefault();
+    mouseX = e.clientX;
+    mouseY = e.clientY;
+    document.onmouseup = closeDragElement;
+    document.onmousemove = elementDrag;
+  }
+
+  function elementDrag(e) {
+    e = e || window.event;
+    e.preventDefault();
+    posX = mouseX - e.clientX;
+    posY = mouseY - e.clientY;
+    mouseX = e.clientX;
+    mouseY = e.clientY;
+
+    panel.style.top = (panel.offsetTop - posY) + 'px';
+    panel.style.left = (panel.offsetLeft - posX) + 'px';
+    panel.style.right = 'auto';
+  }
+
+  function closeDragElement() {
+    document.onmouseup = null;
+    document.onmousemove = null;
+  }
 }
 
 /**
  * Hiển thị Panel và nạp dữ liệu khi người dùng chọn đối tượng 3D
  */
-async function openDigitalTwinPanel(expressID, globalID) {
+async function openDigitalTwinPanel(expressID, globalID, assetName = '') {
   injectDigitalTwinPanel();
 
   const panel = document.getElementById('dt-asset-panel');
@@ -110,6 +154,11 @@ async function openDigitalTwinPanel(expressID, globalID) {
 
   document.getElementById('dt-asset-form').reset();
   document.getElementById('dt_doc_list').innerHTML = '';
+
+  // Điền trước thông tin lấy từ mô hình IFC nếu có
+  if (assetName) {
+    document.getElementById('dt_asset_name').value = assetName;
+  }
 
   const client = getDigitalTwinSupabaseClient();
   if (client && globalID) {
@@ -127,7 +176,7 @@ async function openDigitalTwinPanel(expressID, globalID) {
 
       if (existingAsset) {
         document.getElementById('dt_asset_code').value = existingAsset.asset_code || '';
-        document.getElementById('dt_asset_name').value = existingAsset.asset_name || '';
+        document.getElementById('dt_asset_name').value = existingAsset.asset_name || assetName;
         document.getElementById('dt_status').value = existingAsset.status || 'OPERATIONAL';
         document.getElementById('dt_install_date').value = existingAsset.installation_date || '';
         document.getElementById('dt_warranty_date').value = existingAsset.warranty_expiry || '';
@@ -144,7 +193,7 @@ async function openDigitalTwinPanel(expressID, globalID) {
       console.warn('Không thể kết nối Supabase:', e);
     }
   } else if (!client) {
-    console.warn('⚠️ Cảnh báo: Chưa tìm thấy Supabase Client hợp lệ trên window.');
+    console.warn('⚠️️ Cảnh báo: Chưa tìm thấy Supabase Client hợp lệ trên window.');
   }
 }
 
