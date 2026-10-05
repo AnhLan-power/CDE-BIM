@@ -8,7 +8,6 @@ const DT_SUPABASE_KEY = window.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI
  * Hàm lấy đối tượng Supabase Client chuẩn trong dự án CDE
  */
 function getDigitalTwinSupabaseClient() {
-  // 1. Kiểm tra các biến Supabase Client phổ biến đã khởi tạo trên window
   if (window.supabaseClient && typeof window.supabaseClient.from === 'function') {
     return window.supabaseClient;
   }
@@ -19,7 +18,6 @@ function getDigitalTwinSupabaseClient() {
     return window.dbClient;
   }
 
-  // 2. Khởi tạo trực tiếp nếu thư viện window.supabase đã nạp qua CDN
   if (window.supabase && typeof window.supabase.createClient === 'function') {
     if (!window._dtSupabaseInstance && DT_SUPABASE_URL.includes('http')) {
       window._dtSupabaseInstance = window.supabase.createClient(DT_SUPABASE_URL, DT_SUPABASE_KEY);
@@ -31,7 +29,7 @@ function getDigitalTwinSupabaseClient() {
 }
 
 /**
- * Khởi tạo và nhúng Side Panel vào DOM (Mặc định ở bên TRÁI & Drag & Drop Header)
+ * Khởi tạo và nhúng Side Panel vào DOM (Vị trí bên TRÁI & Hiển thị rõ GlobalID)
  */
 function injectDigitalTwinPanel() {
   if (document.getElementById('dt-asset-panel')) return;
@@ -49,8 +47,9 @@ function injectDigitalTwinPanel() {
         <input type="hidden" id="dt_express_id" />
 
         <div style="margin-bottom:10px;">
-          <label style="font-size:12px; color:#666;">GlobalID IFC:</label>
-          <input type="text" id="dt_display_global_id" disabled style="width:100%; padding:6px; background:#f5f5f5; border:1px solid #ddd; border-radius:4px; font-size:12px;" />
+          <label style="font-size:12px; font-weight:bold; color:#333;">GlobalID IFC:</label>
+          <!-- Sử dụng readonly thay disabled và đổi kiểu chữ đậm để hiển thị rõ ràng -->
+          <input type="text" id="dt_display_global_id" readonly style="width:100%; padding:8px; background:#eef3fc; border:1px solid #b6d4fe; border-radius:4px; font-size:12px; color:#0d6efd; font-weight:bold;" />
         </div>
 
         <div style="margin-bottom:10px;">
@@ -153,7 +152,11 @@ async function openDigitalTwinPanel(expressID, globalID, assetName = '') {
   panel.style.top = '80px';
   panel.style.right = 'auto';
 
-  // --- 🔥 HÀM TỰ ĐỘNG BÓC TÁCH "ID CẤU KIỆN" TỪ BẢNG IFC BÊN PHẢI ---
+  // 1. Reset Form TRƯỚC khi điền giá trị mới để tránh bị xoá dữ liệu
+  document.getElementById('dt-asset-form').reset();
+  document.getElementById('dt_doc_list').innerHTML = '';
+
+  // 2. Hàm bóc tách "ID Cấu Kiện" từ bảng thuộc tính bên phải DOM
   function getIfcGlobalIdFromDOM() {
     const elements = Array.from(document.querySelectorAll('tr, div, td, span'));
     for (const el of elements) {
@@ -171,37 +174,35 @@ async function openDigitalTwinPanel(expressID, globalID, assetName = '') {
     return '';
   }
 
-  // Quét tìm ID từ DOM nếu param globalID truyền vào bị thiếu hoặc bị gán trùng với expressID
+  // Lấy ID cấu kiện từ DOM nếu tham số globalID truyền vào bị thiếu/trùng expressID
   let finalGlobalID = globalID;
   if (!finalGlobalID || String(finalGlobalID) === String(expressID)) {
     const domId = getIfcGlobalIdFromDOM();
     if (domId) finalGlobalID = domId;
   }
 
-  // Gán giá trị ban đầu vào form
-  document.getElementById('dt_global_id').value = finalGlobalID || expressID || '';
-  document.getElementById('dt_express_id').value = expressID || '';
-  document.getElementById('dt_display_global_id').value = finalGlobalID || expressID || '';
+  // 3. Gán giá trị chuẩn vào Form
+  const applyValuesToForm = (gId, eId, aName) => {
+    document.getElementById('dt_global_id').value = gId || eId || '';
+    document.getElementById('dt_express_id').value = eId || '';
+    document.getElementById('dt_display_global_id').value = gId || eId || '';
+    if (aName) {
+      document.getElementById('dt_asset_name').value = aName;
+    }
+  };
 
-  // Chờ 150ms để phòng trường hợp bảng thuộc tính IFC bên phải render sau
+  applyValuesToForm(finalGlobalID, expressID, assetName);
+
+  // Thử lại sau 150ms để bắt kịch bản bảng thuộc tính IFC render chậm hơn
   setTimeout(() => {
     const delayedId = getIfcGlobalIdFromDOM();
     if (delayedId) {
       finalGlobalID = delayedId;
-      document.getElementById('dt_global_id').value = delayedId;
-      document.getElementById('dt_display_global_id').value = delayedId;
+      applyValuesToForm(finalGlobalID, expressID, assetName);
     }
   }, 150);
 
-  document.getElementById('dt-asset-form').reset();
-  document.getElementById('dt_doc_list').innerHTML = '';
-
-  // Điền Tên thiết bị
-  if (assetName) {
-    document.getElementById('dt_asset_name').value = assetName;
-  }
-
-  // Truy vấn dữ liệu tài sản từ Supabase
+  // 4. Truy vấn dữ liệu tài sản đã có từ Supabase CSDL
   const client = getDigitalTwinSupabaseClient();
   const searchId = finalGlobalID || expressID;
 
