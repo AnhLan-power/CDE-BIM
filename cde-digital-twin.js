@@ -12,7 +12,7 @@ const STATUS_COLORS = {
   FAULT:       [0.9, 0.1, 0.1]  // 🔴 Đỏ
 };
 
-let isColorCodingActive = false; // Khai báo biến trạng thái tô màu[cite: 21]
+let isColorCodingActive = false; // Biến trạng thái tô màu[cite: 21]
 
 function getDigitalTwinSupabaseClient() {
   if (window.sb && typeof window.sb.from === 'function') return window.sb;
@@ -151,11 +151,33 @@ function makePanelDraggable() {
   };
 }
 
+/**
+ * Mở / Tắt Panel khi click nút Digital Twin ở Menu Báo Cáo[cite: 20]
+ */
 function toggleDigitalTwinPanelFromMenu() {
   injectDigitalTwinPanel();
   const panel = document.getElementById('dt-asset-panel');
+
   if (panel.style.display === 'none' || panel.style.display === '') {
-    panel.style.display = 'block';
+    // 1. Lấy thông tin thiết bị đang chọn trên Viewer nếu có[cite: 21]
+    const entity = window.selectedEntity;
+    const metaObject = window.selectedMetaObject;
+
+    let expressID = entity ? entity.id : '';
+    let globalID = '';
+    let assetName = (metaObject && metaObject.name) ? metaObject.name : '';
+
+    if (metaObject) {
+      if (metaObject.originalSystemId) globalID = metaObject.originalSystemId;
+      else if (metaObject.globalId) globalID = metaObject.globalId;
+      else if (metaObject.id && String(metaObject.id).includes('-')) globalID = metaObject.id;
+    }
+    if (!globalID && entity && entity.globalId) {
+      globalID = entity.globalId;
+    }
+
+    // 2. Mở panel và nạp dữ liệu thiết bị[cite: 22]
+    openDigitalTwinPanel(expressID, globalID, assetName);
   } else {
     panel.style.display = 'none';
   }
@@ -169,6 +191,7 @@ async function openDigitalTwinPanel(expressID, globalID, assetName = '') {
   document.getElementById('dt-asset-form').reset();
   document.getElementById('dt_doc_list').innerHTML = '';
 
+  // Hàm quét ID Cấu Kiện từ bảng thuộc tính bên phải[cite: 22]
   function getIfcGlobalIdFromDOM() {
     const elements = Array.from(document.querySelectorAll('tr, div, td, span'));
     for (const el of elements) {
@@ -201,6 +224,7 @@ async function openDigitalTwinPanel(expressID, globalID, assetName = '') {
 
   applyValuesToForm(finalGlobalID, expressID, assetName);
 
+  // Đọc dự phòng lại sau 150ms phòng trường hợp bảng thuộc tính vừa mới render[cite: 22]
   setTimeout(() => {
     const delayedId = getIfcGlobalIdFromDOM();
     if (delayedId) applyValuesToForm(delayedId, expressID, assetName);
@@ -275,12 +299,10 @@ async function applyAssetColorCoding() {
       return;
     }
 
-    // Bỏ chọn tất cả đối tượng hiện tại để tránh bị đè hiệu ứng Highlight xanh mặc định
     if (typeof viewer.scene.setObjectsSelected === 'function') {
       viewer.scene.setObjectsSelected(viewer.scene.selectedObjectIds, false);
     }
 
-    // Lấy toàn bộ danh sách đối tượng 3D trong Scene
     const allObjects = Object.values(viewer.scene.objects);
 
     assets.forEach(asset => {
@@ -288,7 +310,6 @@ async function applyAssetColorCoding() {
       const targetGId = String(asset.global_id || '').trim();
       const targetEId = String(asset.express_id || '').trim();
 
-      // Tìm kiếm Entity khớp ID chuẩn (Khớp exact ID, chứa global_id, hoặc dạng modelId#global_id)
       const matchedEntity = allObjects.find(obj => {
         const objId = String(obj.id || '');
         return (
@@ -300,12 +321,11 @@ async function applyAssetColorCoding() {
       });
 
       if (matchedEntity) {
-        matchedEntity.colorize = rgbColor; // Gán dải màu [R, G, B]
+        matchedEntity.colorize = rgbColor;
         matchedEntity.opacity = 1.0;
       }
     });
 
-    // Ép Viewer redraw lại màn hình
     if (typeof viewer.scene.render === 'function') {
       viewer.scene.render();
     }
