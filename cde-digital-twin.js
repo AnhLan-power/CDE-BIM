@@ -1,7 +1,8 @@
+
 // --- MODULE QUẢN LÝ TÀI SẢN DIGITAL TWIN (FA/AM) ---
 
 const DT_SUPABASE_URL = window.SUPABASE_URL || 'https://znzakqzdezxzqzfplmgv.supabase.co'; 
-const DT_SUPABASE_KEY = window.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInRefiI6InpuemFrcXpkZXp4enF6ZnBsbWd2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc4MTQyNzAsImV4cCI6MjEwMzM5MDI3MH0.aV5YaOLxTySiB26ror4CRzJvQsjANNI1DwbtbxcNe4A';
+const DT_SUPABASE_KEY = window.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInRefiI6InpuemFrcXpkZXp4enF6ZnBsbWd2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc4MTQyNzAsImV4cCI6ZB03Mzk0MjcwfQ.aV5YaOLxTySiB26ror4CRzJvQsjANNI1DwbtbxcNe4A';
 
 const STATUS_COLORS = {
   OPERATIONAL: [0.1, 0.8, 0.3], // 🟢 Xanh lá
@@ -14,6 +15,19 @@ let activeMarkerElements = [];
 let markerTickListener = null;   
 
 /**
+ * Kiểm tra Bounding Box (AABB) có hợp lệ không
+ */
+function isValidAABB(aabb) {
+  return Array.isArray(aabb) && 
+         aabb.length === 6 && 
+         !isNaN(aabb[0]) && !isNaN(aabb[1]) && !isNaN(aabb[2]) &&
+         !isNaN(aabb[3]) && !isNaN(aabb[4]) && !isNaN(aabb[5]) &&
+         (Math.abs(aabb[3] - aabb[0]) > 0.0001 || 
+          Math.abs(aabb[4] - aabb[1]) > 0.0001 || 
+          Math.abs(aabb[5] - aabb[2]) > 0.0001);
+}
+
+/**
  * Inject Style Marker 3D
  */
 function injectMarkerStyles() {
@@ -21,9 +35,19 @@ function injectMarkerStyles() {
   const style = document.createElement('style');
   style.id = 'dt-marker-styles';
   style.innerHTML = `
+    #dt-marker-overlay-container {
+      position: absolute !important;
+      top: 0 !important;
+      left: 0 !important;
+      width: 100% !important;
+      height: 100% !important;
+      pointer-events: none !important;
+      overflow: hidden !important;
+      z-index: 500 !important;
+    }
     .dt-3d-marker {
       position: absolute !important;
-      padding: 5px 10px !important;
+      padding: 4px 8px !important;
       border-radius: 12px !important;
       font-size: 11px !important;
       font-weight: bold !important;
@@ -31,19 +55,18 @@ function injectMarkerStyles() {
       box-shadow: 0 4px 10px rgba(0,0,0,0.3) !important;
       pointer-events: auto !important;
       cursor: pointer !important;
-      transform: translate(-50%, -100%) !important; /* Đẩy tâm lên trên để đuôi marker cắm vào vật */
+      transform: translate(-50%, -100%) !important;
       white-space: nowrap !important;
       user-select: none !important;
-      display: flex !important;
+      display: none;
       align-items: center !important;
       gap: 5px !important;
-      z-index: 100 !important;
-      will-change: left, top;
+      z-index: 501 !important;
       transition: transform 0.1s ease-out;
     }
     .dt-3d-marker:hover {
       transform: translate(-50%, -110%) scale(1.1) !important;
-      z-index: 110 !important;
+      z-index: 510 !important;
     }
     .dt-3d-marker.operational {
       background: #28a745 !important;
@@ -83,29 +106,29 @@ function getDigitalTwinSupabaseClient() {
 }
 
 // =========================================================================
-// --- CAMERA & VIEWPORT CONTROLS ---
+// --- CAMERA CONTROLS ---
 // =========================================================================
 
-/**
- * Focus Camera vào 1 đối tượng cụ thể (Sửa lỗi Orbit & Zoom)
- */
 function focusCameraOnEntity(globalId, expressId) {
   const viewer = window.xeokitViewer || window.viewer;
-  if (!viewer || !viewer.scene || !viewer.cameraFlight) return;
+  if (!viewer || !viewer.scene) return;
 
   const pseudoAsset = { global_id: globalId, express_id: expressId };
   const entity = findEntityByAsset(viewer, pseudoAsset);
 
-  if (entity && entity.aabb) {
-    // Đảm bảo không bị vướng object ẩn
+  if (entity && isValidAABB(entity.aabb)) {
     entity.visible = true; 
     
-    // Yêu cầu camera bay tới Bounding Box của đối tượng
-    viewer.cameraFlight.flyTo({
-      aabb: entity.aabb,
-      duration: 1.0 // Giây
-    }, () => {
-      // Sau khi bay tới, cập nhật tâm xoay (Orbit Target)
+    if (viewer.cameraFlight && typeof viewer.cameraFlight.flyTo === 'function') {
+      try {
+        viewer.cameraFlight.flyTo({
+          aabb: entity.aabb,
+          duration: 0.8
+        });
+      } catch (e) {
+        console.warn('Camera flight warning:', e);
+      }
+    } else if (viewer.scene.camera) {
       const aabb = entity.aabb;
       const center = [
         (aabb[0] + aabb[3]) / 2,
@@ -113,7 +136,7 @@ function focusCameraOnEntity(globalId, expressId) {
         (aabb[2] + aabb[5]) / 2
       ];
       viewer.scene.camera.target = center;
-    });
+    }
   }
 }
 
@@ -121,9 +144,6 @@ function focusCameraOnEntity(globalId, expressId) {
 // --- UI PANELS ---
 // =========================================================================
 
-/**
- * Panel Quản Lý Tài Sản
- */
 function injectDigitalTwinPanel() {
   injectMarkerStyles();
   if (document.getElementById('dt-asset-panel')) return;
@@ -275,8 +295,9 @@ async function openDigitalTwinPanel(expressID, globalID, assetName = '') {
   const panel = document.getElementById('dt-asset-panel');
   panel.style.display = 'block';
 
-  // Bay camera tới đối tượng khi mở Panel
-  focusCameraOnEntity(globalID, expressID);
+  if (globalID || expressID) {
+    focusCameraOnEntity(globalID, expressID);
+  }
 
   document.getElementById('dt-asset-form').reset();
   document.getElementById('dt_doc_list').innerHTML = '';
@@ -374,12 +395,26 @@ function findEntityByAsset(viewer, asset) {
   if (targetEId && objects[targetEId]) return objects[targetEId];
 
   const allObjects = Object.values(objects);
-  return allObjects.find(obj => {
-    const objId = String(obj.id || '');
-    if (targetGId && objId.includes(targetGId)) return true;
-    if (targetEId && (objId.endsWith('#' + targetEId) || objId === targetEId)) return true;
-    return false;
-  }) || null;
+  
+  if (targetGId) {
+    const match = allObjects.find(obj => 
+      obj.id === targetGId || 
+      obj.globalId === targetGId || 
+      (obj.id && obj.id.endsWith('#' + targetGId)) ||
+      (obj.id && obj.id.includes(targetGId))
+    );
+    if (match) return match;
+  }
+
+  if (targetEId && targetEId !== '0') {
+    const match = allObjects.find(obj => 
+      obj.id === targetEId || 
+      (obj.id && (obj.id.endsWith('#' + targetEId) || obj.id === targetEId))
+    );
+    if (match) return match;
+  }
+
+  return null;
 }
 
 async function applyAssetColorCoding() {
@@ -431,7 +466,6 @@ async function applyAssetColorCoding() {
 function resetModelColors() {
   const viewer = window.xeokitViewer || window.viewer;
   if (viewer && viewer.scene) {
-    // Chỉ reset màu, KHÔNG gọi fitToView để tránh lỗi zoom out
     Object.values(viewer.scene.objects).forEach(entity => {
       entity.colorize = null;
       entity.colorized = false;
@@ -469,8 +503,25 @@ function toggleColorCodingMode(buttonEl) {
 }
 
 // =========================================================================
-// --- THỂ HIỆN VÀ CẬP NHẬT TỌA ĐỘ MARKER PIN 3D ---
+// --- MARKER 3D OVERLAY CONTAINER & POSITIONS ---
 // =========================================================================
+
+function getOrCreateMarkerContainer(canvasEl) {
+  injectMarkerStyles();
+  let container = document.getElementById('dt-marker-overlay-container');
+  const parent = canvasEl ? (canvasEl.parentElement || document.body) : document.body;
+
+  if (window.getComputedStyle(parent).position === 'static') {
+    parent.style.position = 'relative';
+  }
+
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'dt-marker-overlay-container';
+    parent.appendChild(container);
+  }
+  return container;
+}
 
 function render3DMarkers(assets) {
   clear3DMarkers();
@@ -479,19 +530,14 @@ function render3DMarkers(assets) {
   if (!viewer || !viewer.scene || !viewer.scene.canvas) return;
 
   const canvasEl = viewer.scene.canvas.canvas;
-  const parentContainer = canvasEl.parentElement || document.body;
-
-  if (computedStyle(parentContainer).position === 'static') {
-    parentContainer.style.position = 'relative';
-  }
+  const container = getOrCreateMarkerContainer(canvasEl);
 
   const trackedItems = [];
 
   assets.forEach(asset => {
     const entity = findEntityByAsset(viewer, asset);
 
-    // Bổ sung kiểm tra Bounding Box hợp lệ (Khắc phục lỗi trôi mác về góc 0,0)
-    if (entity && entity.aabb && entity.aabb.length === 6 && !isNaN(entity.aabb[0])) {
+    if (entity && isValidAABB(entity.aabb)) {
       const aabb = entity.aabb;
       const topCenterWorldPos = [
         (aabb[0] + aabb[3]) / 2, // Center X
@@ -512,16 +558,15 @@ function render3DMarkers(assets) {
 
       const markerDiv = document.createElement('div');
       markerDiv.className = `dt-3d-marker ${markerClass}`;
-      markerDiv.style.display = 'none'; // Ẩn mặc định, đợi update frame đầu tiên
+      markerDiv.style.display = 'none';
       markerDiv.innerHTML = `<span>${markerIcon}</span><span>${asset.asset_code || asset.asset_name}</span>`;
 
-      // Bắt sự kiện nhấp chuột
       markerDiv.onclick = (e) => {
-        e.stopPropagation(); // Tránh lan sự kiện xuống canvas
+        e.stopPropagation();
         openDigitalTwinPanel(asset.express_id, asset.global_id, asset.asset_name);
       };
 
-      parentContainer.appendChild(markerDiv);
+      container.appendChild(markerDiv);
       activeMarkerElements.push(markerDiv);
 
       trackedItems.push({
@@ -531,36 +576,45 @@ function render3DMarkers(assets) {
     }
   });
 
-  function computedStyle(el) {
-    return window.getComputedStyle ? window.getComputedStyle(el) : el.currentStyle;
-  }
-
-  // Cập nhật tọa độ Marker theo thời gian thực
   function updateMarkerPositions() {
     if (!isColorCodingActive || trackedItems.length === 0) return;
 
-    const camera = viewer.scene.camera;
+    const currentViewer = window.xeokitViewer || window.viewer;
+    if (!currentViewer || !currentViewer.scene || !currentViewer.scene.camera) return;
+
+    const camera = currentViewer.scene.camera;
+    const currentCanvas = currentViewer.scene.canvas ? currentViewer.scene.canvas.canvas : null;
+    if (!currentCanvas) return;
+
+    const canvasWidth = currentCanvas.clientWidth || currentCanvas.width || 800;
+    const canvasHeight = currentCanvas.clientHeight || currentCanvas.height || 600;
 
     trackedItems.forEach(item => {
-      const canvasPos = camera.projectWorldPosToCanvas(item.worldPos);
+      try {
+        const tempPos = [0, 0, 0];
+        const res = camera.projectWorldPosToCanvas(item.worldPos, tempPos);
+        const canvasPos = res || tempPos;
 
-      // Kiểm tra tọa độ xuất ra có hợp lệ không
-      if (canvasPos && !isNaN(canvasPos[0]) && !isNaN(canvasPos[1])) {
-        const x = canvasPos[0];
-        const y = canvasPos[1];
-        
-        // Kiểm tra xem vị trí có nằm phía sau camera không (Z clipping)
-        const isVisible = canvasPos[2] === undefined || canvasPos[2] < 1.0; 
+        if (canvasPos && !isNaN(canvasPos[0]) && !isNaN(canvasPos[1])) {
+          const x = canvasPos[0];
+          const y = canvasPos[1];
+          const isVisible = canvasPos[2] === undefined || canvasPos[2] < 1.0;
 
-        // Ràng buộc giới hạn trong khung hình
-        if (isVisible && x >= 0 && x <= canvasEl.clientWidth && y >= 0 && y <= canvasEl.clientHeight) {
-          item.element.style.display = 'flex';
-          item.element.style.left = `${x}px`;
-          item.element.style.top = `${y}px`;
+          const margin = 10;
+          const isInView = (x >= margin && x <= (canvasWidth - margin) && 
+                            y >= margin && y <= (canvasHeight - margin));
+
+          if (isVisible && isInView) {
+            item.element.style.display = 'flex';
+            item.element.style.left = `${Math.round(x)}px`;
+            item.element.style.top = `${Math.round(y)}px`;
+          } else {
+            item.element.style.display = 'none';
+          }
         } else {
           item.element.style.display = 'none';
         }
-      } else {
+      } catch (err) {
         item.element.style.display = 'none';
       }
     });
@@ -573,7 +627,9 @@ function render3DMarkers(assets) {
 function clear3DMarkers() {
   const viewer = window.xeokitViewer || window.viewer;
   if (viewer && viewer.scene && markerTickListener) {
-    viewer.scene.off(markerTickListener);
+    try {
+      viewer.scene.off(markerTickListener);
+    } catch (e) {}
     markerTickListener = null;
   }
 
@@ -581,6 +637,11 @@ function clear3DMarkers() {
     if (el && el.parentElement) el.parentElement.removeChild(el);
   });
   activeMarkerElements = [];
+
+  const container = document.getElementById('dt-marker-overlay-container');
+  if (container) {
+    container.innerHTML = '';
+  }
 }
 
 // =========================================================================
@@ -591,8 +652,7 @@ function injectDigitalTwinDashboardModal() {
   if (document.getElementById('dt-dashboard-modal')) return;
 
   const modalHtml = `
-    <!-- Sửa pointer-events:none ở background để tránh chặn tương tác 3D nếu lỡ quên close -->
-    <div id="dt-dashboard-modal" style="display:none; position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(0,0,0,0.5); z-index:10000; align-items:center; justify-content:center; font-family:sans-serif; pointer-events:auto;">
+    <div id="dt-dashboard-modal" style="display:none; position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(0,0,0,0.5); z-index:10000; align-items:center; justify-content:center; font-family:sans-serif; pointer-events:none;">
       <div style="background:#fff; width:85%; max-width:900px; max-height:90vh; border-radius:12px; overflow:hidden; display:flex; flex-direction:column; box-shadow:0 10px 30px rgba(0,0,0,0.3); pointer-events:auto;">
         
         <div style="padding:15px 20px; background:#1a73e8; color:#fff; display:flex; justify-content:space-between; align-items:center;">
@@ -649,7 +709,10 @@ function injectDigitalTwinDashboardModal() {
 async function openDigitalTwinDashboard() {
   injectDigitalTwinDashboardModal();
   const modal = document.getElementById('dt-dashboard-modal');
-  modal.style.display = 'flex';
+  if (modal) {
+    modal.style.display = 'flex';
+    modal.style.pointerEvents = 'auto';
+  }
 
   const client = getDigitalTwinSupabaseClient();
   if (!client) return;
@@ -711,7 +774,10 @@ async function openDigitalTwinDashboard() {
 
 function closeDigitalTwinDashboard() {
   const modal = document.getElementById('dt-dashboard-modal');
-  if (modal) modal.style.display = 'none';
+  if (modal) {
+    modal.style.display = 'none';
+    modal.style.pointerEvents = 'none';
+  }
 }
 
 // =========================================================================
