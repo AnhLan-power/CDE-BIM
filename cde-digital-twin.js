@@ -13,10 +13,11 @@ const STATUS_COLORS = {
 };
 
 let isColorCodingActive = false; // Biến trạng thái tô màu
-let activeMarkers = [];          // Danh sách lưu các Marker 3D đang hiển thị
+let activeMarkerElements = [];   // Lưu danh sách các phần tử Marker HTML
+let markerTickListener = null;   // Bỏ theo dõi render loop khi tắt
 
 /**
- * Tự động nhúng CSS cho Pin Cảnh báo 3D Marker vào head
+ * Tự động nhúng CSS cho Pin Cảnh báo 3D Marker
  */
 function injectMarkerStyles() {
   if (document.getElementById('dt-marker-styles')) return;
@@ -25,24 +26,25 @@ function injectMarkerStyles() {
   style.innerHTML = `
     .dt-3d-marker {
       position: absolute;
-      padding: 4px 8px;
+      padding: 5px 10px;
       border-radius: 20px;
-      font-size: 12px;
+      font-size: 11px;
       font-weight: bold;
       color: white;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+      box-shadow: 0 4px 10px rgba(0,0,0,0.3);
       pointer-events: auto;
       cursor: pointer;
-      z-index: 1000;
-      transition: transform 0.2s ease;
+      z-index: 999;
+      transform: translate(-50%, -100%);
+      transition: transform 0.1s ease;
       display: flex;
       align-items: center;
-      gap: 4px;
+      gap: 5px;
       white-space: nowrap;
       user-select: none;
     }
     .dt-3d-marker:hover {
-      transform: scale(1.15);
+      transform: translate(-50%, -110%) scale(1.1);
     }
     .dt-3d-marker.maintenance {
       background: #f39c12;
@@ -55,7 +57,7 @@ function injectMarkerStyles() {
     }
     @keyframes dt-pulse {
       0% { box-shadow: 0 0 0 0 rgba(231, 76, 60, 0.7); }
-      70% { box-shadow: 0 0 0 8px rgba(231, 76, 60, 0); }
+      70% { box-shadow: 0 0 0 10px rgba(231, 76, 60, 0); }
       100% { box-shadow: 0 0 0 0 rgba(231, 76, 60, 0); }
     }
   `;
@@ -322,7 +324,7 @@ function closeAssetPanel() {
 }
 
 // =========================================================================
-// --- TÔ MÀU MÔ HÌNH 3D & PIN CẢNH BÁO (THÔNG MINH CHUẨN XEOKIT) ---
+// --- TÔ MÀU MÔ HÌNH 3D & KHÔI PHỤC MẶC ĐỊNH (SỬA LỖI KHÔNG PHẢN HỒI) ---
 // =========================================================================
 
 async function applyAssetColorCoding() {
@@ -371,15 +373,18 @@ async function applyAssetColorCoding() {
 
       if (matchedEntity) {
         matchedEntity.colorize = rgbColor;
+        matchedEntity.colorized = true;
         matchedEntity.opacity = 1.0;
       }
     });
 
+    // Làm tươi Canvas Xeokit
+    viewer.scene._needUpdate = 1;
     if (typeof viewer.scene.render === 'function') {
       viewer.scene.render();
     }
 
-    // Hiển thị Pin Cảnh báo 3D trên các thiết bị lỗi/bảo trì
+    // Hiển thị Pin Cảnh báo 3D Overlay
     render3DMarkers(assets);
 
     isColorCodingActive = true;
@@ -393,14 +398,17 @@ function resetModelColors() {
   if (viewer && viewer.scene) {
     Object.values(viewer.scene.objects).forEach(entity => {
       entity.colorize = null;
+      entity.colorized = false;
     });
 
+    // Ép buộc xeokit Render lại trạng thái ban đầu
+    viewer.scene._needUpdate = 1;
     if (typeof viewer.scene.render === 'function') {
       viewer.scene.render();
     }
   }
 
-  // Xóa toàn bộ Pin Cảnh Báo 3D
+  // Xóa toàn bộ Marker Cảnh Báo
   clear3DMarkers();
 
   isColorCodingActive = false;
@@ -427,7 +435,9 @@ function toggleColorCodingMode(buttonEl) {
   }
 }
 
-// --- LOGIC HIỂN THỊ PIN CẢNH BÁO 3D (3D MARKERS) ---
+// =========================================================================
+// --- TẠO VÀ CẬP NHẬT PIN CẢNH BÁO 3D (OVERLAY TRỰC TIẾP) ---
+// =========================================================================
 
 function render3DMarkers(assets) {
   clear3DMarkers();
@@ -436,9 +446,10 @@ function render3DMarkers(assets) {
   if (!viewer || !viewer.scene) return;
 
   const allObjects = Object.values(viewer.scene.objects);
+  const trackedItems = [];
 
   assets.forEach(asset => {
-    if (asset.status === 'OPERATIONAL') return;
+    if (asset.status === 'OPERATIONAL') return; // Không hiển thị pin với thiết bị bình thường
 
     const targetGId = String(asset.global_id || '').trim();
     const targetEId = String(asset.express_id || '').trim();
@@ -453,47 +464,86 @@ function render3DMarkers(assets) {
       );
     });
 
-    if (entity) {
-      if (!window._dtAnnotationsPlugin && xeokit && xeokit.AnnotationsPlugin) {
-        window._dtAnnotationsPlugin = new xeokit.AnnotationsPlugin(viewer);
-      }
-
-      const plugin = window._dtAnnotationsPlugin;
-      if (!plugin) return;
+    if (entity && entity.aabb) {
+      // Tính điểm chính giữa đỉnh trên của Box 3D (Top Center Point)
+      const aabb = entity.aabb; // [xmin, ymin, zmin, xmax, ymax, zmax]
+      const topCenterWorldPos = [
+        (aabb[0] + aabb[3]) / 2,
+        aabb[5], // Điểm đỉnh cao nhất Y
+        (aabb[2] + aabb[5]) / 2
+      ];
 
       const isFault = asset.status === 'FAULT';
       const markerIcon = isFault ? '🛑' : '⚠️';
       const markerClass = isFault ? 'fault' : 'maintenance';
 
-      const annotation = plugin.createAnnotation({
-        id: 'marker-' + (asset.global_id || asset.express_id),
-        entity: entity,
-        occluded: true,
-        glyph: markerIcon,
-        title: asset.asset_name || 'Cảnh báo',
-        description: `Mã: ${asset.asset_code || ''}`,
-        getHTML: function () {
-          return `
-            <div class="dt-3d-marker ${markerClass}" onclick="openDigitalTwinPanel('${asset.express_id}', '${asset.global_id}', '${asset.asset_name}')">
-              <span>${markerIcon}</span>
-              <span>${asset.asset_code || asset.asset_name}</span>
-            </div>
-          `;
-        }
-      });
+      // Tạo phần tử HTML Marker
+      const markerDiv = document.createElement('div');
+      markerDiv.className = `dt-3d-marker ${markerClass}`;
+      markerDiv.innerHTML = `<span>${markerIcon}</span><span>${asset.asset_code || asset.asset_name}</span>`;
+      
+      markerDiv.onclick = (e) => {
+        e.stopPropagation();
+        openDigitalTwinPanel(asset.express_id, asset.global_id, asset.asset_name);
+      };
 
-      activeMarkers.push(annotation);
+      document.body.appendChild(markerDiv);
+      activeMarkerElements.push(markerDiv);
+
+      trackedItems.push({
+        element: markerDiv,
+        worldPos: topCenterWorldPos,
+        entity: entity
+      });
     }
   });
+
+  // Tự động cập nhật tọa độ Marker theo góc quay Camera
+  function updateMarkerPositions() {
+    if (!isColorCodingActive || trackedItems.length === 0) return;
+
+    const camera = viewer.scene.camera;
+    const canvas = viewer.scene.canvas.canvas;
+    const canvasRect = canvas.getBoundingClientRect();
+
+    trackedItems.forEach(item => {
+      // Chuyển tọa độ Không gian 3D -> Tọa độ Màn hình 2D Pixel
+      const canvasPos = camera.projectWorldPosToCanvas(item.worldPos);
+      
+      if (canvasPos) {
+        const screenX = canvasRect.left + canvasPos[0];
+        const screenY = canvasRect.top + canvasPos[1];
+
+        // Ẩn/hiện dựa theo vị trí có nằm trong màn hình không
+        if (canvasPos[2] < 1.0 && canvasPos[0] >= 0 && canvasPos[0] <= canvasRect.width && canvasPos[1] >= 0 && canvasPos[1] <= canvasRect.height) {
+          item.element.style.display = 'flex';
+          item.element.style.left = `${screenX}px`;
+          item.element.style.top = `${screenY}px`;
+        } else {
+          item.element.style.display = 'none';
+        }
+      }
+    });
+  }
+
+  // Đăng ký sự kiện Render Loop của xeokit
+  markerTickListener = viewer.scene.on("tick", updateMarkerPositions);
+  updateMarkerPositions();
 }
 
 function clear3DMarkers() {
-  if (window._dtAnnotationsPlugin) {
-    activeMarkers.forEach(anno => {
-      if (typeof anno.destroy === 'function') anno.destroy();
-    });
+  const viewer = window.xeokitViewer || window.viewer;
+  if (viewer && viewer.scene && markerTickListener) {
+    viewer.scene.off(markerTickListener);
+    markerTickListener = null;
   }
-  activeMarkers = [];
+
+  activeMarkerElements.forEach(el => {
+    if (el && el.parentNode) {
+      el.parentNode.removeChild(el);
+    }
+  });
+  activeMarkerElements = [];
 }
 
 // =========================================================================
