@@ -31,7 +31,7 @@ function injectMarkerStyles() {
       box-shadow: 0 4px 10px rgba(0,0,0,0.3) !important;
       pointer-events: auto !important;
       cursor: pointer !important;
-      transform: translate(-50%, -100%) !important;
+      transform: translate(-50%, -100%) !important; /* Đẩy tâm lên trên để đuôi marker cắm vào vật */
       white-space: nowrap !important;
       user-select: none !important;
       display: flex !important;
@@ -39,9 +39,11 @@ function injectMarkerStyles() {
       gap: 5px !important;
       z-index: 100 !important;
       will-change: left, top;
+      transition: transform 0.1s ease-out;
     }
     .dt-3d-marker:hover {
-      transform: translate(-50%, -110%) scale(1.08) !important;
+      transform: translate(-50%, -110%) scale(1.1) !important;
+      z-index: 110 !important;
     }
     .dt-3d-marker.operational {
       background: #28a745 !important;
@@ -80,6 +82,45 @@ function getDigitalTwinSupabaseClient() {
   return null;
 }
 
+// =========================================================================
+// --- CAMERA & VIEWPORT CONTROLS ---
+// =========================================================================
+
+/**
+ * Focus Camera vào 1 đối tượng cụ thể (Sửa lỗi Orbit & Zoom)
+ */
+function focusCameraOnEntity(globalId, expressId) {
+  const viewer = window.xeokitViewer || window.viewer;
+  if (!viewer || !viewer.scene || !viewer.cameraFlight) return;
+
+  const pseudoAsset = { global_id: globalId, express_id: expressId };
+  const entity = findEntityByAsset(viewer, pseudoAsset);
+
+  if (entity && entity.aabb) {
+    // Đảm bảo không bị vướng object ẩn
+    entity.visible = true; 
+    
+    // Yêu cầu camera bay tới Bounding Box của đối tượng
+    viewer.cameraFlight.flyTo({
+      aabb: entity.aabb,
+      duration: 1.0 // Giây
+    }, () => {
+      // Sau khi bay tới, cập nhật tâm xoay (Orbit Target)
+      const aabb = entity.aabb;
+      const center = [
+        (aabb[0] + aabb[3]) / 2,
+        (aabb[1] + aabb[4]) / 2,
+        (aabb[2] + aabb[5]) / 2
+      ];
+      viewer.scene.camera.target = center;
+    });
+  }
+}
+
+// =========================================================================
+// --- UI PANELS ---
+// =========================================================================
+
 /**
  * Panel Quản Lý Tài Sản
  */
@@ -88,7 +129,7 @@ function injectDigitalTwinPanel() {
   if (document.getElementById('dt-asset-panel')) return;
 
   const panelHtml = `
-    <div id="dt-asset-panel" style="display:none; position:fixed; left:20px; top:80px; width:380px; max-height:85vh; overflow-y:auto; background:#fff; border-radius:10px; box-shadow: 0 4px 20px rgba(0,0,0,0.2); z-index:9999; padding:20px; font-family:sans-serif; user-select:none;">
+    <div id="dt-asset-panel" style="display:none; position:fixed; left:20px; top:80px; width:380px; max-height:85vh; overflow-y:auto; background:#fff; border-radius:10px; box-shadow: 0 4px 20px rgba(0,0,0,0.2); z-index:9999; padding:20px; font-family:sans-serif; user-select:none; pointer-events:auto;">
       
       <div id="dt-panel-header" style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #eee; padding-bottom:10px; margin-bottom:15px; cursor:move; background:#f8f9fa; margin:-20px -20px 15px -20px; padding:15px 20px; border-radius:10px 10px 0 0;">
         <h3 style="margin:0; font-size:15px; color:#1a73e8; pointer-events:none;">🏷️ Quản Lý Tài Sản (Digital Twin)</h3>
@@ -112,22 +153,22 @@ function injectDigitalTwinPanel() {
 
         <div style="margin-bottom:10px;">
           <label style="font-size:12px; font-weight:bold; color:#333;">GlobalID IFC:</label>
-          <input type="text" id="dt_display_global_id" readonly style="width:100%; padding:8px; background:#eef3fc; border:1px solid #b6d4fe; border-radius:4px; font-size:12px; color:#0d6efd; font-weight:bold;" />
+          <input type="text" id="dt_display_global_id" readonly style="width:100%; padding:8px; background:#eef3fc; border:1px solid #b6d4fe; border-radius:4px; font-size:12px; color:#0d6efd; font-weight:bold; box-sizing:border-box;" />
         </div>
 
         <div style="margin-bottom:10px;">
           <label style="font-size:12px; font-weight:bold;">Mã Tài Sản (Asset Tag) <span style="color:red">*</span>:</label>
-          <input type="text" id="dt_asset_code" placeholder="VD: AB01-A" required style="width:100%; padding:6px; border:1px solid #ccc; border-radius:4px;" />
+          <input type="text" id="dt_asset_code" placeholder="VD: AB01-A" required style="width:100%; padding:6px; border:1px solid #ccc; border-radius:4px; box-sizing:border-box;" />
         </div>
 
         <div style="margin-bottom:10px;">
           <label style="font-size:12px; font-weight:bold;">Tên Thiết Bị <span style="color:red">*</span>:</label>
-          <input type="text" id="dt_asset_name" placeholder="VD: Máy thổi khí" required style="width:100%; padding:6px; border:1px solid #ccc; border-radius:4px;" />
+          <input type="text" id="dt_asset_name" placeholder="VD: Máy thổi khí" required style="width:100%; padding:6px; border:1px solid #ccc; border-radius:4px; box-sizing:border-box;" />
         </div>
 
         <div style="margin-bottom:10px;">
           <label style="font-size:12px; font-weight:bold;">Trạng Thái Vận Hành:</label>
-          <select id="dt_status" style="width:100%; padding:6px; border:1px solid #ccc; border-radius:4px;">
+          <select id="dt_status" style="width:100%; padding:6px; border:1px solid #ccc; border-radius:4px; box-sizing:border-box;">
             <option value="OPERATIONAL">🟢 Đang hoạt động bình thường</option>
             <option value="MAINTENANCE">🟡 Đang bảo trì / Kiểm tra</option>
             <option value="FAULT">🔴 Có sự cố / Hỏng hóc</option>
@@ -137,28 +178,28 @@ function injectDigitalTwinPanel() {
         <div style="display:flex; gap:10px; margin-bottom:10px;">
           <div style="flex:1;">
             <label style="font-size:11px;">Ngày Lắp Đặt:</label>
-            <input type="date" id="dt_install_date" style="width:100%; padding:4px; border:1px solid #ccc; border-radius:4px;" />
+            <input type="date" id="dt_install_date" style="width:100%; padding:4px; border:1px solid #ccc; border-radius:4px; box-sizing:border-box;" />
           </div>
           <div style="flex:1;">
             <label style="font-size:11px;">Hạn Bảo Hành:</label>
-            <input type="date" id="dt_warranty_date" style="width:100%; padding:4px; border:1px solid #ccc; border-radius:4px;" />
+            <input type="date" id="dt_warranty_date" style="width:100%; padding:4px; border:1px solid #ccc; border-radius:4px; box-sizing:border-box;" />
           </div>
         </div>
 
         <div style="display:flex; gap:10px; margin-bottom:10px;">
           <div style="flex:1;">
             <label style="font-size:11px; font-weight:bold; color:#d93025;">🔧 Bảo Trì Gần Nhất:</label>
-            <input type="date" id="dt_last_maint_date" style="width:100%; padding:4px; border:1px solid #ccc; border-radius:4px;" />
+            <input type="date" id="dt_last_maint_date" style="width:100%; padding:4px; border:1px solid #ccc; border-radius:4px; box-sizing:border-box;" />
           </div>
           <div style="flex:1;">
             <label style="font-size:11px; font-weight:bold; color:#1a73e8;">📅 Lịch Bảo Trì Kế:</label>
-            <input type="date" id="dt_next_maint_date" style="width:100%; padding:4px; border:1px solid #ccc; border-radius:4px;" />
+            <input type="date" id="dt_next_maint_date" style="width:100%; padding:4px; border:1px solid #ccc; border-radius:4px; box-sizing:border-box;" />
           </div>
         </div>
 
         <div style="margin-bottom:10px;">
           <label style="font-size:12px; font-weight:bold;">📝 Nhật Ký Vận Hành / Bảo Trì:</label>
-          <textarea id="dt_maint_log" rows="3" placeholder="Nhập ghi chú bảo trì..." style="width:100%; padding:6px; border:1px solid #ccc; border-radius:4px; font-size:12px; resize:vertical;"></textarea>
+          <textarea id="dt_maint_log" rows="3" placeholder="Nhập ghi chú bảo trì..." style="width:100%; padding:6px; border:1px solid #ccc; border-radius:4px; font-size:12px; resize:vertical; box-sizing:border-box;"></textarea>
         </div>
 
         <div style="margin-bottom:15px;">
@@ -233,6 +274,9 @@ async function openDigitalTwinPanel(expressID, globalID, assetName = '') {
   injectDigitalTwinPanel();
   const panel = document.getElementById('dt-asset-panel');
   panel.style.display = 'block';
+
+  // Bay camera tới đối tượng khi mở Panel
+  focusCameraOnEntity(globalID, expressID);
 
   document.getElementById('dt-asset-form').reset();
   document.getElementById('dt_doc_list').innerHTML = '';
@@ -326,11 +370,9 @@ function findEntityByAsset(viewer, asset) {
   const targetGId = String(asset.global_id || '').trim();
   const targetEId = String(asset.express_id || '').trim();
 
-  // 1. Tìm theo ID trùng khớp
   if (targetGId && objects[targetGId]) return objects[targetGId];
   if (targetEId && objects[targetEId]) return objects[targetEId];
 
-  // 2. Tìm chứa chuỗi ID trong danh sách
   const allObjects = Object.values(objects);
   return allObjects.find(obj => {
     const objId = String(obj.id || '');
@@ -379,9 +421,7 @@ async function applyAssetColorCoding() {
       viewer.scene.render();
     }
 
-    // Hiển thị Pin Cảnh báo 3D chuẩn xác
     render3DMarkers(assets);
-
     isColorCodingActive = true;
   } catch (err) {
     console.error('Lỗi tô màu 3D:', err);
@@ -391,6 +431,7 @@ async function applyAssetColorCoding() {
 function resetModelColors() {
   const viewer = window.xeokitViewer || window.viewer;
   if (viewer && viewer.scene) {
+    // Chỉ reset màu, KHÔNG gọi fitToView để tránh lỗi zoom out
     Object.values(viewer.scene.objects).forEach(entity => {
       entity.colorize = null;
       entity.colorized = false;
@@ -440,7 +481,6 @@ function render3DMarkers(assets) {
   const canvasEl = viewer.scene.canvas.canvas;
   const parentContainer = canvasEl.parentElement || document.body;
 
-  // Đảm bảo thẻ cha có position relative để Pin tọa độ absolute chuẩn xác
   if (computedStyle(parentContainer).position === 'static') {
     parentContainer.style.position = 'relative';
   }
@@ -450,7 +490,8 @@ function render3DMarkers(assets) {
   assets.forEach(asset => {
     const entity = findEntityByAsset(viewer, asset);
 
-    if (entity && entity.aabb) {
+    // Bổ sung kiểm tra Bounding Box hợp lệ (Khắc phục lỗi trôi mác về góc 0,0)
+    if (entity && entity.aabb && entity.aabb.length === 6 && !isNaN(entity.aabb[0])) {
       const aabb = entity.aabb;
       const topCenterWorldPos = [
         (aabb[0] + aabb[3]) / 2, // Center X
@@ -471,11 +512,12 @@ function render3DMarkers(assets) {
 
       const markerDiv = document.createElement('div');
       markerDiv.className = `dt-3d-marker ${markerClass}`;
-      markerDiv.style.display = 'none';
+      markerDiv.style.display = 'none'; // Ẩn mặc định, đợi update frame đầu tiên
       markerDiv.innerHTML = `<span>${markerIcon}</span><span>${asset.asset_code || asset.asset_name}</span>`;
 
+      // Bắt sự kiện nhấp chuột
       markerDiv.onclick = (e) => {
-        e.stopPropagation();
+        e.stopPropagation(); // Tránh lan sự kiện xuống canvas
         openDigitalTwinPanel(asset.express_id, asset.global_id, asset.asset_name);
       };
 
@@ -493,21 +535,24 @@ function render3DMarkers(assets) {
     return window.getComputedStyle ? window.getComputedStyle(el) : el.currentStyle;
   }
 
-  // Cập nhật tọa độ Marker theo thời gian thực khi xoay/zoom camera
+  // Cập nhật tọa độ Marker theo thời gian thực
   function updateMarkerPositions() {
     if (!isColorCodingActive || trackedItems.length === 0) return;
 
     const camera = viewer.scene.camera;
 
     trackedItems.forEach(item => {
-      // API của Xeokit chiếu trực tiếp Tọa độ 3D -> Tọa độ Pixel trên Canvas
       const canvasPos = camera.projectWorldPosToCanvas(item.worldPos);
 
+      // Kiểm tra tọa độ xuất ra có hợp lệ không
       if (canvasPos && !isNaN(canvasPos[0]) && !isNaN(canvasPos[1])) {
         const x = canvasPos[0];
         const y = canvasPos[1];
-        const isVisible = canvasPos[2] < 1.0; // Điểm nằm phía trước Camera
+        
+        // Kiểm tra xem vị trí có nằm phía sau camera không (Z clipping)
+        const isVisible = canvasPos[2] === undefined || canvasPos[2] < 1.0; 
 
+        // Ràng buộc giới hạn trong khung hình
         if (isVisible && x >= 0 && x <= canvasEl.clientWidth && y >= 0 && y <= canvasEl.clientHeight) {
           item.element.style.display = 'flex';
           item.element.style.left = `${x}px`;
@@ -546,8 +591,9 @@ function injectDigitalTwinDashboardModal() {
   if (document.getElementById('dt-dashboard-modal')) return;
 
   const modalHtml = `
-    <div id="dt-dashboard-modal" style="display:none; position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(0,0,0,0.5); z-index:10000; align-items:center; justify-content:center; font-family:sans-serif;">
-      <div style="background:#fff; width:85%; max-width:900px; max-height:90vh; border-radius:12px; overflow:hidden; display:flex; flex-direction:column; box-shadow:0 10px 30px rgba(0,0,0,0.3);">
+    <!-- Sửa pointer-events:none ở background để tránh chặn tương tác 3D nếu lỡ quên close -->
+    <div id="dt-dashboard-modal" style="display:none; position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(0,0,0,0.5); z-index:10000; align-items:center; justify-content:center; font-family:sans-serif; pointer-events:auto;">
+      <div style="background:#fff; width:85%; max-width:900px; max-height:90vh; border-radius:12px; overflow:hidden; display:flex; flex-direction:column; box-shadow:0 10px 30px rgba(0,0,0,0.3); pointer-events:auto;">
         
         <div style="padding:15px 20px; background:#1a73e8; color:#fff; display:flex; justify-content:space-between; align-items:center;">
           <h2 style="margin:0; font-size:16px; display:flex; align-items:center; gap:8px;">📊 Báo Cáo & Thống Kê Vận Hành Tài Sản (Digital Twin)</h2>
