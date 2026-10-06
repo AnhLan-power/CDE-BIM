@@ -15,10 +15,13 @@ const STATUS_COLORS = {
 let isColorCodingActive = false;
 
 function getDigitalTwinSupabaseClient() {
+  // 1. Ưu tiên lấy client window.sb (từ file auth của cậu) hoặc các biến toàn cục khác
+  if (window.sb && typeof window.sb.from === 'function') return window.sb;
   if (window.supabaseClient && typeof window.supabaseClient.from === 'function') return window.supabaseClient;
   if (window.supabase && typeof window.supabase.from === 'function') return window.supabase;
   if (window.dbClient && typeof window.dbClient.from === 'function') return window.dbClient;
 
+  // 2. Nếu chưa có thì mới tự khởi tạo client mới
   if (window.supabase && typeof window.supabase.createClient === 'function') {
     if (!window._dtSupabaseInstance && DT_SUPABASE_URL.includes('http')) {
       window._dtSupabaseInstance = window.supabase.createClient(DT_SUPABASE_URL, DT_SUPABASE_KEY);
