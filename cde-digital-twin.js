@@ -1,4 +1,3 @@
-
 // --- MODULE QUẢN LÝ TÀI SẢN DIGITAL TWIN (FA/AM) ---
 
 const DT_SUPABASE_URL = window.SUPABASE_URL || 'https://znzakqzdezxzqzfplmgv.supabase.co'; 
@@ -37,10 +36,6 @@ function injectMarkerStyles() {
   style.innerHTML = `
     #dt-marker-overlay-container {
       position: absolute !important;
-      top: 0 !important;
-      left: 0 !important;
-      width: 100% !important;
-      height: 100% !important;
       pointer-events: none !important;
       overflow: hidden !important;
       z-index: 500 !important;
@@ -55,7 +50,8 @@ function injectMarkerStyles() {
       box-shadow: 0 4px 10px rgba(0,0,0,0.3) !important;
       pointer-events: auto !important;
       cursor: pointer !important;
-      transform: translate(-50%, -100%) !important;
+      /* [Cập nhật]: Đưa trọng tâm marker về ngay giữa để đảm bảo không bị bay lơ lửng */
+      transform: translate(-50%, -50%) !important; 
       white-space: nowrap !important;
       user-select: none !important;
       display: none;
@@ -65,7 +61,7 @@ function injectMarkerStyles() {
       transition: transform 0.1s ease-out;
     }
     .dt-3d-marker:hover {
-      transform: translate(-50%, -110%) scale(1.1) !important;
+      transform: translate(-50%, -60%) scale(1.1) !important;
       z-index: 510 !important;
     }
     .dt-3d-marker.operational {
@@ -520,6 +516,16 @@ function getOrCreateMarkerContainer(canvasEl) {
     container.id = 'dt-marker-overlay-container';
     parent.appendChild(container);
   }
+
+  // [CẬP NHẬT QUAN TRỌNG]: Ép container nằm đè chính xác tuyệt đối lên Canvas
+  // Tránh trường hợp web có layout phức tạp làm khung marker bị xô lệch
+  if (canvasEl) {
+    container.style.top = (canvasEl.offsetTop || 0) + 'px';
+    container.style.left = (canvasEl.offsetLeft || 0) + 'px';
+    container.style.width = (canvasEl.clientWidth || canvasEl.offsetWidth) + 'px';
+    container.style.height = (canvasEl.clientHeight || canvasEl.offsetHeight) + 'px';
+  }
+
   return container;
 }
 
@@ -539,9 +545,12 @@ function render3DMarkers(assets) {
 
     if (entity && isValidAABB(entity.aabb)) {
       const aabb = entity.aabb;
-      const topCenterWorldPos = [
+      
+      // [CẬP NHẬT]: Dùng tâm chính xác của Bounding Box thay vì Top Center. 
+      // Do các mô hình IFC đôi khi bị xoay lật trục Y và Z, lấy tâm tuyệt đối là an toàn nhất.
+      const centerWorldPos = [
         (aabb[0] + aabb[3]) / 2, // Center X
-        aabb[4],                 // Top Y
+        (aabb[1] + aabb[4]) / 2, // Center Y
         (aabb[2] + aabb[5]) / 2  // Center Z
       ];
 
@@ -571,7 +580,7 @@ function render3DMarkers(assets) {
 
       trackedItems.push({
         element: markerDiv,
-        worldPos: topCenterWorldPos
+        worldPos: centerWorldPos
       });
     }
   });
@@ -586,8 +595,15 @@ function render3DMarkers(assets) {
     const currentCanvas = currentViewer.scene.canvas ? currentViewer.scene.canvas.canvas : null;
     if (!currentCanvas) return;
 
-    const canvasWidth = currentCanvas.clientWidth || currentCanvas.width || 800;
-    const canvasHeight = currentCanvas.clientHeight || currentCanvas.height || 600;
+    const canvasWidth = currentCanvas.clientWidth || currentCanvas.offsetWidth;
+    const canvasHeight = currentCanvas.clientHeight || currentCanvas.offsetHeight;
+
+    // Cập nhật lại size container nếu có thay đổi (vd: resize cửa sổ)
+    const container = document.getElementById('dt-marker-overlay-container');
+    if (container) {
+      container.style.width = canvasWidth + 'px';
+      container.style.height = canvasHeight + 'px';
+    }
 
     trackedItems.forEach(item => {
       try {
@@ -596,15 +612,27 @@ function render3DMarkers(assets) {
         const canvasPos = res || tempPos;
 
         if (canvasPos && !isNaN(canvasPos[0]) && !isNaN(canvasPos[1])) {
-          const x = canvasPos[0];
-          const y = canvasPos[1];
-          const isVisible = canvasPos[2] === undefined || canvasPos[2] < 1.0;
+          let x = canvasPos[0];
+          let y = canvasPos[1];
 
-          const margin = 10;
-          const isInView = (x >= margin && x <= (canvasWidth - margin) && 
-                            y >= margin && y <= (canvasHeight - margin));
+          // [CẬP NHẬT QUAN TRỌNG]: Khắc phục lỗi lệch tỷ lệ trên màn hình DPI cao (Retina, Mac, Mobile)
+          const rect = currentCanvas.getBoundingClientRect();
+          const scaleX = currentCanvas.width / rect.width;
+          const scaleY = currentCanvas.height / rect.height;
+          
+          if (scaleX > 1.1 || scaleY > 1.1) {
+             x = x / scaleX;
+             y = y / scaleY;
+          }
 
-          if (isVisible && isInView) {
+          // Kiểm tra xem thiết bị có nằm sau lưng camera không
+          const isBehindCamera = (canvasPos[2] !== undefined && canvasPos[2] < 0);
+          
+          const margin = 30; // Cho phép marker vẫn hiện khi hơi khuất mép viền
+          const isInView = !isBehindCamera && (x >= -margin && x <= (canvasWidth + margin) && 
+                                               y >= -margin && y <= (canvasHeight + margin));
+
+          if (isInView) {
             item.element.style.display = 'flex';
             item.element.style.left = `${Math.round(x)}px`;
             item.element.style.top = `${Math.round(y)}px`;
