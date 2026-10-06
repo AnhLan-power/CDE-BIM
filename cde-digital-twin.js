@@ -436,7 +436,7 @@ function toggleColorCodingMode(buttonEl) {
 }
 
 // =========================================================================
-// --- TẠO VÀ CẬP NHẬT PIN CẢNH BÁO 3D (OVERLAY TRỰC TIẾP) ---
+// --- TẠO VÀ CẬP NHẬT PIN CẢNH BÁO 3D (ĐÃ SỬA LỖI TỌA ĐỘ VÀ POINTER EVENTS) ---
 // =========================================================================
 
 function render3DMarkers(assets) {
@@ -465,12 +465,12 @@ function render3DMarkers(assets) {
     });
 
     if (entity && entity.aabb) {
-      // Tính điểm chính giữa đỉnh trên của Box 3D (Top Center Point)
-      const aabb = entity.aabb; // [xmin, ymin, zmin, xmax, ymax, zmax]
+      // ĐÚNG CHỈ SỐ XE OKIT AABB: [xmin, ymin, zmin, xmax, ymax, zmax]
+      const aabb = entity.aabb; 
       const topCenterWorldPos = [
-        (aabb[0] + aabb[3]) / 2,
-        aabb[5], // Điểm đỉnh cao nhất Y
-        (aabb[2] + aabb[5]) / 2
+        (aabb[0] + aabb[3]) / 2, // X center
+        aabb[4],                 // Y max (Đỉnh trên)
+        (aabb[2] + aabb[5]) / 2  // Z center
       ];
 
       const isFault = asset.status === 'FAULT';
@@ -510,18 +510,26 @@ function render3DMarkers(assets) {
       // Chuyển tọa độ Không gian 3D -> Tọa độ Màn hình 2D Pixel
       const canvasPos = camera.projectWorldPosToCanvas(item.worldPos);
       
-      if (canvasPos) {
+      if (canvasPos && !isNaN(canvasPos[0]) && !isNaN(canvasPos[1])) {
         const screenX = canvasRect.left + canvasPos[0];
         const screenY = canvasRect.top + canvasPos[1];
 
-        // Ẩn/hiện dựa theo vị trí có nằm trong màn hình không
-        if (canvasPos[2] < 1.0 && canvasPos[0] >= 0 && canvasPos[0] <= canvasRect.width && canvasPos[1] >= 0 && canvasPos[1] <= canvasRect.height) {
+        // Kiểm tra xem điểm 3D có nằm phía trước Camera không (canvasPos[2] / z-depth < 1.0)
+        const isInsideCanvas = (
+          canvasPos[2] < 1.0 && 
+          canvasPos[0] >= 0 && canvasPos[0] <= canvasRect.width && 
+          canvasPos[1] >= 0 && canvasPos[1] <= canvasRect.height
+        );
+
+        if (isInsideCanvas) {
           item.element.style.display = 'flex';
           item.element.style.left = `${screenX}px`;
           item.element.style.top = `${screenY}px`;
         } else {
           item.element.style.display = 'none';
         }
+      } else {
+        item.element.style.display = 'none';
       }
     });
   }
