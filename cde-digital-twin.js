@@ -21,34 +21,24 @@ function injectMarkerStyles() {
   const style = document.createElement('style');
   style.id = 'dt-marker-styles';
   style.innerHTML = `
-    #dt-marker-container {
-      position: fixed !important;
-      top: 0 !important;
-      left: 0 !important;
-      width: 100vw !important;
-      height: 100vh !important;
-      pointer-events: none !important; /* Không chặn sự kiện quay model */
-      z-index: 998 !important;
-      overflow: hidden !important;
-    }
     .dt-3d-marker {
       position: absolute !important;
-      padding: 6px 12px !important;
-      border-radius: 16px !important;
+      padding: 5px 10px !important;
+      border-radius: 12px !important;
       font-size: 11px !important;
       font-weight: bold !important;
       color: #ffffff !important;
-      box-shadow: 0 4px 10px rgba(0,0,0,0.4) !important;
-      pointer-events: auto !important; /* Chỉ nhận click khi chạm đúng Pin */
+      box-shadow: 0 4px 10px rgba(0,0,0,0.3) !important;
+      pointer-events: auto !important;
       cursor: pointer !important;
       transform: translate(-50%, -100%) !important;
       white-space: nowrap !important;
       user-select: none !important;
       display: flex !important;
       align-items: center !important;
-      gap: 6px !important;
-      z-index: 999 !important;
-      transition: transform 0.1s ease-out;
+      gap: 5px !important;
+      z-index: 100 !important;
+      will-change: left, top;
     }
     .dt-3d-marker:hover {
       transform: translate(-50%, -110%) scale(1.08) !important;
@@ -68,7 +58,7 @@ function injectMarkerStyles() {
     }
     @keyframes dt-pulse {
       0% { box-shadow: 0 0 0 0 rgba(220, 53, 69, 0.8); }
-      70% { box-shadow: 0 0 0 10px rgba(220, 53, 69, 0); }
+      70% { box-shadow: 0 0 0 8px rgba(220, 53, 69, 0); }
       100% { box-shadow: 0 0 0 0 rgba(220, 53, 69, 0); }
     }
   `;
@@ -330,6 +320,26 @@ function closeAssetPanel() {
 // --- TÔ MÀU MÔ HÌNH 3D & HIỆN MARKER PIN ---
 // =========================================================================
 
+function findEntityByAsset(viewer, asset) {
+  if (!viewer || !viewer.scene || !viewer.scene.objects) return null;
+  const objects = viewer.scene.objects;
+  const targetGId = String(asset.global_id || '').trim();
+  const targetEId = String(asset.express_id || '').trim();
+
+  // 1. Tìm theo ID trùng khớp
+  if (targetGId && objects[targetGId]) return objects[targetGId];
+  if (targetEId && objects[targetEId]) return objects[targetEId];
+
+  // 2. Tìm chứa chuỗi ID trong danh sách
+  const allObjects = Object.values(objects);
+  return allObjects.find(obj => {
+    const objId = String(obj.id || '');
+    if (targetGId && objId.includes(targetGId)) return true;
+    if (targetEId && (objId.endsWith('#' + targetEId) || objId === targetEId)) return true;
+    return false;
+  }) || null;
+}
+
 async function applyAssetColorCoding() {
   const client = getDigitalTwinSupabaseClient();
   if (!client) {
@@ -353,21 +363,14 @@ async function applyAssetColorCoding() {
       return;
     }
 
-    const allObjects = Object.values(viewer.scene.objects);
-
     assets.forEach(asset => {
       const rgbColor = STATUS_COLORS[asset.status] || STATUS_COLORS.OPERATIONAL;
-      const targetGId = String(asset.global_id || '').trim();
+      const entity = findEntityByAsset(viewer, asset);
 
-      const matchedEntity = allObjects.find(obj => {
-        const objId = String(obj.id || '');
-        return targetGId && objId.includes(targetGId);
-      });
-
-      if (matchedEntity) {
-        matchedEntity.colorize = rgbColor;
-        matchedEntity.colorized = true;
-        matchedEntity.opacity = 1.0;
+      if (entity) {
+        entity.colorize = rgbColor;
+        entity.colorized = true;
+        entity.opacity = 1.0;
       }
     });
 
@@ -376,7 +379,7 @@ async function applyAssetColorCoding() {
       viewer.scene.render();
     }
 
-    // Hiển thị Pin Cảnh báo 3D
+    // Hiển thị Pin Cảnh báo 3D chuẩn xác
     render3DMarkers(assets);
 
     isColorCodingActive = true;
@@ -428,104 +431,87 @@ function toggleColorCodingMode(buttonEl) {
 // --- THỂ HIỆN VÀ CẬP NHẬT TỌA ĐỘ MARKER PIN 3D ---
 // =========================================================================
 
-function getEntityAABB(viewer, entity) {
-  if (entity.aabb && !isNaN(entity.aabb[0])) return entity.aabb;
-  if (typeof viewer.scene.getAABB === 'function') {
-    const box = viewer.scene.getAABB([entity.id]);
-    if (box && !isNaN(box[0])) return box;
-  }
-  return null;
-}
-
 function render3DMarkers(assets) {
   clear3DMarkers();
 
   const viewer = window.xeokitViewer || window.viewer;
-  if (!viewer || !viewer.scene) return;
+  if (!viewer || !viewer.scene || !viewer.scene.canvas) return;
 
-  // Tạo Container Marker trực tiếp trong Body để không chặn chuột Canvas
-  let container = document.getElementById('dt-marker-container');
-  if (!container) {
-    container = document.createElement('div');
-    container.id = 'dt-marker-container';
-    document.body.appendChild(container);
+  const canvasEl = viewer.scene.canvas.canvas;
+  const parentContainer = canvasEl.parentElement || document.body;
+
+  // Đảm bảo thẻ cha có position relative để Pin tọa độ absolute chuẩn xác
+  if (computedStyle(parentContainer).position === 'static') {
+    parentContainer.style.position = 'relative';
   }
 
-  const allObjects = Object.values(viewer.scene.objects);
   const trackedItems = [];
 
   assets.forEach(asset => {
-    const targetGId = String(asset.global_id || '').trim();
+    const entity = findEntityByAsset(viewer, asset);
 
-    const entity = allObjects.find(obj => {
-      const objId = String(obj.id || '');
-      return targetGId && objId.includes(targetGId);
-    });
+    if (entity && entity.aabb) {
+      const aabb = entity.aabb;
+      const topCenterWorldPos = [
+        (aabb[0] + aabb[3]) / 2, // Center X
+        aabb[4],                 // Top Y
+        (aabb[2] + aabb[5]) / 2  // Center Z
+      ];
 
-    if (entity) {
-      const aabb = getEntityAABB(viewer, entity);
-      if (aabb) {
-        const topCenterWorldPos = [
-          (aabb[0] + aabb[3]) / 2, // Mid X
-          aabb[4],                 // Top Y
-          (aabb[2] + aabb[5]) / 2  // Mid Z
-        ];
+      let markerIcon = '🟢';
+      let markerClass = 'operational';
 
-        let markerIcon = '🟢';
-        let markerClass = 'operational';
-
-        if (asset.status === 'FAULT') {
-          markerIcon = '🛑';
-          markerClass = 'fault';
-        } else if (asset.status === 'MAINTENANCE') {
-          markerIcon = '⚠️';
-          markerClass = 'maintenance';
-        }
-
-        const markerDiv = document.createElement('div');
-        markerDiv.className = `dt-3d-marker ${markerClass}`;
-        markerDiv.style.display = 'none';
-        markerDiv.innerHTML = `<span>${markerIcon}</span><span>${asset.asset_code || asset.asset_name}</span>`;
-
-        markerDiv.onclick = (e) => {
-          e.stopPropagation();
-          openDigitalTwinPanel(asset.express_id, asset.global_id, asset.asset_name);
-        };
-
-        container.appendChild(markerDiv);
-        activeMarkerElements.push(markerDiv);
-
-        trackedItems.push({
-          element: markerDiv,
-          worldPos: topCenterWorldPos
-        });
+      if (asset.status === 'FAULT') {
+        markerIcon = '🛑';
+        markerClass = 'fault';
+      } else if (asset.status === 'MAINTENANCE') {
+        markerIcon = '⚠️';
+        markerClass = 'maintenance';
       }
+
+      const markerDiv = document.createElement('div');
+      markerDiv.className = `dt-3d-marker ${markerClass}`;
+      markerDiv.style.display = 'none';
+      markerDiv.innerHTML = `<span>${markerIcon}</span><span>${asset.asset_code || asset.asset_name}</span>`;
+
+      markerDiv.onclick = (e) => {
+        e.stopPropagation();
+        openDigitalTwinPanel(asset.express_id, asset.global_id, asset.asset_name);
+      };
+
+      parentContainer.appendChild(markerDiv);
+      activeMarkerElements.push(markerDiv);
+
+      trackedItems.push({
+        element: markerDiv,
+        worldPos: topCenterWorldPos
+      });
     }
   });
 
-  // Cập nhật vị trí Marker theo chuyển động Camera
+  function computedStyle(el) {
+    return window.getComputedStyle ? window.getComputedStyle(el) : el.currentStyle;
+  }
+
+  // Cập nhật tọa độ Marker theo thời gian thực khi xoay/zoom camera
   function updateMarkerPositions() {
     if (!isColorCodingActive || trackedItems.length === 0) return;
 
     const camera = viewer.scene.camera;
-    const canvas = viewer.scene.canvas.canvas;
-    if (!canvas) return;
-
-    const rect = canvas.getBoundingClientRect();
 
     trackedItems.forEach(item => {
+      // API của Xeokit chiếu trực tiếp Tọa độ 3D -> Tọa độ Pixel trên Canvas
       const canvasPos = camera.projectWorldPosToCanvas(item.worldPos);
 
       if (canvasPos && !isNaN(canvasPos[0]) && !isNaN(canvasPos[1])) {
-        // Tọa độ thực tế theo màn hình
-        const screenX = rect.left + canvasPos[0];
-        const screenY = rect.top + canvasPos[1];
-        const isVisible = canvasPos[2] < 1.0;
+        const x = canvasPos[0];
+        const y = canvasPos[1];
+        const isVisible = canvasPos[2] < 1.0; // Điểm nằm phía trước Camera
 
-        if (isVisible && screenX >= rect.left && screenX <= rect.right && screenY >= rect.top && screenY <= rect.bottom) {
+        if (isVisible && x >= 0 && x <= canvasEl.clientWidth && y >= 0 && y <= canvasEl.clientHeight) {
           item.element.style.display = 'flex';
-          item.element.style.left = `${screenX}px`;
-          item.element.style.top = `${screenY}px`;
+          item.element.style.left = `${x}px`;
+          item.element.style.top = `${y}px`;
         } else {
           item.element.style.display = 'none';
         }
@@ -546,10 +532,9 @@ function clear3DMarkers() {
     markerTickListener = null;
   }
 
-  const container = document.getElementById('dt-marker-container');
-  if (container) {
-    container.innerHTML = '';
-  }
+  activeMarkerElements.forEach(el => {
+    if (el && el.parentElement) el.parentElement.removeChild(el);
+  });
   activeMarkerElements = [];
 }
 
