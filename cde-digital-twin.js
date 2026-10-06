@@ -13,6 +13,54 @@ const STATUS_COLORS = {
 };
 
 let isColorCodingActive = false; // Biến trạng thái tô màu
+let activeMarkers = [];          // Danh sách lưu các Marker 3D đang hiển thị
+
+/**
+ * Tự động nhúng CSS cho Pin Cảnh báo 3D Marker vào head
+ */
+function injectMarkerStyles() {
+  if (document.getElementById('dt-marker-styles')) return;
+  const style = document.createElement('style');
+  style.id = 'dt-marker-styles';
+  style.innerHTML = `
+    .dt-3d-marker {
+      position: absolute;
+      padding: 4px 8px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: bold;
+      color: white;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+      pointer-events: auto;
+      cursor: pointer;
+      z-index: 1000;
+      transition: transform 0.2s ease;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      white-space: nowrap;
+      user-select: none;
+    }
+    .dt-3d-marker:hover {
+      transform: scale(1.15);
+    }
+    .dt-3d-marker.maintenance {
+      background: #f39c12;
+      border: 1.5px solid #fff;
+    }
+    .dt-3d-marker.fault {
+      background: #e74c3c;
+      border: 1.5px solid #fff;
+      animation: dt-pulse 1.5s infinite;
+    }
+    @keyframes dt-pulse {
+      0% { box-shadow: 0 0 0 0 rgba(231, 76, 60, 0.7); }
+      70% { box-shadow: 0 0 0 8px rgba(231, 76, 60, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(231, 76, 60, 0); }
+    }
+  `;
+  document.head.appendChild(style);
+}
 
 function getDigitalTwinSupabaseClient() {
   if (window.sb && typeof window.sb.from === 'function') return window.sb;
@@ -33,6 +81,7 @@ function getDigitalTwinSupabaseClient() {
  * Nhúng Side Panel vào DOM
  */
 function injectDigitalTwinPanel() {
+  injectMarkerStyles();
   if (document.getElementById('dt-asset-panel')) return;
 
   const panelHtml = `
@@ -44,11 +93,15 @@ function injectDigitalTwinPanel() {
         <button type="button" onclick="closeAssetPanel()" style="border:none; background:none; cursor:pointer; font-size:18px; font-weight:bold;">✕</button>
       </div>
 
-      <!-- NÚT BẬT/TẮT TÔ MÀU TRẠNG THÁI -->
-      <div style="margin-bottom:15px;">
+      <!-- NÚT BẬT/TẮT TÔ MÀU TRẠNG THÁI & DASHBOARD THỐNG KÊ -->
+      <div style="margin-bottom:15px; display:flex; gap:8px;">
         <button type="button" id="dt-btn-toggle-color" onclick="toggleColorCodingMode(this)" 
-                style="width:100%; padding:8px 12px; background:#f0f4f9; color:#1a73e8; border:1px solid #b6d4fe; border-radius:6px; font-weight:bold; cursor:pointer; font-size:12px; display:flex; align-items:center; justify-content:center; gap:6px; transition:0.2s;">
-          🎨 Xem Trạng Thái Vận Hành 3D
+                style="flex:1; padding:8px 10px; background:#f0f4f9; color:#1a73e8; border:1px solid #b6d4fe; border-radius:6px; font-weight:bold; cursor:pointer; font-size:11px; display:flex; align-items:center; justify-content:center; gap:4px; transition:0.2s;">
+          🎨 Xem Trạng Thái 3D
+        </button>
+        <button type="button" onclick="openDigitalTwinDashboard()" 
+                style="flex:1; padding:8px 10px; background:#e8f0fe; color:#1a73e8; border:1px solid #b6d4fe; border-radius:6px; font-weight:bold; cursor:pointer; font-size:11px; display:flex; align-items:center; justify-content:center; gap:4px;">
+          📊 Dashboard Thống Kê
         </button>
       </div>
 
@@ -269,7 +322,7 @@ function closeAssetPanel() {
 }
 
 // =========================================================================
-// --- TÔ MÀU MÔ HÌNH 3D THEO TRẠNG THÁI VẬN HÀNH (THÔNG MINH CHUẨN XEOKIT) ---
+// --- TÔ MÀU MÔ HÌNH 3D & PIN CẢNH BÁO (THÔNG MINH CHUẨN XEOKIT) ---
 // =========================================================================
 
 async function applyAssetColorCoding() {
@@ -282,7 +335,7 @@ async function applyAssetColorCoding() {
   try {
     const { data: assets, error } = await client
       .from('project_assets')
-      .select('express_id, global_id, status');
+      .select('express_id, global_id, status, asset_code, asset_name');
 
     if (error || !assets || assets.length === 0) {
       console.warn('Không lấy được dữ liệu tài sản từ Supabase:', error);
@@ -326,6 +379,9 @@ async function applyAssetColorCoding() {
       viewer.scene.render();
     }
 
+    // Hiển thị Pin Cảnh báo 3D trên các thiết bị lỗi/bảo trì
+    render3DMarkers(assets);
+
     isColorCodingActive = true;
   } catch (err) {
     console.error('Lỗi tô màu 3D:', err);
@@ -343,6 +399,10 @@ function resetModelColors() {
       viewer.scene.render();
     }
   }
+
+  // Xóa toàn bộ Pin Cảnh Báo 3D
+  clear3DMarkers();
+
   isColorCodingActive = false;
 }
 
@@ -359,13 +419,227 @@ function toggleColorCodingMode(buttonEl) {
   } else {
     resetModelColors();
     if (btn) {
-      btn.innerText = '🎨 Xem Trạng Thái Vận Hành 3D';
+      btn.innerText = '🎨 Xem Trạng Thái 3D';
       btn.style.backgroundColor = '#f0f4f9';
       btn.style.color = '#1a73e8';
       btn.style.borderColor = '#b6d4fe';
     }
   }
 }
+
+// --- LOGIC HIỂN THỊ PIN CẢNH BÁO 3D (3D MARKERS) ---
+
+function render3DMarkers(assets) {
+  clear3DMarkers();
+
+  const viewer = window.xeokitViewer || window.viewer;
+  if (!viewer || !viewer.scene) return;
+
+  const allObjects = Object.values(viewer.scene.objects);
+
+  assets.forEach(asset => {
+    if (asset.status === 'OPERATIONAL') return;
+
+    const targetGId = String(asset.global_id || '').trim();
+    const targetEId = String(asset.express_id || '').trim();
+
+    const entity = allObjects.find(obj => {
+      const objId = String(obj.id || '');
+      return (
+        objId === targetGId || 
+        objId.endsWith('#' + targetGId) || 
+        objId.includes(targetGId) || 
+        (targetEId && (objId === targetEId || objId.endsWith('#' + targetEId)))
+      );
+    });
+
+    if (entity) {
+      if (!window._dtAnnotationsPlugin && xeokit && xeokit.AnnotationsPlugin) {
+        window._dtAnnotationsPlugin = new xeokit.AnnotationsPlugin(viewer);
+      }
+
+      const plugin = window._dtAnnotationsPlugin;
+      if (!plugin) return;
+
+      const isFault = asset.status === 'FAULT';
+      const markerIcon = isFault ? '🛑' : '⚠️';
+      const markerClass = isFault ? 'fault' : 'maintenance';
+
+      const annotation = plugin.createAnnotation({
+        id: 'marker-' + (asset.global_id || asset.express_id),
+        entity: entity,
+        occluded: true,
+        glyph: markerIcon,
+        title: asset.asset_name || 'Cảnh báo',
+        description: `Mã: ${asset.asset_code || ''}`,
+        getHTML: function () {
+          return `
+            <div class="dt-3d-marker ${markerClass}" onclick="openDigitalTwinPanel('${asset.express_id}', '${asset.global_id}', '${asset.asset_name}')">
+              <span>${markerIcon}</span>
+              <span>${asset.asset_code || asset.asset_name}</span>
+            </div>
+          `;
+        }
+      });
+
+      activeMarkers.push(annotation);
+    }
+  });
+}
+
+function clear3DMarkers() {
+  if (window._dtAnnotationsPlugin) {
+    activeMarkers.forEach(anno => {
+      if (typeof anno.destroy === 'function') anno.destroy();
+    });
+  }
+  activeMarkers = [];
+}
+
+// =========================================================================
+// --- DASHBOARD THỐNG KÊ & BÁO CÁO VẬN HÀNH ---
+// =========================================================================
+
+function injectDigitalTwinDashboardModal() {
+  if (document.getElementById('dt-dashboard-modal')) return;
+
+  const modalHtml = `
+    <div id="dt-dashboard-modal" style="display:none; position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(0,0,0,0.5); z-index:10000; align-items:center; justify-content:center; font-family:sans-serif;">
+      <div style="background:#fff; width:85%; max-width:900px; max-height:90vh; border-radius:12px; overflow:hidden; display:flex; flex-direction:column; box-shadow:0 10px 30px rgba(0,0,0,0.3);">
+        
+        <!-- Header -->
+        <div style="padding:15px 20px; background:#1a73e8; color:#fff; display:flex; justify-content:space-between; align-items:center;">
+          <h2 style="margin:0; font-size:16px; display:flex; align-items:center; gap:8px;">📊 Báo Cáo & Thống Kê Vận Hành Tài Sản (Digital Twin)</h2>
+          <button type="button" onclick="closeDigitalTwinDashboard()" style="background:none; border:none; color:#fff; font-size:20px; cursor:pointer; font-weight:bold;">✕</button>
+        </div>
+
+        <!-- Body -->
+        <div style="padding:20px; overflow-y:auto; flex:1; background:#f8f9fa;">
+          
+          <!-- Thống kê Card tổng quan -->
+          <div style="display:grid; grid-template-columns: repeat(4, 1fr); gap:15px; margin-bottom:20px;">
+            <div style="background:#fff; padding:15px; border-radius:8px; border-left:4px solid #1a73e8; box-shadow:0 2px 4px rgba(0,0,0,0.05);">
+              <div style="font-size:12px; color:#666; font-weight:bold;">TỔNG THIẾT BỊ</div>
+              <div id="dt-dash-total" style="font-size:24px; font-weight:bold; color:#1a73e8; margin-top:5px;">0</div>
+            </div>
+            <div style="background:#fff; padding:15px; border-radius:8px; border-left:4px solid #28a745; box-shadow:0 2px 4px rgba(0,0,0,0.05);">
+              <div style="font-size:12px; color:#666; font-weight:bold;">🟢 HOẠT ĐỘNG BÌNH THƯỜNG</div>
+              <div id="dt-dash-op" style="font-size:24px; font-weight:bold; color:#28a745; margin-top:5px;">0</div>
+            </div>
+            <div style="background:#fff; padding:15px; border-radius:8px; border-left:4px solid #f39c12; box-shadow:0 2px 4px rgba(0,0,0,0.05);">
+              <div style="font-size:12px; color:#666; font-weight:bold;">🟡 ĐANG BẢO TRÌ / KIỂM TRA</div>
+              <div id="dt-dash-maint" style="font-size:24px; font-weight:bold; color:#f39c12; margin-top:5px;">0</div>
+            </div>
+            <div style="background:#fff; padding:15px; border-radius:8px; border-left:4px solid #dc3545; box-shadow:0 2px 4px rgba(0,0,0,0.05);">
+              <div style="font-size:12px; color:#666; font-weight:bold;">🔴 SỰ CỐ / HỎNG HÓC</div>
+              <div id="dt-dash-fault" style="font-size:24px; font-weight:bold; color:#dc3545; margin-top:5px;">0</div>
+            </div>
+          </div>
+
+          <!-- Bảng thiết bị cần chú ý -->
+          <div style="background:#fff; padding:15px; border-radius:8px; box-shadow:0 2px 4px rgba(0,0,0,0.05);">
+            <h3 style="margin-top:0; font-size:14px; color:#333; border-bottom:1px solid #eee; padding-bottom:10px;">⚠️ Danh Sách Thiết Bị Cần Bảo Trì & Sự Cố</h3>
+            <table style="width:100%; border-collapse:collapse; font-size:12px; text-align:left;">
+              <thead>
+                <tr style="background:#f1f3f4; color:#5f6368;">
+                  <th style="padding:8px; border-bottom:1px solid #ddd;">Mã Tài Sản</th>
+                  <th style="padding:8px; border-bottom:1px solid #ddd;">Tên Thiết Bị</th>
+                  <th style="padding:8px; border-bottom:1px solid #ddd;">Trạng Thái</th>
+                  <th style="padding:8px; border-bottom:1px solid #ddd;">Bảo Trì Gần Nhất</th>
+                  <th style="padding:8px; border-bottom:1px solid #ddd;">Lịch Bảo Trì Kế</th>
+                  <th style="padding:8px; border-bottom:1px solid #ddd; text-align:center;">Thao Tác</th>
+                </tr>
+              </thead>
+              <tbody id="dt-dash-table-body">
+                <tr><td colspan="6" style="text-align:center; padding:15px; color:#777;">Đang tải dữ liệu...</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.insertAdjacentHTML('beforeend', modalHtml);
+}
+
+async function openDigitalTwinDashboard() {
+  injectDigitalTwinDashboardModal();
+  const modal = document.getElementById('dt-dashboard-modal');
+  modal.style.display = 'flex';
+
+  const client = getDigitalTwinSupabaseClient();
+  if (!client) {
+    alert('Chưa kết nối CSDL Supabase!');
+    return;
+  }
+
+  try {
+    const { data: assets, error } = await client
+      .from('project_assets')
+      .select('*');
+
+    if (error) throw error;
+
+    let total = assets ? assets.length : 0;
+    let op = 0, maint = 0, fault = 0;
+    let alertRowsHtml = '';
+
+    if (assets) {
+      assets.forEach(asset => {
+        if (asset.status === 'OPERATIONAL') op++;
+        else if (asset.status === 'MAINTENANCE') maint++;
+        else if (asset.status === 'FAULT') fault++;
+
+        if (asset.status !== 'OPERATIONAL') {
+          const statusBadge = asset.status === 'FAULT' 
+            ? '<span style="color:#dc3545; font-weight:bold;">🔴 Sự cố</span>' 
+            : '<span style="color:#f39c12; font-weight:bold;">🟡 Bảo trì</span>';
+
+          alertRowsHtml += `
+            <tr style="border-bottom:1px solid #eee;">
+              <td style="padding:8px; font-weight:bold;">${asset.asset_code || '-'}</td>
+              <td style="padding:8px;">${asset.asset_name || '-'}</td>
+              <td style="padding:8px;">${statusBadge}</td>
+              <td style="padding:8px;">${asset.last_maintenance_date || '-'}</td>
+              <td style="padding:8px; color:#1a73e8; font-weight:bold;">${asset.next_maintenance_date || '-'}</td>
+              <td style="padding:8px; text-align:center;">
+                <button type="button" onclick="closeDigitalTwinDashboard(); openDigitalTwinPanel('${asset.express_id}', '${asset.global_id}', '${asset.asset_name}');" 
+                        style="padding:4px 8px; background:#1a73e8; color:#fff; border:none; border-radius:4px; font-size:11px; cursor:pointer;">
+                  🔎 Xem Chi Tiết
+                </button>
+              </td>
+            </tr>
+          `;
+        }
+      });
+    }
+
+    document.getElementById('dt-dash-total').innerText = total;
+    document.getElementById('dt-dash-op').innerText = op;
+    document.getElementById('dt-dash-maint').innerText = maint;
+    document.getElementById('dt-dash-fault').innerText = fault;
+
+    const tbody = document.getElementById('dt-dash-table-body');
+    if (alertRowsHtml) {
+      tbody.innerHTML = alertRowsHtml;
+    } else {
+      tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:15px; color:#28a745; font-weight:bold;">🎉 Tất cả thiết bị đều đang hoạt động bình thường!</td></tr>';
+    }
+
+  } catch (err) {
+    console.error('Lỗi nạp Dashboard:', err);
+  }
+}
+
+function closeDigitalTwinDashboard() {
+  const modal = document.getElementById('dt-dashboard-modal');
+  if (modal) modal.style.display = 'none';
+}
+
+// =========================================================================
+// --- LƯU HỒ SƠ TÀI SẢN VÀO SUPABASE ---
+// =========================================================================
 
 async function saveAssetToDatabase() {
   const globalId = document.getElementById('dt_global_id').value;
