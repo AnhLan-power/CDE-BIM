@@ -12,7 +12,7 @@ const STATUS_COLORS = {
   FAULT:       [0.9, 0.1, 0.1]  // 🔴 Đỏ
 };
 
-let isColorCodingActive = false; // Biến trạng thái tô màu[cite: 21]
+let isColorCodingActive = false; // Biến trạng thái tô màu
 
 function getDigitalTwinSupabaseClient() {
   if (window.sb && typeof window.sb.from === 'function') return window.sb;
@@ -152,14 +152,13 @@ function makePanelDraggable() {
 }
 
 /**
- * Mở / Tắt Panel khi click nút Digital Twin ở Menu Báo Cáo[cite: 20]
+ * Mở / Tắt Panel từ nút Digital Twin trên Menu Báo Cáo
  */
 function toggleDigitalTwinPanelFromMenu() {
   injectDigitalTwinPanel();
   const panel = document.getElementById('dt-asset-panel');
 
   if (panel.style.display === 'none' || panel.style.display === '') {
-    // 1. Lấy thông tin thiết bị đang chọn trên Viewer nếu có[cite: 21]
     const entity = window.selectedEntity;
     const metaObject = window.selectedMetaObject;
 
@@ -176,7 +175,6 @@ function toggleDigitalTwinPanelFromMenu() {
       globalID = entity.globalId;
     }
 
-    // 2. Mở panel và nạp dữ liệu thiết bị[cite: 22]
     openDigitalTwinPanel(expressID, globalID, assetName);
   } else {
     panel.style.display = 'none';
@@ -191,7 +189,6 @@ async function openDigitalTwinPanel(expressID, globalID, assetName = '') {
   document.getElementById('dt-asset-form').reset();
   document.getElementById('dt_doc_list').innerHTML = '';
 
-  // Hàm quét ID Cấu Kiện từ bảng thuộc tính bên phải[cite: 22]
   function getIfcGlobalIdFromDOM() {
     const elements = Array.from(document.querySelectorAll('tr, div, td, span'));
     for (const el of elements) {
@@ -224,7 +221,6 @@ async function openDigitalTwinPanel(expressID, globalID, assetName = '') {
 
   applyValuesToForm(finalGlobalID, expressID, assetName);
 
-  // Đọc dự phòng lại sau 150ms phòng trường hợp bảng thuộc tính vừa mới render[cite: 22]
   setTimeout(() => {
     const delayedId = getIfcGlobalIdFromDOM();
     if (delayedId) applyValuesToForm(delayedId, expressID, assetName);
