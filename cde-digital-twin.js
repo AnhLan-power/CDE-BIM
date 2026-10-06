@@ -3,71 +3,68 @@
 const DT_SUPABASE_URL = window.SUPABASE_URL || 'https://znzakqzdezxzqzfplmgv.supabase.co'; 
 const DT_SUPABASE_KEY = window.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInRefiI6InpuemFrcXpkZXp4enF6ZnBsbWd2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc4MTQyNzAsImV4cCI6MjEwMzM5MDI3MH0.aV5YaOLxTySiB26ror4CRzJvQsjANNI1DwbtbxcNe4A';
 
-/**
- * Bảng màu RGB xeokit (Dải từ 0.0 đến 1.0)
- */
 const STATUS_COLORS = {
   OPERATIONAL: [0.1, 0.8, 0.3], // 🟢 Xanh lá
   MAINTENANCE: [1.0, 0.75, 0.0], // 🟡 Vàng đậm
   FAULT:       [0.9, 0.1, 0.1]  // 🔴 Đỏ
 };
 
-let isColorCodingActive = false; // Biến trạng thái tô màu
-let activeMarkerElements = [];   // Lưu danh sách các phần tử Marker HTML
-let markerTickListener = null;   // Bỏ theo dõi render loop khi tắt
+let isColorCodingActive = false; 
+let activeMarkerElements = [];   
+let markerTickListener = null;   
 
 /**
- * Tự động nhúng CSS cho Pin Cảnh báo 3D Marker (GIẢI PHÓNG TOÀN BỘ MỚ CHUỘT LÊN CANVAS)
+ * Nhúng CSS cho Pin Cảnh báo 3D (ĐẢM BẢO KHÔNG BẮT SỰ KIỆN CHUỘT LÊN CONTAINER)
  */
 function injectMarkerStyles() {
   if (document.getElementById('dt-marker-styles')) return;
   const style = document.createElement('style');
   style.id = 'dt-marker-styles';
   style.innerHTML = `
-    .dt-3d-marker-container {
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      pointer-events: none !important;
-      z-index: 998;
-      overflow: hidden;
+    #dt-marker-container {
+      position: absolute !important;
+      top: 0 !important;
+      left: 0 !important;
+      width: 100% !important;
+      height: 100% !important;
+      pointer-events: none !important; /* GIẢI PHÓNG TOÀN BỘ CHUỘT CHO CANVAS 3D */
+      z-index: 998 !important;
+      overflow: hidden !important;
     }
     .dt-3d-marker {
-      position: absolute;
-      padding: 4px 10px;
-      border-radius: 15px;
-      font-size: 11px;
-      font-weight: bold;
-      color: white;
-      box-shadow: 0 3px 8px rgba(0,0,0,0.3);
-      pointer-events: auto !important; /* Cho phép click trực tiếp vào Pin */
-      cursor: pointer;
-      transform: translate(-50%, -100%);
-      white-space: nowrap;
-      user-select: none;
-      display: flex;
-      align-items: center;
-      gap: 4px;
-      transition: transform 0.05s linear;
+      position: absolute !important;
+      padding: 5px 12px !important;
+      border-radius: 20px !important;
+      font-size: 11px !important;
+      font-weight: bold !important;
+      color: #ffffff !important;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.4) !important;
+      pointer-events: auto !important; /* Chỉ bật chuột khi click thẳng vào Pin */
+      cursor: pointer !important;
+      transform: translate(-50%, -100%) !important;
+      white-space: nowrap !important;
+      user-select: none !important;
+      display: flex !important;
+      align-items: center !important;
+      gap: 5px !important;
+      z-index: 999 !important;
     }
     .dt-3d-marker.operational {
-      background: #28a745;
-      border: 1.5px solid #fff;
+      background: #28a745 !important;
+      border: 1.5px solid #ffffff !important;
     }
     .dt-3d-marker.maintenance {
-      background: #f39c12;
-      border: 1.5px solid #fff;
+      background: #f39c12 !important;
+      border: 1.5px solid #ffffff !important;
     }
     .dt-3d-marker.fault {
-      background: #e74c3c;
-      border: 1.5px solid #fff;
-      animation: dt-pulse 1.5s infinite;
+      background: #e74c3c !important;
+      border: 1.5px solid #ffffff !important;
+      animation: dt-pulse 1.5s infinite !important;
     }
     @keyframes dt-pulse {
-      0% { box-shadow: 0 0 0 0 rgba(231, 76, 60, 0.7); }
-      70% { box-shadow: 0 0 0 8px rgba(231, 76, 60, 0); }
+      0% { box-shadow: 0 0 0 0 rgba(231, 76, 60, 0.8); }
+      70% { box-shadow: 0 0 0 10px rgba(231, 76, 60, 0); }
       100% { box-shadow: 0 0 0 0 rgba(231, 76, 60, 0); }
     }
   `;
@@ -90,7 +87,7 @@ function getDigitalTwinSupabaseClient() {
 }
 
 /**
- * Nhúng Side Panel vào DOM
+ * Nhúng Side Panel
  */
 function injectDigitalTwinPanel() {
   injectMarkerStyles();
@@ -99,13 +96,11 @@ function injectDigitalTwinPanel() {
   const panelHtml = `
     <div id="dt-asset-panel" style="display:none; position:fixed; left:20px; top:80px; width:380px; max-height:85vh; overflow-y:auto; background:#fff; border-radius:10px; box-shadow: 0 4px 20px rgba(0,0,0,0.2); z-index:9999; padding:20px; font-family:sans-serif; user-select:none;">
       
-      <!-- Header di chuyển -->
       <div id="dt-panel-header" style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #eee; padding-bottom:10px; margin-bottom:15px; cursor:move; background:#f8f9fa; margin:-20px -20px 15px -20px; padding:15px 20px; border-radius:10px 10px 0 0;">
         <h3 style="margin:0; font-size:15px; color:#1a73e8; pointer-events:none;">🏷️ Quản Lý Tài Sản (Digital Twin)</h3>
         <button type="button" onclick="closeAssetPanel()" style="border:none; background:none; cursor:pointer; font-size:18px; font-weight:bold;">✕</button>
       </div>
 
-      <!-- NÚT BẬT/TẮT TÔ MÀU TRẠNG THÁI & DASHBOARD THỐNG KÊ -->
       <div style="margin-bottom:15px; display:flex; gap:8px;">
         <button type="button" id="dt-btn-toggle-color" onclick="toggleColorCodingMode(this)" 
                 style="flex:1; padding:8px 10px; background:#f0f4f9; color:#1a73e8; border:1px solid #b6d4fe; border-radius:6px; font-weight:bold; cursor:pointer; font-size:11px; display:flex; align-items:center; justify-content:center; gap:4px; transition:0.2s;">
@@ -186,9 +181,6 @@ function injectDigitalTwinPanel() {
   makePanelDraggable();
 }
 
-/**
- * Kéo thả di chuyển Panel
- */
 function makePanelDraggable() {
   const panel = document.getElementById('dt-asset-panel');
   const header = document.getElementById('dt-panel-header');
@@ -216,9 +208,6 @@ function makePanelDraggable() {
   };
 }
 
-/**
- * Mở / Tắt Panel từ nút Digital Twin trên Menu Báo Cáo
- */
 function toggleDigitalTwinPanelFromMenu() {
   injectDigitalTwinPanel();
   const panel = document.getElementById('dt-asset-panel');
@@ -299,7 +288,7 @@ async function openDigitalTwinPanel(expressID, globalID, assetName = '') {
       const { data: existingAsset, error } = await client
         .from('project_assets')
         .select('*, asset_documents(*)')
-        .eq('global_id', searchId)
+        .filter('global_id', 'ilike', `%${searchId}%`)
         .maybeSingle();
 
       if (error) return;
@@ -371,14 +360,10 @@ async function applyAssetColorCoding() {
       const targetGId = String(asset.global_id || '').trim();
       const targetEId = String(asset.express_id || '').trim();
 
+      // KHẮC PHỤC CHÍNH: Dùng .includes() để bắt khớp 100% ID cấu kiện dài của Xeokit
       const matchedEntity = allObjects.find(obj => {
         const objId = String(obj.id || '');
-        return (
-          objId === targetGId || 
-          objId.endsWith('#' + targetGId) || 
-          objId.includes(targetGId) || 
-          (targetEId && (objId === targetEId || objId.endsWith('#' + targetEId)))
-        );
+        return targetGId && objId.includes(targetGId);
       });
 
       if (matchedEntity) {
@@ -388,13 +373,12 @@ async function applyAssetColorCoding() {
       }
     });
 
-    // Làm tươi Canvas Xeokit
     viewer.scene._needUpdate = 1;
     if (typeof viewer.scene.render === 'function') {
       viewer.scene.render();
     }
 
-    // Hiển thị Pin Cảnh báo 3D Overlay
+    // Nạp Pin Cảnh Báo
     render3DMarkers(assets);
 
     isColorCodingActive = true;
@@ -417,9 +401,7 @@ function resetModelColors() {
     }
   }
 
-  // Xóa toàn bộ Marker Cảnh Báo
   clear3DMarkers();
-
   isColorCodingActive = false;
 }
 
@@ -445,7 +427,7 @@ function toggleColorCodingMode(buttonEl) {
 }
 
 // =========================================================================
-// --- TẠO VÀ CẬP NHẬT PIN CẢNH BÁO 3D (HIỂN THỊ TẤT CẢ VÀ TỐI ƯU TƯƠNG TÁC) ---
+// --- TẠO VÀ CẬP NHẬT PIN CẢNH BÁO 3D (ĐÃ CHUẨN HÓA CONTAINER & MATCHING) ---
 // =========================================================================
 
 function render3DMarkers(assets) {
@@ -457,12 +439,11 @@ function render3DMarkers(assets) {
   const canvas = viewer.scene.canvas.canvas;
   if (!canvas || !canvas.parentNode) return;
 
-  // Tạo thẻ Container chứa Marker nằm trùng khớp hoàn toàn với Canvas
+  // Tạo Container Marker nằm chính xác trong Canvas Parent mà không cản trở chuột
   let container = document.getElementById('dt-marker-container');
   if (!container) {
     container = document.createElement('div');
     container.id = 'dt-marker-container';
-    container.className = 'dt-3d-marker-container';
     canvas.parentNode.appendChild(container);
   }
 
@@ -471,25 +452,19 @@ function render3DMarkers(assets) {
 
   assets.forEach(asset => {
     const targetGId = String(asset.global_id || '').trim();
-    const targetEId = String(asset.express_id || '').trim();
 
+    // Bắt khớp thiết bị trong danh sách 3D
     const entity = allObjects.find(obj => {
       const objId = String(obj.id || '');
-      return (
-        objId === targetGId || 
-        objId.endsWith('#' + targetGId) || 
-        objId.includes(targetGId) || 
-        (targetEId && (objId === targetEId || objId.endsWith('#' + targetEId)))
-      );
+      return targetGId && objId.includes(targetGId);
     });
 
     if (entity && entity.aabb) {
-      // Mảng AABB Xeokit: [xmin, ymin, zmin, xmax, ymax, zmax]
       const aabb = entity.aabb; 
       const topCenterWorldPos = [
-        (aabb[0] + aabb[3]) / 2, // Center X
-        aabb[4],                 // Max Y (Đỉnh thiết bị)
-        (aabb[2] + aabb[5]) / 2  // Center Z
+        (aabb[0] + aabb[3]) / 2, // Mid X
+        aabb[4],                 // Top Y
+        (aabb[2] + aabb[5]) / 2  // Mid Z
       ];
 
       let markerIcon = '🟢';
@@ -518,8 +493,7 @@ function render3DMarkers(assets) {
 
       trackedItems.push({
         element: markerDiv,
-        worldPos: topCenterWorldPos,
-        entity: entity
+        worldPos: topCenterWorldPos
       });
     }
   });
@@ -529,7 +503,6 @@ function render3DMarkers(assets) {
     if (!isColorCodingActive || trackedItems.length === 0) return;
 
     const camera = viewer.scene.camera;
-    const canvasRect = canvas.getBoundingClientRect();
 
     trackedItems.forEach(item => {
       const canvasPos = camera.projectWorldPosToCanvas(item.worldPos);
@@ -538,12 +511,8 @@ function render3DMarkers(assets) {
         const x = canvasPos[0];
         const y = canvasPos[1];
 
-        // Kiểm tra xem vị trí có nằm trong vùng hiển thị Canvas không
-        const isVisible = (
-          canvasPos[2] < 1.0 && 
-          x >= 0 && x <= canvasRect.width && 
-          y >= 0 && y <= canvasRect.height
-        );
+        // Kiểm tra xem vị trí có nằm phía trước Camera hay không
+        const isVisible = canvasPos[2] < 1.0;
 
         if (isVisible) {
           item.element.style.display = 'flex';
@@ -587,16 +556,13 @@ function injectDigitalTwinDashboardModal() {
     <div id="dt-dashboard-modal" style="display:none; position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(0,0,0,0.5); z-index:10000; align-items:center; justify-content:center; font-family:sans-serif;">
       <div style="background:#fff; width:85%; max-width:900px; max-height:90vh; border-radius:12px; overflow:hidden; display:flex; flex-direction:column; box-shadow:0 10px 30px rgba(0,0,0,0.3);">
         
-        <!-- Header -->
         <div style="padding:15px 20px; background:#1a73e8; color:#fff; display:flex; justify-content:space-between; align-items:center;">
           <h2 style="margin:0; font-size:16px; display:flex; align-items:center; gap:8px;">📊 Báo Cáo & Thống Kê Vận Hành Tài Sản (Digital Twin)</h2>
           <button type="button" onclick="closeDigitalTwinDashboard()" style="background:none; border:none; color:#fff; font-size:20px; cursor:pointer; font-weight:bold;">✕</button>
         </div>
 
-        <!-- Body -->
         <div style="padding:20px; overflow-y:auto; flex:1; background:#f8f9fa;">
           
-          <!-- Thống kê Card tổng quan -->
           <div style="display:grid; grid-template-columns: repeat(4, 1fr); gap:15px; margin-bottom:20px;">
             <div style="background:#fff; padding:15px; border-radius:8px; border-left:4px solid #1a73e8; box-shadow:0 2px 4px rgba(0,0,0,0.05);">
               <div style="font-size:12px; color:#666; font-weight:bold;">TỔNG THIẾT BỊ</div>
@@ -616,7 +582,6 @@ function injectDigitalTwinDashboardModal() {
             </div>
           </div>
 
-          <!-- Bảng thiết bị cần chú ý -->
           <div style="background:#fff; padding:15px; border-radius:8px; box-shadow:0 2px 4px rgba(0,0,0,0.05);">
             <h3 style="margin-top:0; font-size:14px; color:#333; border-bottom:1px solid #eee; padding-bottom:10px;">⚠️ Danh Sách Thiết Bị Cần Bảo Trì & Sự Cố</h3>
             <table style="width:100%; border-collapse:collapse; font-size:12px; text-align:left;">
