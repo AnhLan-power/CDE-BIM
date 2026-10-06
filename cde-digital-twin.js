@@ -4,15 +4,83 @@ const DT_SUPABASE_URL = window.SUPABASE_URL || 'https://znzakqzdezxzqzfplmgv.sup
 const DT_SUPABASE_KEY = window.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInRefiI6InpuemFrcXpkZXp4enF6ZnBsbWd2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc4MTQyNzAsImV4cCI6MjEwMzM5MDI3MH0.aV5YaOLxTySiB26ror4CRzJvQsjANNI1DwbtbxcNe4A';
 
 /**
- * Bảng màu trạng thái vận hành
+ * Bảng màu RGB (Giá trị từ 0.0 đến 1.0)
  */
 const STATUS_COLORS = {
-  OPERATIONAL: { rgb: [0.1, 0.8, 0.3], hex: '#28a745' }, // 🟢 Xanh lá (Hoạt động)
-  MAINTENANCE: { rgb: [0.9, 0.7, 0.1], hex: '#ffc107' }, // 🟡 Vàng (Bảo trì)
-  FAULT:       { rgb: [0.9, 0.2, 0.2], hex: '#dc3545' }  // 🔴 Đỏ (Sự cố)
+  OPERATIONAL: [0.1, 0.8, 0.3], // 🟢 Xanh lá
+  MAINTENANCE: [1.0, 0.75, 0.0], // 🟡 Vàng đậm
+  FAULT:       [0.9, 0.1, 0.1]  // 🔴 Đỏ
 };
 
-let isColorCodingActive = false;
+async function applyAssetColorCoding() {
+  const client = getDigitalTwinSupabaseClient();
+  if (!client) {
+    alert('Chưa kết nối được CSDL Supabase!');
+    return;
+  }
+
+  try {
+    const { data: assets, error } = await client
+      .from('project_assets')
+      .select('express_id, global_id, status');
+
+    if (error || !assets) {
+      console.warn('Không lấy được dữ liệu tài sản:', error);
+      return;
+    }
+
+    // Xác định viewer instance
+    const viewer = window.xeokitViewer || window.viewer;
+    if (!viewer || !viewer.scene) {
+      console.warn('Chưa tìm thấy Viewer 3D!');
+      return;
+    }
+
+    // Bỏ chọn tất cả đối tượng hiện tại để không bị đè màu selected
+    if (typeof viewer.scene.setObjectsSelected === 'function') {
+      viewer.scene.setObjectsSelected(viewer.scene.selectedObjectIds, false);
+    }
+
+    assets.forEach(asset => {
+      const rgbColor = STATUS_COLORS[asset.status] || STATUS_COLORS.OPERATIONAL;
+      const gId = String(asset.global_id || '');
+      const eId = String(asset.express_id || '');
+
+      // Tìm entity theo GlobalID hoặc ExpressID trong xeokit scene
+      const entity = viewer.scene.objects[gId] || viewer.scene.objects[eId];
+
+      if (entity) {
+        entity.colorize = rgbColor;   // Tô màu chính
+        entity.opacity = 1.0;         // Đảm bảo không bị trong suốt
+      }
+    });
+
+    // Ép Viewer nạp và vẽ lại khung hình mới ngay lập tức
+    if (typeof viewer.scene.render === 'function') {
+      viewer.scene.render();
+    }
+
+    isColorCodingActive = true;
+  } catch (err) {
+    console.error('Lỗi tô màu 3D:', err);
+  }
+}
+
+function resetModelColors() {
+  const viewer = window.xeokitViewer || window.viewer;
+  if (viewer && viewer.scene) {
+    // Reset toàn bộ màu tô của các object
+    Object.values(viewer.scene.objects).forEach(entity => {
+      entity.colorize = null;
+    });
+
+    // Ép Viewer render lại màu gốc
+    if (typeof viewer.scene.render === 'function') {
+      viewer.scene.render();
+    }
+  }
+  isColorCodingActive = false;
+}
 
 function getDigitalTwinSupabaseClient() {
   // 1. Ưu tiên lấy client window.sb (từ file auth của cậu) hoặc các biến toàn cục khác
