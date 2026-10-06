@@ -2392,47 +2392,6 @@
 
       bar.classList.add("open");
       updateSelHideLabel();
-      // 🔥 THÊM ĐOẠN NÀY cho DigitalTwin
-      // --- TRUYỀN DỮ LIỆU SANG DIGITAL TWIN PANEL ---
-      if (typeof openDigitalTwinPanel === 'function') {
-       const expressID = entity.id;
-       let globalID = '';
-       let assetName = (metaObject && metaObject.name) ? metaObject.name : '';
-
-     // 1. Thử lấy từ metaObject
-     if (metaObject) {
-       if (metaObject.originalSystemId) globalID = metaObject.originalSystemId;
-       else if (metaObject.globalId) globalID = metaObject.globalId;
-       else if (metaObject.id && String(metaObject.id).includes('-')) globalID = metaObject.id;
-     }
-
-     // 2. Thử lấy từ entity
-     if (!globalID && entity.globalId) {
-       globalID = entity.globalId;
-     }
-
-     // 3. Dự phòng thông minh: Đọc trực tiếp từ bảng "Chi Tiết Thuộc Tính IFC" trên DOM (nếu có)
-     setTimeout(() => {
-       if (!globalID) {
-        // Tìm ô chứa "ID Cấu Kiện" trên bảng bên phải
-        const rows = document.querySelectorAll('tr, div');
-        rows.forEach(row => {
-          if (row.innerText && row.innerText.includes('ID Cấu Kiện')) {
-            const nextTd = row.querySelector('td:last-child') || row.nextElementSibling;
-            if (nextTd && nextTd.innerText) {
-              globalID = nextTd.innerText.trim();
-            }
-          }
-        });
-      }
-
-      // Nếu vẫn trống thì gán tạm bằng expressID
-      if (!globalID) globalID = expressID;
-
-      // Mở Panel bên trái với đầy đủ thông tin
-      openDigitalTwinPanel(expressID, globalID, assetName);
-     }, 100); // Trễ 100ms để đảm bảo bảng IFC đã kịp render dữ liệu
-   }
   }
 
     function closeSelectionToolbar() {
