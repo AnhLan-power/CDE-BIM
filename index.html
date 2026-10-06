@@ -2378,6 +2378,10 @@
     // và 1 thanh trượt chỉnh độ trong suốt riêng cho đúng cấu kiện đang chọn.
     // -------------------------------------------------------------
     function openSelectionToolbar(entity, metaObject) {
+      // Lưu lại thiết bị đang chọn vào biến toàn cục
+      window.selectedEntity = entity;
+      window.selectedMetaObject = metaObject;
+
       const bar = document.getElementById("selectionToolbar");
       const label = document.getElementById("selLabel");
       const opacitySlider = document.getElementById("selOpacity");
@@ -2392,7 +2396,7 @@
 
       bar.classList.add("open");
       updateSelHideLabel();
-  }
+    }
 
     function closeSelectionToolbar() {
       document.getElementById("selectionToolbar").classList.remove("open");
