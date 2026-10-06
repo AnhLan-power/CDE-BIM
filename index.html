@@ -2378,25 +2378,48 @@
     // và 1 thanh trượt chỉnh độ trong suốt riêng cho đúng cấu kiện đang chọn.
     // -------------------------------------------------------------
     function openSelectionToolbar(entity, metaObject) {
-      // Lưu lại thiết bị đang chọn vào biến toàn cục
-      window.selectedEntity = entity;
-      window.selectedMetaObject = metaObject;
+     // 1. Lưu lại thiết bị đang chọn vào biến toàn cục
+     window.selectedEntity = entity;
+     window.selectedMetaObject = metaObject;
 
-      const bar = document.getElementById("selectionToolbar");
-      const label = document.getElementById("selLabel");
-      const opacitySlider = document.getElementById("selOpacity");
-      const opacityVal = document.getElementById("selOpacityVal");
+     const bar = document.getElementById("selectionToolbar");
+     const label = document.getElementById("selLabel");
+     const opacitySlider = document.getElementById("selOpacity");
+     const opacityVal = document.getElementById("selOpacityVal");
 
-      label.innerText = (metaObject && metaObject.name) ? metaObject.name : entity.id;
-      label.title = entity.id;
+     label.innerText = (metaObject && metaObject.name) ? metaObject.name : entity.id;
+     label.title = entity.id;
 
-      const currentOpacity = (typeof entity.opacity === "number") ? entity.opacity : 1;
-      opacitySlider.value = Math.round(currentOpacity * 100);
-      opacityVal.innerText = opacitySlider.value + "%";
+     const currentOpacity = (typeof entity.opacity === "number") ? entity.opacity : 1;
+     opacitySlider.value = Math.round(currentOpacity * 100);
+     opacityVal.innerText = opacitySlider.value + "%";
 
-      bar.classList.add("open");
-      updateSelHideLabel();
-    }
+     bar.classList.add("open");
+     updateSelHideLabel();
+
+     // ⚡ 2. CẬP NHẬT TỰ ĐỘNG CHO DIGITAL TWIN:
+     // Nếu Panel Digital Twin đang mở trên màn hình, tự động cập nhật dữ liệu sang thiết bị mới chọn
+     const dtPanel = document.getElementById('dt-asset-panel');
+     if (dtPanel && dtPanel.style.display !== 'none' && dtPanel.style.display !== '') {
+       const expressID = entity.id;
+       let globalID = '';
+       let assetName = (metaObject && metaObject.name) ? metaObject.name : '';
+
+       if (metaObject) {
+         if (metaObject.originalSystemId) globalID = metaObject.originalSystemId;
+         else if (metaObject.globalId) globalID = metaObject.globalId;
+         else if (metaObject.id && String(metaObject.id).includes('-')) globalID = metaObject.id;
+       }
+       if (!globalID && entity.globalId) {
+         globalID = entity.globalId;
+       }
+
+       // Gọi hàm nạp dữ liệu thiết bị mới vào Panel đang mở
+       if (typeof openDigitalTwinPanel === 'function') {
+         openDigitalTwinPanel(expressID, globalID, assetName);
+       }
+     }
+   }
 
     function closeSelectionToolbar() {
       document.getElementById("selectionToolbar").classList.remove("open");
