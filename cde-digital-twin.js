@@ -12,7 +12,7 @@ const STATUS_COLORS = {
   FAULT:       [0.9, 0.1, 0.1]  // 🔴 Đỏ
 };
 
-let isColorCodingActive = false; // Khai báo biến trạng thái tô màu
+let isColorCodingActive = false; // Khai báo biến trạng thái tô màu[cite: 21]
 
 function getDigitalTwinSupabaseClient() {
   if (window.sb && typeof window.sb.from === 'function') return window.sb;
@@ -249,7 +249,7 @@ function closeAssetPanel() {
 }
 
 // =========================================================================
-// --- TÔ MÀU MÔ HÌNH 3D THEO TRẠNG THÁI VẬN HÀNH (CHUẨN) ---
+// --- TÔ MÀU MÔ HÌNH 3D THEO TRẠNG THÁI VẬN HÀNH (THÔNG MINH CHUẨN XEOKIT) ---
 // =========================================================================
 
 async function applyAssetColorCoding() {
@@ -264,8 +264,8 @@ async function applyAssetColorCoding() {
       .from('project_assets')
       .select('express_id, global_id, status');
 
-    if (error || !assets) {
-      console.warn('Không lấy được dữ liệu tài sản:', error);
+    if (error || !assets || assets.length === 0) {
+      console.warn('Không lấy được dữ liệu tài sản từ Supabase:', error);
       return;
     }
 
@@ -275,24 +275,37 @@ async function applyAssetColorCoding() {
       return;
     }
 
-    // Bỏ hiệu ứng đang chọn đối tượng để hiển thị màu trạng thái rõ ràng hơn
+    // Bỏ chọn tất cả đối tượng hiện tại để tránh bị đè hiệu ứng Highlight xanh mặc định
     if (typeof viewer.scene.setObjectsSelected === 'function') {
       viewer.scene.setObjectsSelected(viewer.scene.selectedObjectIds, false);
     }
 
+    // Lấy toàn bộ danh sách đối tượng 3D trong Scene
+    const allObjects = Object.values(viewer.scene.objects);
+
     assets.forEach(asset => {
       const rgbColor = STATUS_COLORS[asset.status] || STATUS_COLORS.OPERATIONAL;
-      const gId = String(asset.global_id || '');
-      const eId = String(asset.express_id || '');
+      const targetGId = String(asset.global_id || '').trim();
+      const targetEId = String(asset.express_id || '').trim();
 
-      const entity = viewer.scene.objects[gId] || viewer.scene.objects[eId];
+      // Tìm kiếm Entity khớp ID chuẩn (Khớp exact ID, chứa global_id, hoặc dạng modelId#global_id)
+      const matchedEntity = allObjects.find(obj => {
+        const objId = String(obj.id || '');
+        return (
+          objId === targetGId || 
+          objId.endsWith('#' + targetGId) || 
+          objId.includes(targetGId) || 
+          (targetEId && (objId === targetEId || objId.endsWith('#' + targetEId)))
+        );
+      });
 
-      if (entity) {
-        entity.colorize = rgbColor;
-        entity.opacity = 1.0;
+      if (matchedEntity) {
+        matchedEntity.colorize = rgbColor; // Gán dải màu [R, G, B]
+        matchedEntity.opacity = 1.0;
       }
     });
 
+    // Ép Viewer redraw lại màn hình
     if (typeof viewer.scene.render === 'function') {
       viewer.scene.render();
     }
