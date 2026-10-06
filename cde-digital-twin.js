@@ -17,7 +17,7 @@ let activeMarkerElements = [];   // Lưu danh sách các phần tử Marker HTML
 let markerTickListener = null;   // Bỏ theo dõi render loop khi tắt
 
 /**
- * Tự động nhúng CSS cho Pin Cảnh báo 3D Marker
+ * Tự động nhúng CSS cho Pin Cảnh báo 3D Marker (ĐÃ SỬA POINTER-EVENTS TRÁNH ĐƠ VIEW)
  */
 function injectMarkerStyles() {
   if (document.getElementById('dt-marker-styles')) return;
@@ -25,15 +25,14 @@ function injectMarkerStyles() {
   style.id = 'dt-marker-styles';
   style.innerHTML = `
     .dt-3d-marker {
-      position: absolute;
+      position: fixed;
       padding: 5px 10px;
       border-radius: 20px;
       font-size: 11px;
       font-weight: bold;
       color: white;
       box-shadow: 0 4px 10px rgba(0,0,0,0.3);
-      pointer-events: auto;
-      cursor: pointer;
+      pointer-events: none; /* KHÔNG KHÓA CHUỘT XOAY VIEW/CANVAS */
       z-index: 999;
       transform: translate(-50%, -100%);
       transition: transform 0.1s ease;
@@ -43,8 +42,9 @@ function injectMarkerStyles() {
       white-space: nowrap;
       user-select: none;
     }
-    .dt-3d-marker:hover {
-      transform: translate(-50%, -110%) scale(1.1);
+    .dt-3d-marker * {
+      pointer-events: auto; /* Cho phép bấm vào chữ/nút của Marker */
+      cursor: pointer;
     }
     .dt-3d-marker.maintenance {
       background: #f39c12;
@@ -324,7 +324,7 @@ function closeAssetPanel() {
 }
 
 // =========================================================================
-// --- TÔ MÀU MÔ HÌNH 3D & KHÔI PHỤC MẶC ĐỊNH (SỬA LỖI KHÔNG PHẢN HỒI) ---
+// --- TÔ MÀU MÔ HÌNH 3D & KHÔI PHỤC MẶC ĐỊNH ---
 // =========================================================================
 
 async function applyAssetColorCoding() {
@@ -436,7 +436,7 @@ function toggleColorCodingMode(buttonEl) {
 }
 
 // =========================================================================
-// --- TẠO VÀ CẬP NHẬT PIN CẢNH BÁO 3D (ĐÃ SỬA LỖI TỌA ĐỘ VÀ POINTER EVENTS) ---
+// --- TẠO VÀ CẬP NHẬT PIN CẢNH BÁO 3D (ĐÃ CHUẨN HÓA TỌA ĐỘ VÀ CAMERA TICK) ---
 // =========================================================================
 
 function render3DMarkers(assets) {
@@ -449,7 +449,7 @@ function render3DMarkers(assets) {
   const trackedItems = [];
 
   assets.forEach(asset => {
-    if (asset.status === 'OPERATIONAL') return; // Không hiển thị pin với thiết bị bình thường
+    if (asset.status === 'OPERATIONAL') return; // Bỏ qua thiết bị bình thường
 
     const targetGId = String(asset.global_id || '').trim();
     const targetEId = String(asset.express_id || '').trim();
@@ -465,21 +465,21 @@ function render3DMarkers(assets) {
     });
 
     if (entity && entity.aabb) {
-      // ĐÚNG CHỈ SỐ XE OKIT AABB: [xmin, ymin, zmin, xmax, ymax, zmax]
+      // Mảng AABB Xeokit chuẩn: [xmin, ymin, zmin, xmax, ymax, zmax]
       const aabb = entity.aabb; 
       const topCenterWorldPos = [
-        (aabb[0] + aabb[3]) / 2, // X center
-        aabb[4],                 // Y max (Đỉnh trên)
-        (aabb[2] + aabb[5]) / 2  // Z center
+        (aabb[0] + aabb[3]) / 2, // Center X
+        aabb[4],                 // Max Y (Đỉnh thiết bị)
+        (aabb[2] + aabb[5]) / 2  // Center Z
       ];
 
       const isFault = asset.status === 'FAULT';
       const markerIcon = isFault ? '🛑' : '⚠️';
       const markerClass = isFault ? 'fault' : 'maintenance';
 
-      // Tạo phần tử HTML Marker
       const markerDiv = document.createElement('div');
       markerDiv.className = `dt-3d-marker ${markerClass}`;
+      markerDiv.style.display = 'none'; // Tạm ẩn để tránh văng góc màn hình khi nạp
       markerDiv.innerHTML = `<span>${markerIcon}</span><span>${asset.asset_code || asset.asset_name}</span>`;
       
       markerDiv.onclick = (e) => {
@@ -498,30 +498,31 @@ function render3DMarkers(assets) {
     }
   });
 
-  // Tự động cập nhật tọa độ Marker theo góc quay Camera
+  // Tự động cập nhật vị trí Pin Marker khi xoay Camera
   function updateMarkerPositions() {
     if (!isColorCodingActive || trackedItems.length === 0) return;
 
     const camera = viewer.scene.camera;
     const canvas = viewer.scene.canvas.canvas;
+    if (!canvas) return;
+
     const canvasRect = canvas.getBoundingClientRect();
 
     trackedItems.forEach(item => {
-      // Chuyển tọa độ Không gian 3D -> Tọa độ Màn hình 2D Pixel
       const canvasPos = camera.projectWorldPosToCanvas(item.worldPos);
       
       if (canvasPos && !isNaN(canvasPos[0]) && !isNaN(canvasPos[1])) {
         const screenX = canvasRect.left + canvasPos[0];
         const screenY = canvasRect.top + canvasPos[1];
 
-        // Kiểm tra xem điểm 3D có nằm phía trước Camera không (canvasPos[2] / z-depth < 1.0)
-        const isInsideCanvas = (
+        // Kiểm tra xem điểm 3D có nằm trong vùng nhìn của Camera hay không
+        const isVisible = (
           canvasPos[2] < 1.0 && 
           canvasPos[0] >= 0 && canvasPos[0] <= canvasRect.width && 
           canvasPos[1] >= 0 && canvasPos[1] <= canvasRect.height
         );
 
-        if (isInsideCanvas) {
+        if (isVisible) {
           item.element.style.display = 'flex';
           item.element.style.left = `${screenX}px`;
           item.element.style.top = `${screenY}px`;
@@ -534,7 +535,6 @@ function render3DMarkers(assets) {
     });
   }
 
-  // Đăng ký sự kiện Render Loop của xeokit
   markerTickListener = viewer.scene.on("tick", updateMarkerPositions);
   updateMarkerPositions();
 }
