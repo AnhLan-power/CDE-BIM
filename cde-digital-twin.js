@@ -14,7 +14,7 @@ let activeMarkerElements = [];
 let markerTickListener = null;   
 
 /**
- * Style Marker 3D
+ * Inject Style Marker 3D
  */
 function injectMarkerStyles() {
   if (document.getElementById('dt-marker-styles')) return;
@@ -27,7 +27,7 @@ function injectMarkerStyles() {
       left: 0 !important;
       width: 100vw !important;
       height: 100vh !important;
-      pointer-events: none !important; /* KHÔNG BẮT SỰ KIỆN CHUỘT -> HOÀN TOÀN TỰ DO XOAY MÔ HÌNH */
+      pointer-events: none !important; /* Không chặn sự kiện quay model */
       z-index: 998 !important;
       overflow: hidden !important;
     }
@@ -39,7 +39,7 @@ function injectMarkerStyles() {
       font-weight: bold !important;
       color: #ffffff !important;
       box-shadow: 0 4px 10px rgba(0,0,0,0.4) !important;
-      pointer-events: auto !important; /* Chỉ nhận click khi bấm đúng vào Pin */
+      pointer-events: auto !important; /* Chỉ nhận click khi chạm đúng Pin */
       cursor: pointer !important;
       transform: translate(-50%, -100%) !important;
       white-space: nowrap !important;
@@ -517,7 +517,7 @@ function render3DMarkers(assets) {
       const canvasPos = camera.projectWorldPosToCanvas(item.worldPos);
 
       if (canvasPos && !isNaN(canvasPos[0]) && !isNaN(canvasPos[1])) {
-        // Tọa độ thực tế theo Màn hình
+        // Tọa độ thực tế theo màn hình
         const screenX = rect.left + canvasPos[0];
         const screenY = rect.top + canvasPos[1];
         const isVisible = canvasPos[2] < 1.0;
