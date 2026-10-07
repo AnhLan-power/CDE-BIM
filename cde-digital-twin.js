@@ -108,8 +108,8 @@ function findEntityByAsset(viewer, asset) {
   let targetGId = cleanId(asset.global_id || asset.globalID);
   let targetEId = cleanId(asset.express_id || asset.expressID);
 
-  // Fallback: Tách Express ID từ tên thiết bị hoặc mã tài sản nếu bị thiếu (VD: "...:4246714")
-  if (!targetGId && !targetEId) {
+  // Tự động tách Express ID từ tên hoặc mã tài sản nếu chưa có targetEId (VD: "...:4246714")
+  if (!targetEId) {
     const text = (asset.asset_name || '') + ' ' + (asset.asset_code || '');
     const match = text.match(/[:#\s-](\d{4,})/);
     if (match) {
@@ -117,19 +117,21 @@ function findEntityByAsset(viewer, asset) {
     }
   }
 
-  // 1. Khớp khóa trực tiếp trong dictionary
+  // 1. Khớp khóa trực tiếp trong dictionary objects
   if (targetGId && objects[targetGId]) return objects[targetGId];
   if (targetEId && objects[targetEId]) return objects[targetEId];
+  if (targetEId && objects['#' + targetEId]) return objects['#' + targetEId];
+  if (targetEId && objects['0#' + targetEId]) return objects['0#' + targetEId];
 
   const allObjects = Object.values(objects);
 
-  // 2. Tìm chính xác theo Global ID (IFC)
+  // 2. Tìm theo Global ID (IFC)
   if (targetGId) {
     const match = allObjects.find(obj => 
       obj.id === targetGId || 
       obj.globalId === targetGId || 
-      (obj.id && obj.id.split(/[:#]/).includes(targetGId)) ||
-      (obj.globalId && obj.globalId === targetGId)
+      (obj.id && obj.id.includes(targetGId)) ||
+      (obj.globalId && obj.globalId.includes(targetGId))
     );
     if (match) return match;
   }
@@ -138,18 +140,10 @@ function findEntityByAsset(viewer, asset) {
   if (targetEId) {
     const match = allObjects.find(obj => {
       if (!obj.id) return false;
-      const parts = String(obj.id).split(/[:#]/);
-      return parts.includes(targetEId) || obj.id === targetEId || obj.id.endsWith('#' + targetEId) || obj.id.endsWith(':' + targetEId);
+      const idStr = String(obj.id);
+      const parts = idStr.split(/[:#]/);
+      return parts.includes(targetEId) || idStr === targetEId || idStr.endsWith('#' + targetEId) || idStr.endsWith(':' + targetEId);
     });
-    if (match) return match;
-  }
-
-  // 4. Tìm kiếm tương đối (Sub-string) cho Global ID
-  if (targetGId && targetGId.length > 5) {
-    const match = allObjects.find(obj => 
-      (obj.id && obj.id.includes(targetGId)) || 
-      (obj.globalId && obj.globalId.includes(targetGId))
-    );
     if (match) return match;
   }
 
@@ -177,6 +171,9 @@ function focusCameraOnEntity(globalId, expressId, assetName = '') {
     return;
   }
 
+  // Đánh dấu đối tượng được chọn
+  window.selectedEntity = entity;
+
   // Ép hiển thị, mở ẩn và Highlight nổi bật thiết bị
   entity.visible = true; 
   if (typeof entity.culled !== 'undefined') entity.culled = false;
@@ -190,23 +187,20 @@ function focusCameraOnEntity(globalId, expressId, assetName = '') {
     (aabb[2] + aabb[5]) / 2
   ];
 
-  // 1. Ưu tiên dùng Camera Flight Animation chính thức của Xeokit
+  // 1. Ưu tiên sử dụng Camera Flight chuẩn của Xeokit (truyền aabb hoặc entity trực tiếp)
   if (viewer.cameraFlight && typeof viewer.cameraFlight.flyTo === 'function') {
     try {
       viewer.cameraFlight.flyTo({
-        entity: entity,
+        aabb: aabb,
         duration: 1.2
       });
       return;
-    } catch (e) {
+    } catch (e1) {
       try {
-        viewer.cameraFlight.flyTo({
-          aabb: aabb,
-          duration: 1.2
-        });
+        viewer.cameraFlight.flyTo(entity);
         return;
-      } catch (err) {
-        console.warn('Lỗi Camera Flight flyTo, chuyển sang tính toán vị trí camera direct:', err);
+      } catch (e2) {
+        console.warn('Chuyển sang phương án tự tính toán góc nhìn Camera:', e2);
       }
     }
   }
@@ -240,19 +234,11 @@ function focusCameraOnEntity(globalId, expressId, assetName = '') {
       center[2] + dir[2] * dist
     ];
 
-    if (viewer.cameraFlight && typeof viewer.cameraFlight.flyTo === 'function') {
-      viewer.cameraFlight.flyTo({
-        eye: newEye,
-        target: center,
-        duration: 1.0
-      });
-    } else {
-      camera.target = center;
-      camera.eye = newEye;
-      if (viewer.scene) {
-        viewer.scene._needUpdate = 1;
-        if (typeof viewer.scene.render === 'function') viewer.scene.render();
-      }
+    camera.target = center;
+    camera.eye = newEye;
+    if (viewer.scene) {
+      viewer.scene._needUpdate = 1;
+      if (typeof viewer.scene.render === 'function') viewer.scene.render();
     }
   }
 }
@@ -768,7 +754,7 @@ async function openDigitalTwinDashboard() {
           
           const safeEId = cleanId(asset.express_id);
           const safeGId = cleanId(asset.global_id);
-          const safeName = (asset.asset_name || '').replace(/'/g, "\'").replace(/"/g, "&quot;");
+          const safeName = (asset.asset_name || '').replace(/'/g, "\\'").replace(/"/g, "&quot;");
 
           alertRowsHtml += `
             <tr style="border-bottom:1px solid #eee;">
