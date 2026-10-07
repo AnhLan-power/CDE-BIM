@@ -252,6 +252,14 @@ function buildTodoCard(t) {
     actionsEl.appendChild(btnElems);
   }
 
+  const btnBcf = document.createElement("button");
+  btnBcf.innerText = "📤 Xuất BCF";
+  btnBcf.title = t.linked_view_id
+    ? "Xuất BCF kèm đúng góc nhìn đã lưu của ToDo này"
+    : "ToDo này chưa có góc nhìn lưu kèm — sẽ dùng góc nhìn camera hiện tại";
+  btnBcf.addEventListener("click", () => exportTodoAsBcf(t));
+  actionsEl.appendChild(btnBcf);
+
   if (canEditTodos()) {
     const btnToggle = document.createElement("button");
     btnToggle.innerText = t.status === "open" ? "✓ Đánh dấu xong" : "↺ Mở lại";
@@ -292,6 +300,28 @@ function highlightTodoElements(globalIds) {
     maxX = Math.max(maxX, aabb[3]); maxY = Math.max(maxY, aabb[4]); maxZ = Math.max(maxZ, aabb[5]);
   });
   viewer.cameraFlight.flyTo({ aabb: [minX, minY, minZ, maxX, maxY, maxZ], duration: 0.6 });
+}
+
+// Xuất BCF trực tiếp từ nội dung 1 ToDo — ưu tiên dùng đúng góc nhìn
+// camera và cấu kiện đã lưu kèm ToDo đó (nếu có), thay vì luôn lấy góc
+// nhìn hiện tại đang xem dở trên màn hình.
+async function exportTodoAsBcf(t) {
+  if (!window.exportBcfIssue) { alert("Thiếu chức năng xuất BCF (exportBcfIssue) — kiểm tra lại index.html."); return; }
+
+  let camera = null;
+  if (t.linked_view_id) {
+    const { data: v } = await sb.from("project_views").select("*").eq("id", t.linked_view_id).single();
+    if (v) camera = { eye: v.camera_eye, look: v.camera_look, up: v.camera_up };
+  }
+
+  await window.exportBcfIssue({
+    title: t.title,
+    description: t.description || "",
+    eye: camera ? camera.eye : undefined,
+    look: camera ? camera.look : undefined,
+    up: camera ? camera.up : undefined,
+    targetIds: t.linked_global_ids || undefined
+  });
 }
 
 async function toggleTodoStatus(id, currentStatus) {
