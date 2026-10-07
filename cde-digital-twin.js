@@ -1,4 +1,6 @@
+// =========================================================================
 // --- MODULE QUẢN LÝ TÀI SẢN DIGITAL TWIN (FA/AM) ---
+// =========================================================================
 
 const DT_SUPABASE_URL = window.SUPABASE_URL || 'https://znzakqzdezxzqzfplmgv.supabase.co'; 
 const DT_SUPABASE_KEY = window.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInRefiI6InpuemFrcXpkZXp4enF6ZnBsbWd2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc4MTQyNzAsImV4cCI6ZB03Mzk0MjcwfQ.aV5YaOLxTySiB26ror4CRzJvQsjANNI1DwbtbxcNe4A';
@@ -98,7 +100,7 @@ function getDigitalTwinSupabaseClient() {
 }
 
 // =========================================================================
-// --- THUẬT TOÁN TÌM KIẾM THIẾT BỊ TRONG MÔ HÌNH 3D ---
+// --- THUẬT TOÁN TÌM KIẾM THIẾT BỊ TRONG MÔ HÌNH 3D (ĐÃ TỐI ƯU HÓA) ---
 // =========================================================================
 
 function findEntityByAsset(viewer, asset) {
@@ -114,7 +116,7 @@ function findEntityByAsset(viewer, asset) {
     if (match) targetEId = match[1];
   }
 
-  // 1. Khớp trực tiếp Key
+  // 1. Khớp trực tiếp Key trong objects
   if (targetGId && objects[targetGId]) return objects[targetGId];
   if (targetEId && objects[targetEId]) return objects[targetEId];
   if (targetEId && objects['#' + targetEId]) return objects['#' + targetEId];
@@ -122,40 +124,58 @@ function findEntityByAsset(viewer, asset) {
 
   const allObjects = Object.values(objects);
 
-  // 2. Tìm theo Global ID
+  // 2. Tìm kiếm linh hoạt theo GlobalID (Xử lý tiền tố modelId# / modelId:)
   if (targetGId) {
-    const match = allObjects.find(obj => 
-      obj.id === targetGId || 
-      obj.globalId === targetGId || 
-      (obj.id && obj.id.includes(targetGId)) ||
-      (obj.globalId && obj.globalId.includes(targetGId))
-    );
-    if (match) return match;
+    for (const obj of allObjects) {
+      if (!obj || !obj.aabb) continue;
+      const objId = String(obj.id || '');
+      const objGId = String(obj.globalId || obj.originalSystemId || '');
+      if (
+        objId === targetGId ||
+        objGId === targetGId ||
+        objId.endsWith('#' + targetGId) ||
+        objId.endsWith(':' + targetGId) ||
+        objGId.includes(targetGId)
+      ) {
+        return obj;
+      }
+    }
   }
 
-  // 3. Tìm theo Express ID
+  // 3. Tìm kiếm theo ExpressID
   if (targetEId) {
-    const match = allObjects.find(obj => {
-      if (!obj.id) return false;
-      const idStr = String(obj.id);
-      const parts = idStr.split(/[:#]/);
-      return parts.includes(targetEId) || idStr === targetEId || idStr.endsWith('#' + targetEId) || idStr.endsWith(':' + targetEId);
-    });
-    if (match) return match;
+    for (const obj of allObjects) {
+      if (!obj || !obj.aabb) continue;
+      const objId = String(obj.id || '');
+      const parts = objId.split(/[:#]/);
+      if (
+        parts.includes(targetEId) ||
+        objId === targetEId ||
+        objId.endsWith('#' + targetEId) ||
+        objId.endsWith(':' + targetEId)
+      ) {
+        return obj;
+      }
+    }
   }
 
   // 4. Tìm theo Tên thiết bị
-  const targetName = (asset.asset_name || '').trim();
+  const targetName = (asset.asset_name || '').trim().toLowerCase();
   if (targetName) {
-    const matchName = allObjects.find(obj => obj.name && (obj.name === targetName || obj.name.includes(targetName)));
-    if (matchName) return matchName;
+    for (const obj of allObjects) {
+      if (!obj || !obj.aabb) continue;
+      const name = String(obj.name || '').toLowerCase();
+      if (name && (name === targetName || name.includes(targetName))) {
+        return obj;
+      }
+    }
   }
 
   return null;
 }
 
 // =========================================================================
-// --- NÂNG CẤP CƠ CHẾ CAMERA ZOOM & HIGHLIGHT ---
+// --- PHƯƠNG THỨC ZOOM & HIGHLIGHT CAMERA CHUẨN XEOKIT ---
 // =========================================================================
 
 function focusCameraOnEntity(globalId, expressId, assetName = '') {
@@ -170,7 +190,7 @@ function focusCameraOnEntity(globalId, expressId, assetName = '') {
     return;
   }
 
-  // Đảm bảo đối tượng hiển thị & Highlight
+  // Bật hiển thị & Highlight đối tượng
   entity.visible = true; 
   if (typeof entity.culled !== 'undefined') entity.culled = false;
 
@@ -179,40 +199,47 @@ function focusCameraOnEntity(globalId, expressId, assetName = '') {
   setTimeout(() => { if (entity) entity.highlighted = false; }, 3500);
 
   if (!isValidAABB(entity.aabb)) {
-    console.warn('⚠️ Bounding Box không hợp lệ:', entity);
+    console.warn('⚠️ Bounding Box (AABB) của đối tượng không hợp lệ:', entity);
     return;
   }
 
   const aabb = entity.aabb;
 
-  // Dừng các chuyến bay camera cũ
+  // Dừng mọi animation camera cũ
   if (viewer.cameraFlight && typeof viewer.cameraFlight.stop === 'function') {
     try { viewer.cameraFlight.stop(); } catch(e) {}
   }
 
-  // THỬ PHƯƠNG PHÁP 1: Xeokit API chuẩn (Truyền trực tiếp Entity)
-  let flySuccess = false;
+  // 🎯 PHƯƠNG ÁN 1: Dùng cameraFlight.flyTo chuẩn Xeokit với flag fit: true
   if (viewer.cameraFlight && typeof viewer.cameraFlight.flyTo === 'function') {
     try {
-      viewer.cameraFlight.flyTo(entity);
-      flySuccess = true;
+      viewer.cameraFlight.flyTo({
+        aabb: aabb,
+        fit: true,
+        duration: 0.8
+      });
+      return;
     } catch (e1) {
       try {
-        viewer.cameraFlight.flyTo({ entity: entity, fit: true, duration: 1.0 });
-        flySuccess = true;
+        viewer.cameraFlight.flyTo({
+          entity: entity,
+          fit: true,
+          duration: 0.8
+        });
+        return;
       } catch (e2) {}
     }
   }
 
-  // THỬ PHƯƠNG PHÁP 2: cameraControl.flyTo nếu có
-  if (!flySuccess && viewer.cameraControl && typeof viewer.cameraControl.flyTo === 'function') {
+  // 🎯 PHƯƠNG ÁN 2: Dùng cameraControl.flyTo
+  if (viewer.cameraControl && typeof viewer.cameraControl.flyTo === 'function') {
     try {
-      viewer.cameraControl.flyTo(entity);
-      flySuccess = true;
+      viewer.cameraControl.flyTo({ aabb: aabb, fit: true, duration: 0.8 });
+      return;
     } catch(e) {}
   }
 
-  // THỬ PHƯƠNG PHÁP 3: Smooth Camera Interpolation (Tự động di chuyển Camera Eye & Target)
+  // 🎯 PHƯƠNG ÁN 3 (DỰ PHÒNG): Tính toán khoảng cách & gán trực tiếp camera.eye / camera.target
   const camera = viewer.scene.camera;
   if (camera) {
     const center = [
@@ -225,20 +252,14 @@ function focusCameraOnEntity(globalId, expressId, assetName = '') {
     const dy = aabb[4] - aabb[1];
     const dz = aabb[5] - aabb[2];
     const diagonal = Math.sqrt(dx * dx + dy * dy + dz * dz);
-    
-    // Khoảng cách Zoom lý tưởng vừa vặn màn hình
-    const fitDist = Math.max(diagonal * 1.8, 1.5);
+    const fitDist = Math.max(diagonal * 2.0, 2.0);
 
     const startEye = camera.eye ? [...camera.eye] : [0, 10, 10];
     const startTarget = camera.target ? [...camera.target] : [0, 0, 0];
 
-    // Giữ nguyên góc nhìn hiện tại và tiến lại gần thiết bị
     let dir = [startEye[0] - startTarget[0], startEye[1] - startTarget[1], startEye[2] - startTarget[2]];
     let len = Math.sqrt(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]);
-    if (len === 0 || isNaN(len)) {
-      dir = [1, 1, 1];
-      len = Math.sqrt(3);
-    }
+    if (len === 0 || isNaN(len)) { dir = [1, 1, 1]; len = Math.sqrt(3); }
     dir = [dir[0] / len, dir[1] / len, dir[2] / len];
 
     const endTarget = center;
@@ -248,8 +269,7 @@ function focusCameraOnEntity(globalId, expressId, assetName = '') {
       center[2] + dir[2] * fitDist
     ];
 
-    // Thực hiện Animation mượt 0.8 giây bằng requestAnimationFrame
-    const duration = 800;
+    const duration = 750;
     const startTime = performance.now();
 
     function animateCamera(now) {
@@ -283,7 +303,7 @@ function focusCameraOnEntity(globalId, expressId, assetName = '') {
   }
 }
 
-// Kết nối Dashboard sang View Chi tiết (Bổ sung Delay 120ms giải phóng DOM)
+// Kết nối Dashboard sang View Chi tiết (Bổ sung Delay giải phóng DOM)
 window.focusAndOpenAssetFromDashboard = function(expressId, globalId, assetName) {
   closeDigitalTwinDashboard();
   setTimeout(() => {
@@ -480,7 +500,7 @@ async function openDigitalTwinPanel(expressID, globalID, assetName = '') {
       let query = client.from('project_assets').select('*, asset_documents(*)');
       if (finalGlobalID) {
         query = query.eq('global_id', finalGlobalID);
-      } else if (finalExpressID) {
+      } else if (finalExpressID && !isNaN(parseInt(finalExpressID))) {
         query = query.eq('express_id', parseInt(finalExpressID));
       }
 
@@ -759,7 +779,7 @@ function injectDigitalTwinDashboardModal() {
   `;
   document.body.insertAdjacentHTML('beforeend', modalHtml);
 
-  // Đăng ký Event Delegation cho các nút "Xem Chi Tiết" trong Dashboard
+  // Đăng ký Event Delegation cho nút "Xem Chi Tiết"
   const tbody = document.getElementById('dt-dash-table-body');
   if (tbody && !tbody.dataset.eventBound) {
     tbody.dataset.eventBound = 'true';
@@ -828,7 +848,9 @@ async function openDigitalTwinDashboard() {
     document.getElementById('dt-dash-maint').innerText = maint;
     document.getElementById('dt-dash-fault').innerText = fault;
     document.getElementById('dt-dash-table-body').innerHTML = alertRowsHtml || '<tr><td colspan="5" style="text-align:center; padding:15px; color:#28a745;">🎉 Tất cả thiết bị bình thường!</td></tr>';
-  } catch (err) {}
+  } catch (err) {
+    console.error('Lỗi khi mở Dashboard:', err);
+  }
 }
 
 function closeDigitalTwinDashboard() {
@@ -837,7 +859,7 @@ function closeDigitalTwinDashboard() {
 }
 
 // =========================================================================
-// --- LƯU DỮ LIỆU ---
+// --- LƯU DỮ LIỆU TÀI SẢN ---
 // =========================================================================
 
 async function saveAssetToDatabase() {
