@@ -14,16 +14,10 @@ let activeMarkerElements = [];
 let markerTickListener = null;   
 
 /**
- * Kiểm tra Bounding Box (AABB) có hợp lệ không
+ * Kiểm tra Bounding Box (AABB)
  */
 function isValidAABB(aabb) {
-  return Array.isArray(aabb) && 
-         aabb.length === 6 && 
-         !isNaN(aabb[0]) && !isNaN(aabb[1]) && !isNaN(aabb[2]) &&
-         !isNaN(aabb[3]) && !isNaN(aabb[4]) && !isNaN(aabb[5]) &&
-         (Math.abs(aabb[3] - aabb[0]) > 0.0001 || 
-          Math.abs(aabb[4] - aabb[1]) > 0.0001 || 
-          Math.abs(aabb[5] - aabb[2]) > 0.0001);
+  return Array.isArray(aabb) && aabb.length === 6 && !isNaN(aabb[0]);
 }
 
 /**
@@ -35,7 +29,7 @@ function injectMarkerStyles() {
   style.id = 'dt-marker-styles';
   style.innerHTML = `
     #dt-marker-overlay-container {
-      position: absolute !important;
+      position: fixed !important; /* Dùng Fixed để bám chuẩn xác tuyệt đối theo màn hình */
       pointer-events: none !important;
       overflow: hidden !important;
       z-index: 500 !important;
@@ -50,11 +44,10 @@ function injectMarkerStyles() {
       box-shadow: 0 4px 10px rgba(0,0,0,0.3) !important;
       pointer-events: auto !important;
       cursor: pointer !important;
-      /* [Cập nhật]: Đưa trọng tâm marker về ngay giữa để đảm bảo không bị bay lơ lửng */
       transform: translate(-50%, -50%) !important; 
       white-space: nowrap !important;
       user-select: none !important;
-      display: none;
+      display: flex !important;
       align-items: center !important;
       gap: 5px !important;
       z-index: 501 !important;
@@ -64,16 +57,10 @@ function injectMarkerStyles() {
       transform: translate(-50%, -60%) scale(1.1) !important;
       z-index: 510 !important;
     }
-    .dt-3d-marker.operational {
-      background: #28a745 !important;
-      border: 1.5px solid #ffffff !important;
-    }
-    .dt-3d-marker.maintenance {
-      background: #f39c12 !important;
-      border: 1.5px solid #ffffff !important;
-    }
-    .dt-3d-marker.fault {
-      background: #dc3545 !important;
+    .dt-3d-marker.operational { background: #28a745 !important; border: 1.5px solid #ffffff !important; }
+    .dt-3d-marker.maintenance { background: #f39c12 !important; border: 1.5px solid #ffffff !important; }
+    .dt-3d-marker.fault { 
+      background: #dc3545 !important; 
       border: 1.5px solid #ffffff !important;
       animation: dt-pulse 1.5s infinite !important;
     }
@@ -90,19 +77,17 @@ function getDigitalTwinSupabaseClient() {
   if (window.sb && typeof window.sb.from === 'function') return window.sb;
   if (window.supabaseClient && typeof window.supabaseClient.from === 'function') return window.supabaseClient;
   if (window.supabase && typeof window.supabase.from === 'function') return window.supabase;
-  if (window.dbClient && typeof window.dbClient.from === 'function') return window.dbClient;
-
   if (window.supabase && typeof window.supabase.createClient === 'function') {
-    if (!window._dtSupabaseInstance && DT_SUPABASE_URL.includes('http')) {
+    if (!window._dtSupabaseInstance) {
       window._dtSupabaseInstance = window.supabase.createClient(DT_SUPABASE_URL, DT_SUPABASE_KEY);
     }
-    return window._dtSupabaseInstance || null;
+    return window._dtSupabaseInstance;
   }
   return null;
 }
 
 // =========================================================================
-// --- CAMERA CONTROLS ---
+// --- CAMERA CONTROLS (TÍNH NĂNG ZOOM & HIGHLIGHT) ---
 // =========================================================================
 
 function focusCameraOnEntity(globalId, expressId) {
@@ -113,18 +98,27 @@ function focusCameraOnEntity(globalId, expressId) {
   const entity = findEntityByAsset(viewer, pseudoAsset);
 
   if (entity && isValidAABB(entity.aabb)) {
+    // Ép hiển thị và làm sáng (highlight) thiết bị để dễ nhìn
     entity.visible = true; 
+    entity.highlighted = true; 
     
+    // Tắt highlight sau 3.5 giây
+    setTimeout(() => { 
+        if (entity) entity.highlighted = false; 
+    }, 3500);
+
+    // Xử lý bay Camera
     if (viewer.cameraFlight && typeof viewer.cameraFlight.flyTo === 'function') {
       try {
         viewer.cameraFlight.flyTo({
           aabb: entity.aabb,
-          duration: 0.8
+          duration: 1.2 // Bay mượt trong 1.2s
         });
       } catch (e) {
-        console.warn('Camera flight warning:', e);
+        console.warn('Lỗi Camera Flight:', e);
       }
     } else if (viewer.scene.camera) {
+      // Fallback nếu thư viện không hỗ trợ flyTo
       const aabb = entity.aabb;
       const center = [
         (aabb[0] + aabb[3]) / 2,
@@ -136,6 +130,12 @@ function focusCameraOnEntity(globalId, expressId) {
   }
 }
 
+// Hàm kết nối mượt từ Dashboard sang View Chi tiết
+window.focusAndOpenAssetFromDashboard = function(expressId, globalId, assetName) {
+  closeDigitalTwinDashboard();
+  openDigitalTwinPanel(expressId, globalId, assetName);
+};
+
 // =========================================================================
 // --- UI PANELS ---
 // =========================================================================
@@ -145,7 +145,7 @@ function injectDigitalTwinPanel() {
   if (document.getElementById('dt-asset-panel')) return;
 
   const panelHtml = `
-    <div id="dt-asset-panel" style="display:none; position:fixed; left:20px; top:80px; width:380px; max-height:85vh; overflow-y:auto; background:#fff; border-radius:10px; box-shadow: 0 4px 20px rgba(0,0,0,0.2); z-index:9999; padding:20px; font-family:sans-serif; user-select:none; pointer-events:auto;">
+    <div id="dt-asset-panel" style="display:none; position:fixed; left:20px; top:80px; width:380px; max-height:85vh; overflow-y:auto; background:#fff; border-radius:10px; box-shadow: 0 4px 20px rgba(0,0,0,0.2); z-index:9999; padding:20px; font-family:sans-serif; user-select:none;">
       
       <div id="dt-panel-header" style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #eee; padding-bottom:10px; margin-bottom:15px; cursor:move; background:#f8f9fa; margin:-20px -20px 15px -20px; padding:15px 20px; border-radius:10px 10px 0 0;">
         <h3 style="margin:0; font-size:15px; color:#1a73e8; pointer-events:none;">🏷️ Quản Lý Tài Sản (Digital Twin)</h3>
@@ -154,11 +154,11 @@ function injectDigitalTwinPanel() {
 
       <div style="margin-bottom:15px; display:flex; gap:8px;">
         <button type="button" id="dt-btn-toggle-color" onclick="toggleColorCodingMode(this)" 
-                style="flex:1; padding:8px 10px; background:#f0f4f9; color:#1a73e8; border:1px solid #b6d4fe; border-radius:6px; font-weight:bold; cursor:pointer; font-size:11px; display:flex; align-items:center; justify-content:center; gap:4px; transition:0.2s;">
+                style="flex:1; padding:8px 10px; background:#f0f4f9; color:#1a73e8; border:1px solid #b6d4fe; border-radius:6px; font-weight:bold; cursor:pointer; font-size:11px; display:flex; align-items:center; justify-content:center;">
           🎨 Xem Trạng Thái 3D
         </button>
         <button type="button" onclick="openDigitalTwinDashboard()" 
-                style="flex:1; padding:8px 10px; background:#e8f0fe; color:#1a73e8; border:1px solid #b6d4fe; border-radius:6px; font-weight:bold; cursor:pointer; font-size:11px; display:flex; align-items:center; justify-content:center; gap:4px;">
+                style="flex:1; padding:8px 10px; background:#e8f0fe; color:#1a73e8; border:1px solid #b6d4fe; border-radius:6px; font-weight:bold; cursor:pointer; font-size:11px; display:flex; align-items:center; justify-content:center;">
           📊 Dashboard Thống Kê
         </button>
       </div>
@@ -174,12 +174,12 @@ function injectDigitalTwinPanel() {
 
         <div style="margin-bottom:10px;">
           <label style="font-size:12px; font-weight:bold;">Mã Tài Sản (Asset Tag) <span style="color:red">*</span>:</label>
-          <input type="text" id="dt_asset_code" placeholder="VD: AB01-A" required style="width:100%; padding:6px; border:1px solid #ccc; border-radius:4px; box-sizing:border-box;" />
+          <input type="text" id="dt_asset_code" required style="width:100%; padding:6px; border:1px solid #ccc; border-radius:4px; box-sizing:border-box;" />
         </div>
 
         <div style="margin-bottom:10px;">
           <label style="font-size:12px; font-weight:bold;">Tên Thiết Bị <span style="color:red">*</span>:</label>
-          <input type="text" id="dt_asset_name" placeholder="VD: Máy thổi khí" required style="width:100%; padding:6px; border:1px solid #ccc; border-radius:4px; box-sizing:border-box;" />
+          <input type="text" id="dt_asset_name" required style="width:100%; padding:6px; border:1px solid #ccc; border-radius:4px; box-sizing:border-box;" />
         </div>
 
         <div style="margin-bottom:10px;">
@@ -215,7 +215,7 @@ function injectDigitalTwinPanel() {
 
         <div style="margin-bottom:10px;">
           <label style="font-size:12px; font-weight:bold;">📝 Nhật Ký Vận Hành / Bảo Trì:</label>
-          <textarea id="dt_maint_log" rows="3" placeholder="Nhập ghi chú bảo trì..." style="width:100%; padding:6px; border:1px solid #ccc; border-radius:4px; font-size:12px; resize:vertical; box-sizing:border-box;"></textarea>
+          <textarea id="dt_maint_log" rows="3" style="width:100%; padding:6px; border:1px solid #ccc; border-radius:4px; font-size:12px; resize:vertical; box-sizing:border-box;"></textarea>
         </div>
 
         <div style="margin-bottom:15px;">
@@ -240,21 +240,15 @@ function makePanelDraggable() {
 
   let posX = 0, posY = 0, mouseX = 0, mouseY = 0;
   header.onmousedown = (e) => {
-    e = e || window.event;
     e.preventDefault();
-    mouseX = e.clientX;
-    mouseY = e.clientY;
+    mouseX = e.clientX; mouseY = e.clientY;
     document.onmouseup = () => { document.onmouseup = null; document.onmousemove = null; };
     document.onmousemove = (ev) => {
-      ev = ev || window.event;
       ev.preventDefault();
-      posX = mouseX - ev.clientX;
-      posY = mouseY - ev.clientY;
-      mouseX = ev.clientX;
-      mouseY = ev.clientY;
+      posX = mouseX - ev.clientX; posY = mouseY - ev.clientY;
+      mouseX = ev.clientX; mouseY = ev.clientY;
       panel.style.top = (panel.offsetTop - posY) + 'px';
       panel.style.left = (panel.offsetLeft - posX) + 'px';
-      panel.style.right = 'auto';
     };
   };
 }
@@ -262,11 +256,9 @@ function makePanelDraggable() {
 function toggleDigitalTwinPanelFromMenu() {
   injectDigitalTwinPanel();
   const panel = document.getElementById('dt-asset-panel');
-
   if (panel.style.display === 'none' || panel.style.display === '') {
     const entity = window.selectedEntity;
     const metaObject = window.selectedMetaObject;
-
     let expressID = entity ? entity.id : '';
     let globalID = '';
     let assetName = (metaObject && metaObject.name) ? metaObject.name : '';
@@ -276,9 +268,7 @@ function toggleDigitalTwinPanelFromMenu() {
       else if (metaObject.globalId) globalID = metaObject.globalId;
       else if (metaObject.id && String(metaObject.id).includes('-')) globalID = metaObject.id;
     }
-    if (!globalID && entity && entity.globalId) {
-      globalID = entity.globalId;
-    }
+    if (!globalID && entity && entity.globalId) globalID = entity.globalId;
 
     openDigitalTwinPanel(expressID, globalID, assetName);
   } else {
@@ -291,6 +281,7 @@ async function openDigitalTwinPanel(expressID, globalID, assetName = '') {
   const panel = document.getElementById('dt-asset-panel');
   panel.style.display = 'block';
 
+  // Gọi Focus và Highlight thiết bị
   if (globalID || expressID) {
     focusCameraOnEntity(globalID, expressID);
   }
@@ -305,10 +296,7 @@ async function openDigitalTwinPanel(expressID, globalID, assetName = '') {
         const parentRow = el.closest('tr') || el.parentElement;
         if (parentRow) {
           const cells = parentRow.querySelectorAll('td, span, div');
-          if (cells.length > 1) {
-            const val = cells[1].innerText.trim();
-            if (val && val !== 'ID Cấu Kiện') return val;
-          }
+          if (cells.length > 1) return cells[1].innerText.trim();
         }
       }
     }
@@ -318,35 +306,29 @@ async function openDigitalTwinPanel(expressID, globalID, assetName = '') {
   let finalGlobalID = globalID;
   if (!finalGlobalID || String(finalGlobalID) === String(expressID)) {
     const domId = getIfcGlobalIdFromDOM();
-    if (domId) finalGlobalID = domId;
+    if (domId && domId !== 'ID Cấu Kiện') finalGlobalID = domId;
   }
 
-  const applyValuesToForm = (gId, eId, aName) => {
+  const applyValues = (gId, eId, aName) => {
     document.getElementById('dt_global_id').value = gId || eId || '';
     document.getElementById('dt_express_id').value = eId || '';
     document.getElementById('dt_display_global_id').value = gId || eId || '';
     if (aName) document.getElementById('dt_asset_name').value = aName;
   };
 
-  applyValuesToForm(finalGlobalID, expressID, assetName);
-
-  setTimeout(() => {
-    const delayedId = getIfcGlobalIdFromDOM();
-    if (delayedId) applyValuesToForm(delayedId, expressID, assetName);
-  }, 150);
+  applyValues(finalGlobalID, expressID, assetName);
+  setTimeout(() => applyValues(getIfcGlobalIdFromDOM() || finalGlobalID, expressID, assetName), 150);
 
   const client = getDigitalTwinSupabaseClient();
   const searchId = finalGlobalID || expressID;
 
   if (client && searchId) {
     try {
-      const { data: existingAsset, error } = await client
+      const { data: existingAsset } = await client
         .from('project_assets')
         .select('*, asset_documents(*)')
         .filter('global_id', 'ilike', `%${searchId}%`)
         .maybeSingle();
-
-      if (error) return;
 
       if (existingAsset) {
         document.getElementById('dt_asset_code').value = existingAsset.asset_code || '';
@@ -358,27 +340,22 @@ async function openDigitalTwinPanel(expressID, globalID, assetName = '') {
         document.getElementById('dt_next_maint_date').value = existingAsset.next_maintenance_date || '';
         document.getElementById('dt_maint_log').value = existingAsset.maintenance_log || '';
 
-        if (existingAsset.asset_documents && existingAsset.asset_documents.length > 0) {
+        if (existingAsset.asset_documents?.length > 0) {
           let docsHtml = '<b>Tài liệu đã đính kèm:</b><br>';
           existingAsset.asset_documents.forEach(doc => {
-            docsHtml += `📄 <a href="${doc.file_url}" target="_blank" style="color:#1a73e8; text-decoration:none;">${doc.file_name}</a><br>`;
+            docsHtml += `📄 <a href="${doc.file_url}" target="_blank" style="color:#1a73e8;">${doc.file_name}</a><br>`;
           });
           document.getElementById('dt_doc_list').innerHTML = docsHtml;
         }
       }
-    } catch (e) {
-      console.warn('Lỗi đọc CSDL:', e);
-    }
+    } catch (e) {}
   }
 }
 
-function closeAssetPanel() {
-  const panel = document.getElementById('dt-asset-panel');
-  if (panel) panel.style.display = 'none';
-}
+function closeAssetPanel() { document.getElementById('dt-asset-panel').style.display = 'none'; }
 
 // =========================================================================
-// --- TÔ MÀU MÔ HÌNH 3D & HIỆN MARKER PIN ---
+// --- TÔ MÀU 3D & XỬ LÝ MARKER BẰNG TOÁN HỌC MA TRẬN KHÔNG LỖI ---
 // =========================================================================
 
 function findEntityByAsset(viewer, asset) {
@@ -391,55 +368,31 @@ function findEntityByAsset(viewer, asset) {
   if (targetEId && objects[targetEId]) return objects[targetEId];
 
   const allObjects = Object.values(objects);
-  
   if (targetGId) {
-    const match = allObjects.find(obj => 
-      obj.id === targetGId || 
-      obj.globalId === targetGId || 
-      (obj.id && obj.id.endsWith('#' + targetGId)) ||
-      (obj.id && obj.id.includes(targetGId))
-    );
+    const match = allObjects.find(obj => obj.id === targetGId || obj.globalId === targetGId || (obj.id && obj.id.includes(targetGId)));
     if (match) return match;
   }
-
   if (targetEId && targetEId !== '0') {
-    const match = allObjects.find(obj => 
-      obj.id === targetEId || 
-      (obj.id && (obj.id.endsWith('#' + targetEId) || obj.id === targetEId))
-    );
+    const match = allObjects.find(obj => obj.id === targetEId || (obj.id && obj.id.endsWith(targetEId)));
     if (match) return match;
   }
-
   return null;
 }
 
 async function applyAssetColorCoding() {
   const client = getDigitalTwinSupabaseClient();
-  if (!client) {
-    alert('Chưa kết nối CSDL Supabase!');
-    return;
-  }
+  if (!client) return alert('Chưa kết nối CSDL Supabase!');
 
   try {
-    const { data: assets, error } = await client
-      .from('project_assets')
-      .select('express_id, global_id, status, asset_code, asset_name');
-
-    if (error || !assets || assets.length === 0) {
-      console.warn('Không lấy được dữ liệu tài sản từ CSDL:', error);
-      return;
-    }
+    const { data: assets } = await client.from('project_assets').select('*');
+    if (!assets || assets.length === 0) return;
 
     const viewer = window.xeokitViewer || window.viewer;
-    if (!viewer || !viewer.scene) {
-      console.warn('Chưa tìm thấy Viewer 3D!');
-      return;
-    }
+    if (!viewer || !viewer.scene) return;
 
     assets.forEach(asset => {
       const rgbColor = STATUS_COLORS[asset.status] || STATUS_COLORS.OPERATIONAL;
       const entity = findEntityByAsset(viewer, asset);
-
       if (entity) {
         entity.colorize = rgbColor;
         entity.colorized = true;
@@ -448,15 +401,11 @@ async function applyAssetColorCoding() {
     });
 
     viewer.scene._needUpdate = 1;
-    if (typeof viewer.scene.render === 'function') {
-      viewer.scene.render();
-    }
+    if (typeof viewer.scene.render === 'function') viewer.scene.render();
 
     render3DMarkers(assets);
     isColorCodingActive = true;
-  } catch (err) {
-    console.error('Lỗi tô màu 3D:', err);
-  }
+  } catch (err) {}
 }
 
 function resetModelColors() {
@@ -466,104 +415,57 @@ function resetModelColors() {
       entity.colorize = null;
       entity.colorized = false;
     });
-
     viewer.scene._needUpdate = 1;
-    if (typeof viewer.scene.render === 'function') {
-      viewer.scene.render();
-    }
+    if (typeof viewer.scene.render === 'function') viewer.scene.render();
   }
-
   clear3DMarkers();
   isColorCodingActive = false;
 }
 
-function toggleColorCodingMode(buttonEl) {
-  const btn = buttonEl || document.getElementById('dt-btn-toggle-color');
+function toggleColorCodingMode(btn) {
   if (!isColorCodingActive) {
     applyAssetColorCoding();
-    if (btn) {
-      btn.innerText = '🔄 Khôi Phục Màu Mặc Định';
-      btn.style.backgroundColor = '#28a745';
-      btn.style.color = '#fff';
-      btn.style.borderColor = '#28a745';
-    }
+    if (btn) { btn.innerText = '🔄 Khôi Phục Màu Mặc Định'; btn.style.backgroundColor = '#28a745'; btn.style.color = '#fff'; btn.style.borderColor = '#28a745'; }
   } else {
     resetModelColors();
-    if (btn) {
-      btn.innerText = '🎨 Xem Trạng Thái 3D';
-      btn.style.backgroundColor = '#f0f4f9';
-      btn.style.color = '#1a73e8';
-      btn.style.borderColor = '#b6d4fe';
-    }
+    if (btn) { btn.innerText = '🎨 Xem Trạng Thái 3D'; btn.style.backgroundColor = '#f0f4f9'; btn.style.color = '#1a73e8'; btn.style.borderColor = '#b6d4fe'; }
   }
 }
 
-// =========================================================================
-// --- MARKER 3D OVERLAY CONTAINER & POSITIONS ---
-// =========================================================================
-
+// KHUNG CHỨA MARKER CẬP NHẬT 
 function getOrCreateMarkerContainer(canvasEl) {
   injectMarkerStyles();
   let container = document.getElementById('dt-marker-overlay-container');
-  const parent = canvasEl ? (canvasEl.parentElement || document.body) : document.body;
-
-  if (window.getComputedStyle(parent).position === 'static') {
-    parent.style.position = 'relative';
-  }
-
   if (!container) {
     container = document.createElement('div');
     container.id = 'dt-marker-overlay-container';
-    parent.appendChild(container);
+    document.body.appendChild(container); // Gắn thẳng vào Body
   }
-
-  // [CẬP NHẬT QUAN TRỌNG]: Ép container nằm đè chính xác tuyệt đối lên Canvas
-  // Tránh trường hợp web có layout phức tạp làm khung marker bị xô lệch
-  if (canvasEl) {
-    container.style.top = (canvasEl.offsetTop || 0) + 'px';
-    container.style.left = (canvasEl.offsetLeft || 0) + 'px';
-    container.style.width = (canvasEl.clientWidth || canvasEl.offsetWidth) + 'px';
-    container.style.height = (canvasEl.clientHeight || canvasEl.offsetHeight) + 'px';
-  }
-
   return container;
 }
 
 function render3DMarkers(assets) {
   clear3DMarkers();
-
   const viewer = window.xeokitViewer || window.viewer;
   if (!viewer || !viewer.scene || !viewer.scene.canvas) return;
 
   const canvasEl = viewer.scene.canvas.canvas;
   const container = getOrCreateMarkerContainer(canvasEl);
-
   const trackedItems = [];
 
   assets.forEach(asset => {
     const entity = findEntityByAsset(viewer, asset);
-
     if (entity && isValidAABB(entity.aabb)) {
       const aabb = entity.aabb;
-      
-      // [CẬP NHẬT]: Dùng tâm chính xác của Bounding Box thay vì Top Center. 
-      // Do các mô hình IFC đôi khi bị xoay lật trục Y và Z, lấy tâm tuyệt đối là an toàn nhất.
       const centerWorldPos = [
-        (aabb[0] + aabb[3]) / 2, // Center X
-        (aabb[1] + aabb[4]) / 2, // Center Y
-        (aabb[2] + aabb[5]) / 2  // Center Z
+        (aabb[0] + aabb[3]) / 2, 
+        (aabb[1] + aabb[4]) / 2, 
+        (aabb[2] + aabb[5]) / 2
       ];
 
-      let markerIcon = '🟢';
-      let markerClass = 'operational';
-
-      if (asset.status === 'FAULT') {
-        markerIcon = '🛑';
-        markerClass = 'fault';
-      } else if (asset.status === 'MAINTENANCE') {
-        markerIcon = '⚠️';
-        markerClass = 'maintenance';
-      }
+      let markerIcon = '🟢', markerClass = 'operational';
+      if (asset.status === 'FAULT') { markerIcon = '🛑'; markerClass = 'fault'; } 
+      else if (asset.status === 'MAINTENANCE') { markerIcon = '⚠️'; markerClass = 'maintenance'; }
 
       const markerDiv = document.createElement('div');
       markerDiv.className = `dt-3d-marker ${markerClass}`;
@@ -577,72 +479,68 @@ function render3DMarkers(assets) {
 
       container.appendChild(markerDiv);
       activeMarkerElements.push(markerDiv);
-
-      trackedItems.push({
-        element: markerDiv,
-        worldPos: centerWorldPos
-      });
+      trackedItems.push({ element: markerDiv, worldPos: centerWorldPos });
     }
   });
 
+  // HÀM TÍNH MA TRẬN THUẦN TÚY (GIẢI QUYẾT TRIỆT ĐỂ LỖI MARKER MẤT TÍCH)
   function updateMarkerPositions() {
     if (!isColorCodingActive || trackedItems.length === 0) return;
-
     const currentViewer = window.xeokitViewer || window.viewer;
     if (!currentViewer || !currentViewer.scene || !currentViewer.scene.camera) return;
 
     const camera = currentViewer.scene.camera;
-    const currentCanvas = currentViewer.scene.canvas ? currentViewer.scene.canvas.canvas : null;
-    if (!currentCanvas) return;
-
-    const canvasWidth = currentCanvas.clientWidth || currentCanvas.offsetWidth;
-    const canvasHeight = currentCanvas.clientHeight || currentCanvas.offsetHeight;
-
-    // Cập nhật lại size container nếu có thay đổi (vd: resize cửa sổ)
+    const canvas = currentViewer.scene.canvas.canvas;
+    
+    // Cập nhật vị trí khung chứa ôm sát mép Canvas thực tế trên web
+    const rect = canvas.getBoundingClientRect();
     const container = document.getElementById('dt-marker-overlay-container');
     if (container) {
-      container.style.width = canvasWidth + 'px';
-      container.style.height = canvasHeight + 'px';
+      container.style.left = rect.left + 'px';
+      container.style.top = rect.top + 'px';
+      container.style.width = rect.width + 'px';
+      container.style.height = rect.height + 'px';
     }
 
+    // Lấy Ma trận của Xeokit hoặc Three.js
+    const viewMat = camera.viewMatrix || camera.matrixWorldInverse;
+    const projMat = (camera.project && camera.project.matrix) || camera.projMatrix || camera.projectionMatrix;
+
+    if (!viewMat || !projMat) return;
+
     trackedItems.forEach(item => {
-      try {
-        const tempPos = [0, 0, 0];
-        const res = camera.projectWorldPosToCanvas(item.worldPos, tempPos);
-        const canvasPos = res || tempPos;
+      const pos = item.worldPos;
+      
+      // 1. Nhân Vector tọa độ với View Matrix
+      let vx = viewMat[0]*pos[0] + viewMat[4]*pos[1] + viewMat[8]*pos[2] + viewMat[12];
+      let vy = viewMat[1]*pos[0] + viewMat[5]*pos[1] + viewMat[9]*pos[2] + viewMat[13];
+      let vz = viewMat[2]*pos[0] + viewMat[6]*pos[1] + viewMat[10]*pos[2] + viewMat[14];
+      
+      // 2. Nhân tiếp với Projection Matrix
+      let px = projMat[0]*vx + projMat[4]*vy + projMat[8]*vz + projMat[12];
+      let py = projMat[1]*vx + projMat[5]*vy + projMat[9]*vz + projMat[13];
+      let pw = projMat[3]*vx + projMat[7]*vy + projMat[11]*vz + projMat[15];
 
-        if (canvasPos && !isNaN(canvasPos[0]) && !isNaN(canvasPos[1])) {
-          let x = canvasPos[0];
-          let y = canvasPos[1];
+      // Nếu pw <= 0 tức là thiết bị đang nằm xoay ở sau lưng camera => Ẩn marker
+      if (pw <= 0) {
+        item.element.style.display = 'none';
+        return;
+      }
 
-          // [CẬP NHẬT QUAN TRỌNG]: Khắc phục lỗi lệch tỷ lệ trên màn hình DPI cao (Retina, Mac, Mobile)
-          const rect = currentCanvas.getBoundingClientRect();
-          const scaleX = currentCanvas.width / rect.width;
-          const scaleY = currentCanvas.height / rect.height;
-          
-          if (scaleX > 1.1 || scaleY > 1.1) {
-             x = x / scaleX;
-             y = y / scaleY;
-          }
+      // 3. Chuẩn hóa sang tọa độ màn hình 2D
+      let nx = px / pw;
+      let ny = py / pw;
+      
+      let x = (nx + 1) * 0.5 * rect.width;
+      let y = (1 - ny) * 0.5 * rect.height;
 
-          // Kiểm tra xem thiết bị có nằm sau lưng camera không
-          const isBehindCamera = (canvasPos[2] !== undefined && canvasPos[2] < 0);
-          
-          const margin = 30; // Cho phép marker vẫn hiện khi hơi khuất mép viền
-          const isInView = !isBehindCamera && (x >= -margin && x <= (canvasWidth + margin) && 
-                                               y >= -margin && y <= (canvasHeight + margin));
-
-          if (isInView) {
-            item.element.style.display = 'flex';
-            item.element.style.left = `${Math.round(x)}px`;
-            item.element.style.top = `${Math.round(y)}px`;
-          } else {
-            item.element.style.display = 'none';
-          }
-        } else {
-          item.element.style.display = 'none';
-        }
-      } catch (err) {
+      // Giới hạn không cho marker hiện nếu bị trôi quá xa ra ngoài viền
+      const margin = 40;
+      if (x >= -margin && x <= rect.width + margin && y >= -margin && y <= rect.height + margin) {
+        item.element.style.display = 'flex';
+        item.element.style.left = Math.round(x) + 'px';
+        item.element.style.top = Math.round(y) + 'px';
+      } else {
         item.element.style.display = 'none';
       }
     });
@@ -655,21 +553,13 @@ function render3DMarkers(assets) {
 function clear3DMarkers() {
   const viewer = window.xeokitViewer || window.viewer;
   if (viewer && viewer.scene && markerTickListener) {
-    try {
-      viewer.scene.off(markerTickListener);
-    } catch (e) {}
+    try { viewer.scene.off(markerTickListener); } catch (e) {}
     markerTickListener = null;
   }
-
-  activeMarkerElements.forEach(el => {
-    if (el && el.parentElement) el.parentElement.removeChild(el);
-  });
+  activeMarkerElements.forEach(el => { if (el && el.parentElement) el.parentElement.removeChild(el); });
   activeMarkerElements = [];
-
   const container = document.getElementById('dt-marker-overlay-container');
-  if (container) {
-    container.innerHTML = '';
-  }
+  if (container) container.innerHTML = '';
 }
 
 // =========================================================================
@@ -678,55 +568,50 @@ function clear3DMarkers() {
 
 function injectDigitalTwinDashboardModal() {
   if (document.getElementById('dt-dashboard-modal')) return;
-
   const modalHtml = `
-    <div id="dt-dashboard-modal" style="display:none; position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(0,0,0,0.5); z-index:10000; align-items:center; justify-content:center; font-family:sans-serif; pointer-events:none;">
-      <div style="background:#fff; width:85%; max-width:900px; max-height:90vh; border-radius:12px; overflow:hidden; display:flex; flex-direction:column; box-shadow:0 10px 30px rgba(0,0,0,0.3); pointer-events:auto;">
-        
+    <div id="dt-dashboard-modal" style="display:none; position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(0,0,0,0.5); z-index:10000; align-items:center; justify-content:center; font-family:sans-serif;">
+      <div style="background:#fff; width:85%; max-width:900px; max-height:90vh; border-radius:12px; overflow:hidden; display:flex; flex-direction:column; box-shadow:0 10px 30px rgba(0,0,0,0.3);">
         <div style="padding:15px 20px; background:#1a73e8; color:#fff; display:flex; justify-content:space-between; align-items:center;">
-          <h2 style="margin:0; font-size:16px; display:flex; align-items:center; gap:8px;">📊 Báo Cáo & Thống Kê Vận Hành Tài Sản (Digital Twin)</h2>
-          <button type="button" onclick="closeDigitalTwinDashboard()" style="background:none; border:none; color:#fff; font-size:20px; cursor:pointer; font-weight:bold;">✕</button>
+          <h2 style="margin:0; font-size:16px;">📊 Báo Cáo & Thống Kê Vận Hành Tài Sản</h2>
+          <button type="button" onclick="closeDigitalTwinDashboard()" style="background:none; border:none; color:#fff; font-size:20px; cursor:pointer;">✕</button>
         </div>
-
         <div style="padding:20px; overflow-y:auto; flex:1; background:#f8f9fa;">
           <div style="display:grid; grid-template-columns: repeat(4, 1fr); gap:15px; margin-bottom:20px;">
             <div style="background:#fff; padding:15px; border-radius:8px; border-left:4px solid #1a73e8; box-shadow:0 2px 4px rgba(0,0,0,0.05);">
               <div style="font-size:12px; color:#666; font-weight:bold;">TỔNG THIẾT BỊ</div>
               <div id="dt-dash-total" style="font-size:24px; font-weight:bold; color:#1a73e8; margin-top:5px;">0</div>
             </div>
-            <div style="background:#fff; padding:15px; border-radius:8px; border-left:4px solid #28a745; box-shadow:0 2px 4px rgba(0,0,0,0.05);">
+            <div style="background:#fff; padding:15px; border-radius:8px; border-left:4px solid #28a745;">
               <div style="font-size:12px; color:#666; font-weight:bold;">🟢 HOẠT ĐỘNG BÌNH THƯỜNG</div>
               <div id="dt-dash-op" style="font-size:24px; font-weight:bold; color:#28a745; margin-top:5px;">0</div>
             </div>
-            <div style="background:#fff; padding:15px; border-radius:8px; border-left:4px solid #f39c12; box-shadow:0 2px 4px rgba(0,0,0,0.05);">
-              <div style="font-size:12px; color:#666; font-weight:bold;">🟡 ĐANG BẢO TRÌ / KIỂM TRA</div>
+            <div style="background:#fff; padding:15px; border-radius:8px; border-left:4px solid #f39c12;">
+              <div style="font-size:12px; color:#666; font-weight:bold;">🟡 ĐANG BẢO TRÌ</div>
               <div id="dt-dash-maint" style="font-size:24px; font-weight:bold; color:#f39c12; margin-top:5px;">0</div>
             </div>
-            <div style="background:#fff; padding:15px; border-radius:8px; border-left:4px solid #dc3545; box-shadow:0 2px 4px rgba(0,0,0,0.05);">
+            <div style="background:#fff; padding:15px; border-radius:8px; border-left:4px solid #dc3545;">
               <div style="font-size:12px; color:#666; font-weight:bold;">🔴 SỰ CỐ / HỎNG HÓC</div>
               <div id="dt-dash-fault" style="font-size:24px; font-weight:bold; color:#dc3545; margin-top:5px;">0</div>
             </div>
           </div>
 
           <div style="background:#fff; padding:15px; border-radius:8px; box-shadow:0 2px 4px rgba(0,0,0,0.05);">
-            <h3 style="margin-top:0; font-size:14px; color:#333; border-bottom:1px solid #eee; padding-bottom:10px;">⚠️ Danh Sách Thiết Bị Cần Bảo Trì & Sự Cố</h3>
+            <h3 style="margin-top:0; font-size:14px; border-bottom:1px solid #eee; padding-bottom:10px;">⚠️ Thiết Bị Cần Xử Lý</h3>
             <table style="width:100%; border-collapse:collapse; font-size:12px; text-align:left;">
               <thead>
                 <tr style="background:#f1f3f4; color:#5f6368;">
                   <th style="padding:8px; border-bottom:1px solid #ddd;">Mã Tài Sản</th>
                   <th style="padding:8px; border-bottom:1px solid #ddd;">Tên Thiết Bị</th>
                   <th style="padding:8px; border-bottom:1px solid #ddd;">Trạng Thái</th>
-                  <th style="padding:8px; border-bottom:1px solid #ddd;">Bảo Trì Gần Nhất</th>
                   <th style="padding:8px; border-bottom:1px solid #ddd;">Lịch Bảo Trì Kế</th>
                   <th style="padding:8px; border-bottom:1px solid #ddd; text-align:center;">Thao Tác</th>
                 </tr>
               </thead>
               <tbody id="dt-dash-table-body">
-                <tr><td colspan="6" style="text-align:center; padding:15px; color:#777;">Đang tải dữ liệu...</td></tr>
+                <tr><td colspan="5" style="text-align:center; padding:15px;">Đang tải...</td></tr>
               </tbody>
             </table>
           </div>
-
         </div>
       </div>
     </div>
@@ -737,18 +622,13 @@ function injectDigitalTwinDashboardModal() {
 async function openDigitalTwinDashboard() {
   injectDigitalTwinDashboardModal();
   const modal = document.getElementById('dt-dashboard-modal');
-  if (modal) {
-    modal.style.display = 'flex';
-    modal.style.pointerEvents = 'auto';
-  }
+  if (modal) modal.style.display = 'flex';
 
   const client = getDigitalTwinSupabaseClient();
   if (!client) return;
 
   try {
-    const { data: assets, error } = await client.from('project_assets').select('*');
-    if (error) throw error;
-
+    const { data: assets } = await client.from('project_assets').select('*');
     let total = assets ? assets.length : 0;
     let op = 0, maint = 0, fault = 0;
     let alertRowsHtml = '';
@@ -760,19 +640,16 @@ async function openDigitalTwinDashboard() {
         else if (asset.status === 'FAULT') fault++;
 
         if (asset.status !== 'OPERATIONAL') {
-          const statusBadge = asset.status === 'FAULT' 
-            ? '<span style="color:#dc3545; font-weight:bold;">🔴 Sự cố</span>' 
-            : '<span style="color:#f39c12; font-weight:bold;">🟡 Bảo trì</span>';
-
+          const badge = asset.status === 'FAULT' ? '<span style="color:#dc3545; font-weight:bold;">🔴 Sự cố</span>' : '<span style="color:#f39c12; font-weight:bold;">🟡 Bảo trì</span>';
+          // Nút bấm đã được gắn Cập nhật Zoom mới
           alertRowsHtml += `
             <tr style="border-bottom:1px solid #eee;">
               <td style="padding:8px; font-weight:bold;">${asset.asset_code || '-'}</td>
               <td style="padding:8px;">${asset.asset_name || '-'}</td>
-              <td style="padding:8px;">${statusBadge}</td>
-              <td style="padding:8px;">${asset.last_maintenance_date || '-'}</td>
+              <td style="padding:8px;">${badge}</td>
               <td style="padding:8px; color:#1a73e8; font-weight:bold;">${asset.next_maintenance_date || '-'}</td>
               <td style="padding:8px; text-align:center;">
-                <button type="button" onclick="closeDigitalTwinDashboard(); openDigitalTwinPanel('${asset.express_id}', '${asset.global_id}', '${asset.asset_name}');" 
+                <button type="button" onclick="focusAndOpenAssetFromDashboard('${asset.express_id}', '${asset.global_id}', '${asset.asset_name}')" 
                         style="padding:4px 8px; background:#1a73e8; color:#fff; border:none; border-radius:4px; font-size:11px; cursor:pointer;">
                   🔎 Xem Chi Tiết
                 </button>
@@ -787,29 +664,17 @@ async function openDigitalTwinDashboard() {
     document.getElementById('dt-dash-op').innerText = op;
     document.getElementById('dt-dash-maint').innerText = maint;
     document.getElementById('dt-dash-fault').innerText = fault;
-
-    const tbody = document.getElementById('dt-dash-table-body');
-    if (alertRowsHtml) {
-      tbody.innerHTML = alertRowsHtml;
-    } else {
-      tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:15px; color:#28a745; font-weight:bold;">🎉 Tất cả thiết bị đều đang hoạt động bình thường!</td></tr>';
-    }
-
-  } catch (err) {
-    console.error('Lỗi nạp Dashboard:', err);
-  }
+    document.getElementById('dt-dash-table-body').innerHTML = alertRowsHtml || '<tr><td colspan="5" style="text-align:center; padding:15px; color:#28a745;">🎉 Tất cả thiết bị bình thường!</td></tr>';
+  } catch (err) {}
 }
 
 function closeDigitalTwinDashboard() {
   const modal = document.getElementById('dt-dashboard-modal');
-  if (modal) {
-    modal.style.display = 'none';
-    modal.style.pointerEvents = 'none';
-  }
+  if (modal) modal.style.display = 'none';
 }
 
 // =========================================================================
-// --- LƯU DỮ LIỆU TÀI SẢN VÀO SUPABASE ---
+// --- LƯU DỮ LIỆU ---
 // =========================================================================
 
 async function saveAssetToDatabase() {
@@ -818,68 +683,33 @@ async function saveAssetToDatabase() {
   const assetCode = document.getElementById('dt_asset_code').value;
   const assetName = document.getElementById('dt_asset_name').value;
   const status = document.getElementById('dt_status').value;
-  const installDate = document.getElementById('dt_install_date').value || null;
-  const warrantyDate = document.getElementById('dt_warranty_date').value || null;
-  const lastMaintDate = document.getElementById('dt_last_maint_date').value || null;
-  const nextMaintDate = document.getElementById('dt_next_maint_date').value || null;
-  const maintLog = document.getElementById('dt_maint_log').value || '';
-  const fileInput = document.getElementById('dt_file_input');
 
-  if (!assetCode || !assetName) {
-    alert('Vui lòng nhập Mã Tài Sản và Tên Thiết Bị!');
-    return;
-  }
+  if (!assetCode || !assetName) return alert('Vui lòng nhập Mã Tài Sản và Tên Thiết Bị!');
 
   const client = getDigitalTwinSupabaseClient();
-  const projectId = window.currentProjectId || 'DEFAULT_PROJ';
-
-  if (!client) {
-    alert('Chưa kết nối CSDL Supabase!');
-    return;
-  }
+  if (!client) return alert('Chưa kết nối CSDL Supabase!');
 
   try {
-    const { data: assetData, error: assetErr } = await client
-      .from('project_assets')
-      .upsert({
-        project_id: projectId,
-        global_id: globalId,
-        express_id: parseInt(expressId) || 0,
-        asset_code: assetCode,
-        asset_name: assetName,
-        status: status,
-        installation_date: installDate,
-        warranty_expiry: warrantyDate,
-        last_maintenance_date: lastMaintDate,
-        next_maintenance_date: nextMaintDate,
-        maintenance_log: maintLog,
-        updated_at: new Date()
-      }, { onConflict: 'global_id' })
-      .select()
-      .single();
+    const { error } = await client.from('project_assets').upsert({
+      project_id: window.currentProjectId || 'DEFAULT_PROJ',
+      global_id: globalId,
+      express_id: parseInt(expressId) || 0,
+      asset_code: assetCode,
+      asset_name: assetName,
+      status: status,
+      installation_date: document.getElementById('dt_install_date').value || null,
+      warranty_expiry: document.getElementById('dt_warranty_date').value || null,
+      last_maintenance_date: document.getElementById('dt_last_maint_date').value || null,
+      next_maintenance_date: document.getElementById('dt_next_maint_date').value || null,
+      maintenance_log: document.getElementById('dt_maint_log').value || '',
+      updated_at: new Date()
+    }, { onConflict: 'global_id' });
 
-    if (assetErr) throw assetErr;
-
-    if (fileInput.files.length > 0 && assetData) {
-      const file = fileInput.files[0];
-      const safeFileName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
-      const filePath = `assets/${assetData.id}/${Date.now()}_${safeFileName}`;
-
-      const { error: uploadErr } = await client.storage.from('asset-docs').upload(filePath, file, { cacheControl: '3600', upsert: true });
-      if (!uploadErr) {
-        const { data: publicUrlData } = client.storage.from('asset-docs').getPublicUrl(filePath);
-        await client.from('asset_documents').insert({ asset_id: assetData.id, file_name: file.name, file_url: publicUrlData.publicUrl });
-      }
-    }
-
-    if (isColorCodingActive) {
-      applyAssetColorCoding();
-    }
-
-    alert('✅ Đã lưu hồ sơ thiết bị thành công!');
+    if (error) throw error;
+    if (isColorCodingActive) applyAssetColorCoding();
+    alert('✅ Lưu hồ sơ thành công!');
     closeAssetPanel();
   } catch (err) {
-    console.error('Lỗi lưu tài sản:', err);
-    alert('Có lỗi xảy ra: ' + err.message);
+    alert('Lỗi: ' + err.message);
   }
 }
