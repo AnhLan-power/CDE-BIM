@@ -175,7 +175,7 @@ function findEntityByAsset(viewer, asset) {
 }
 
 // =========================================================================
-// --- PHƯƠNG THỨC ZOOM & HIGHLIGHT CAMERA CHUẨN XEOKIT ---
+// --- CƠ CHẾ CAMERA ZOOM & HIGHLIGHT CHUẨN XEOKIT SDK ---
 // =========================================================================
 
 function focusCameraOnEntity(globalId, expressId, assetName = '') {
@@ -190,7 +190,7 @@ function focusCameraOnEntity(globalId, expressId, assetName = '') {
     return;
   }
 
-  // Bật hiển thị & Highlight đối tượng
+  // 1. Bật hiển thị & Highlight thiết bị
   entity.visible = true; 
   if (typeof entity.culled !== 'undefined') entity.culled = false;
 
@@ -199,23 +199,37 @@ function focusCameraOnEntity(globalId, expressId, assetName = '') {
   setTimeout(() => { if (entity) entity.highlighted = false; }, 3500);
 
   if (!isValidAABB(entity.aabb)) {
-    console.warn('⚠️ Bounding Box (AABB) của đối tượng không hợp lệ:', entity);
+    console.warn('⚠️ Bounding Box (AABB) không hợp lệ:', entity);
     return;
   }
 
   const aabb = entity.aabb;
 
-  // Dừng mọi animation camera cũ
-  if (viewer.cameraFlight && typeof viewer.cameraFlight.stop === 'function') {
-    try { viewer.cameraFlight.stop(); } catch(e) {}
+  // 2. Tính toán tâm thiết bị (Center) & khoảng cách Zoom phù hợp
+  const center = [
+    (aabb[0] + aabb[3]) / 2,
+    (aabb[1] + aabb[4]) / 2,
+    (aabb[2] + aabb[5]) / 2
+  ];
+
+  const dx = aabb[3] - aabb[0];
+  const dy = aabb[4] - aabb[1];
+  const dz = aabb[5] - aabb[2];
+  const diagonal = Math.sqrt(dx * dx + dy * dy + dz * dz);
+  
+  // Khoảng cách lùi camera ra để nhìn vừa vặn thiết bị
+  const fitDist = Math.max(diagonal * 2.2, 2.5);
+
+  // 3. Cập nhật tâm xoay chuột (Pivot) để không bị bật ngược lại
+  if (viewer.cameraControl) {
+    viewer.cameraControl.pivotPos = center;
   }
 
-  // 🎯 PHƯƠNG ÁN 1: Dùng cameraFlight.flyTo chuẩn Xeokit với flag fit: true
+  // 🎯 PHƯƠNG ÁN 1: Dùng cameraFlight.flyTo của Xeokit (Nếu hỗ trợ)
   if (viewer.cameraFlight && typeof viewer.cameraFlight.flyTo === 'function') {
     try {
       viewer.cameraFlight.flyTo({
         aabb: aabb,
-        fit: true,
         duration: 0.8
       });
       return;
@@ -223,7 +237,6 @@ function focusCameraOnEntity(globalId, expressId, assetName = '') {
       try {
         viewer.cameraFlight.flyTo({
           entity: entity,
-          fit: true,
           duration: 0.8
         });
         return;
@@ -231,56 +244,40 @@ function focusCameraOnEntity(globalId, expressId, assetName = '') {
     }
   }
 
-  // 🎯 PHƯƠNG ÁN 2: Dùng cameraControl.flyTo
-  if (viewer.cameraControl && typeof viewer.cameraControl.flyTo === 'function') {
-    try {
-      viewer.cameraControl.flyTo({ aabb: aabb, fit: true, duration: 0.8 });
-      return;
-    } catch(e) {}
-  }
-
-  // 🎯 PHƯƠNG ÁN 3 (DỰ PHÒNG): Tính toán khoảng cách & gán trực tiếp camera.eye / camera.target
+  // 🎯 PHƯƠNG ÁN 2 (THAY ĐỔI TỌA ĐỘ TRỰC TIẾP CHUẨN XEOKIT): Dùng camera.eye & camera.look
   const camera = viewer.scene.camera;
   if (camera) {
-    const center = [
-      (aabb[0] + aabb[3]) / 2,
-      (aabb[1] + aabb[4]) / 2,
-      (aabb[2] + aabb[5]) / 2
-    ];
-
-    const dx = aabb[3] - aabb[0];
-    const dy = aabb[4] - aabb[1];
-    const dz = aabb[5] - aabb[2];
-    const diagonal = Math.sqrt(dx * dx + dy * dy + dz * dz);
-    const fitDist = Math.max(diagonal * 2.0, 2.0);
-
+    // CHÚ Ý: Xeokit dùng `camera.look` (KHÔNG PHẢI `camera.target`)
     const startEye = camera.eye ? [...camera.eye] : [0, 10, 10];
-    const startTarget = camera.target ? [...camera.target] : [0, 0, 0];
+    const startLook = camera.look ? [...camera.look] : [0, 0, 0];
 
-    let dir = [startEye[0] - startTarget[0], startEye[1] - startTarget[1], startEye[2] - startTarget[2]];
+    // Tính hướng nhìn từ Eye -> Look
+    let dir = [startEye[0] - startLook[0], startEye[1] - startLook[1], startEye[2] - startLook[2]];
     let len = Math.sqrt(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]);
     if (len === 0 || isNaN(len)) { dir = [1, 1, 1]; len = Math.sqrt(3); }
     dir = [dir[0] / len, dir[1] / len, dir[2] / len];
 
-    const endTarget = center;
+    const endLook = center;
     const endEye = [
       center[0] + dir[0] * fitDist,
       center[1] + dir[1] * fitDist,
       center[2] + dir[2] * fitDist
     ];
 
-    const duration = 750;
+    // Animation di chuyển camera trong 0.7s
+    const duration = 700;
     const startTime = performance.now();
 
     function animateCamera(now) {
       const elapsed = now - startTime;
       const progress = Math.min(elapsed / duration, 1.0);
-      const ease = 1 - Math.pow(1 - progress, 3); // Ease-out cubic
+      const ease = 1 - Math.pow(1 - progress, 3); // Ease-out smooth
 
-      camera.target = [
-        startTarget[0] + (endTarget[0] - startTarget[0]) * ease,
-        startTarget[1] + (endTarget[1] - startTarget[1]) * ease,
-        startTarget[2] + (endTarget[2] - startTarget[2]) * ease
+      // Gán trực tiếp camera.look & camera.eye
+      camera.look = [
+        startLook[0] + (endLook[0] - startLook[0]) * ease,
+        startLook[1] + (endLook[1] - startLook[1]) * ease,
+        startLook[2] + (endLook[2] - startLook[2]) * ease
       ];
 
       camera.eye = [
