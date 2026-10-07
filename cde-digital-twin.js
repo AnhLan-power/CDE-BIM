@@ -30,9 +30,10 @@ function cleanId(val) {
  */
 function isValidAABB(aabb) {
   if (!aabb || (!Array.isArray(aabb) && !ArrayBuffer.isView(aabb)) || aabb.length !== 6) return false;
-  if (!isFinite(aabb[0]) || !isFinite(aabb[3]) || aabb[0] >= aabb[3]) return false;
-  if (!isFinite(aabb[1]) || !isFinite(aabb[4]) || aabb[1] >= aabb[4]) return false;
-  if (!isFinite(aabb[2]) || !isFinite(aabb[5]) || aabb[2] >= aabb[5]) return false;
+  if (!isFinite(aabb[0]) || !isFinite(aabb[1]) || !isFinite(aabb[2]) ||
+      !isFinite(aabb[3]) || !isFinite(aabb[4]) || !isFinite(aabb[5])) return false;
+  // Cho phép các mặt phẳng mỏng (aabb min <= max)
+  if (aabb[0] > aabb[3] || aabb[1] > aabb[4] || aabb[2] > aabb[5]) return false;
   return true;
 }
 
@@ -179,7 +180,7 @@ function findEntityByAsset(viewer, asset) {
 }
 
 // =========================================================================
-// --- CƠ CHẾ CAMERA ZOOM & HIGHLIGHT CHUẨN XEOKIT SDK ---
+// --- CƠ CHẾ CAMERA ZOOM CẬN CẢNH CHUẨN XEOKIT SDK ---
 // =========================================================================
 
 function focusCameraOnEntity(globalId, expressId, assetName = '') {
@@ -194,7 +195,7 @@ function focusCameraOnEntity(globalId, expressId, assetName = '') {
     return;
   }
 
-  // 1. Bật hiển thị & Highlight thiết bị
+  // 1. Hiển thị & Highlight thiết bị
   entity.visible = true; 
   if (typeof entity.culled !== 'undefined') entity.culled = false;
 
@@ -202,67 +203,54 @@ function focusCameraOnEntity(globalId, expressId, assetName = '') {
   entity.highlighted = true; 
   setTimeout(() => { if (entity) entity.highlighted = false; }, 3500);
 
-  // 🎯 PHƯƠNG ÁN NATIVE XEOKIT (Khuyên dùng): Giao việc flyTo cho cameraFlight xử lý entity trực tiếp
-  if (viewer.cameraFlight && typeof viewer.cameraFlight.flyTo === 'function') {
-    try {
-      viewer.cameraFlight.flyTo({
-        entity: entity,
-        duration: 0.8
-      });
-      return;
-    } catch (e1) {
-      try {
-        if (isValidAABB(entity.aabb)) {
-          viewer.cameraFlight.flyTo({
-            aabb: entity.aabb,
-            duration: 0.8
-          });
-          return;
-        }
-      } catch (e2) {}
-    }
-  }
-
-  // 🎯 PHƯƠNG ÁN TỰ TÍNH TỌA ĐỘ (Dự phòng)
-  let aabb = entity.aabb;
+  // Lấy Bounding Box của chính thiết bị
+  const aabb = entity.aabb;
   if (!isValidAABB(aabb)) {
-    console.warn('⚠️ AABB của Entity không hợp lệ, đang thử lấy từ Model parent...');
-    if (entity.model && isValidAABB(entity.model.aabb)) {
-      aabb = entity.model.aabb;
-    } else {
-      console.error('❌ Không thể xác định vị trí không gian cho thiết bị này.');
-      return;
-    }
+    console.warn('⚠️ AABB của thiết bị không hợp lệ.');
+    return;
   }
 
-  // 2. Tính toán tâm thiết bị (Center) & khoảng cách Zoom phù hợp
+  // Tính tâm điểm (Center) của thiết bị
   const center = [
     (aabb[0] + aabb[3]) / 2,
     (aabb[1] + aabb[4]) / 2,
     (aabb[2] + aabb[5]) / 2
   ];
 
+  // Đặt tâm xoay chuột (Pivot) chuẩn vào thiết bị
+  if (viewer.cameraControl) {
+    viewer.cameraControl.pivotPos = center;
+  }
+
+  // 🎯 PHƯƠNG ÁN 1: Dùng cameraFlight với fitFOV hẹp (20 deg) để zoom sát thiết bị
+  if (viewer.cameraFlight && typeof viewer.cameraFlight.flyTo === 'function') {
+    try {
+      viewer.cameraFlight.flyTo({
+        aabb: aabb,
+        fitFOV: 20, // Thu hẹp FOV để camera tiến sát hơn nữa
+        duration: 0.8
+      });
+      return;
+    } catch (e) {
+      console.warn("Lỗi cameraFlight, chuyển sang tính toán vị trí thủ công:", e);
+    }
+  }
+
+  // 🎯 PHƯƠNG ÁN 2: Tự tính toán vị trí Camera cận cảnh (Dự phòng)
   const dx = aabb[3] - aabb[0];
   const dy = aabb[4] - aabb[1];
   const dz = aabb[5] - aabb[2];
   const diagonal = Math.sqrt(dx * dx + dy * dy + dz * dz);
   
-  // Khoảng cách lùi camera ra để nhìn vừa vặn thiết bị
-  const fitDist = Math.max(diagonal * 2.2, 2.5);
+  // Khoảng cách zoom cận cảnh (Sử dụng hệ số 0.9 để thu hẹp khoảng cách)
+  const fitDist = Math.max(diagonal * 0.9, 0.8);
 
-  // 3. Cập nhật tâm xoay chuột (PivotPos) để camera xoay quanh thiết bị mới
-  if (viewer.cameraControl) {
-    viewer.cameraControl.pivotPos = center;
-  }
-
-  // 4. Di chuyển camera bằng animation mượt mà
   const camera = viewer.scene.camera;
   if (camera) {
-    // CHÚ Ý: Xeokit dùng `camera.look` (KHÔNG PHẢI `camera.target`)
     const startEye = camera.eye ? [...camera.eye] : [0, 10, 10];
     const startLook = camera.look ? [...camera.look] : [0, 0, 0];
 
-    // Tính hướng nhìn từ Eye -> Look
+    // Hướng nhìn từ Eye -> Look
     let dir = [startEye[0] - startLook[0], startEye[1] - startLook[1], startEye[2] - startLook[2]];
     let len = Math.sqrt(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]);
     if (len === 0 || isNaN(len)) { dir = [1, 1, 1]; len = Math.sqrt(3); }
@@ -283,7 +271,6 @@ function focusCameraOnEntity(globalId, expressId, assetName = '') {
       const progress = Math.min(elapsed / duration, 1.0);
       const ease = 1 - Math.pow(1 - progress, 3); // Ease-out smooth
 
-      // Gán trực tiếp camera.look & camera.eye
       camera.look = [
         startLook[0] + (endLook[0] - startLook[0]) * ease,
         startLook[1] + (endLook[1] - startLook[1]) * ease,
@@ -310,7 +297,7 @@ function focusCameraOnEntity(globalId, expressId, assetName = '') {
   }
 }
 
-// Kết nối Dashboard sang View Chi tiết (Bổ sung Delay giải phóng DOM)
+// Kết nối Dashboard sang View Chi tiết
 window.focusAndOpenAssetFromDashboard = function(expressId, globalId, assetName) {
   closeDigitalTwinDashboard();
   setTimeout(() => {
@@ -497,7 +484,7 @@ async function openDigitalTwinPanel(expressID, globalID, assetName = '') {
 
   applyValues(finalGlobalID, finalExpressID, assetName);
 
-  // Zoom tới thiết bị
+  // Zoom cận cảnh tới thiết bị
   focusCameraOnEntity(finalGlobalID, finalExpressID, assetName);
 
   const client = getDigitalTwinSupabaseClient();
