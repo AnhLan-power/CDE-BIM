@@ -98,7 +98,7 @@ function getDigitalTwinSupabaseClient() {
 }
 
 // =========================================================================
-// --- THUẬT TOÁN TÌM KIẾM THIẾT BỊ LẮP GHÉP LẠI KHÔNG SÓT ---
+// --- THUẬT TOÁN TÌM KIẾM THIẾT BỊ TRONG MÔ HÌNH 3D ---
 // =========================================================================
 
 function findEntityByAsset(viewer, asset) {
@@ -136,7 +136,7 @@ function findEntityByAsset(viewer, asset) {
     if (match) return match;
   }
 
-  // 3. Tìm theo Express ID / ID rút gọn
+  // 3. Tìm theo Express ID
   if (targetEId) {
     const match = allObjects.find(obj => {
       if (!obj.id) return false;
@@ -147,11 +147,18 @@ function findEntityByAsset(viewer, asset) {
     if (match) return match;
   }
 
+  // 4. Tìm theo Tên thiết bị nếu các ID trên bị thiếu
+  const targetName = (asset.asset_name || '').trim();
+  if (targetName) {
+    const matchName = allObjects.find(obj => obj.name && (obj.name === targetName || obj.name.includes(targetName)));
+    if (matchName) return matchName;
+  }
+
   return null;
 }
 
 // =========================================================================
-// --- CAMERA CONTROLS (ZOOM & HIGHLIGHT CHUẨN XÁC) ---
+// --- CAMERA CONTROLS (ZOOM & HIGHLIGHT) ---
 // =========================================================================
 
 function focusCameraOnEntity(globalId, expressId, assetName = '') {
@@ -166,19 +173,19 @@ function focusCameraOnEntity(globalId, expressId, assetName = '') {
     return;
   }
 
+  // Đảm bảo đối tượng được bật hiển thị
+  entity.visible = true; 
+  if (typeof entity.culled !== 'undefined') entity.culled = false;
+
+  // Đánh dấu đối tượng và bật Highlight
+  window.selectedEntity = entity;
+  entity.highlighted = true; 
+  setTimeout(() => { if (entity) entity.highlighted = false; }, 3500);
+
   if (!isValidAABB(entity.aabb)) {
     console.warn('⚠️ Đối tượng 3D không có Bounding Box (AABB) hợp lệ:', entity);
     return;
   }
-
-  // Đánh dấu đối tượng được chọn
-  window.selectedEntity = entity;
-
-  // Ép hiển thị, mở ẩn và Highlight nổi bật thiết bị
-  entity.visible = true; 
-  if (typeof entity.culled !== 'undefined') entity.culled = false;
-  entity.highlighted = true; 
-  setTimeout(() => { if (entity) entity.highlighted = false; }, 3500);
 
   const aabb = entity.aabb;
   const center = [
@@ -187,7 +194,12 @@ function focusCameraOnEntity(globalId, expressId, assetName = '') {
     (aabb[2] + aabb[5]) / 2
   ];
 
-  // 1. Ưu tiên sử dụng Camera Flight chuẩn của Xeokit (truyền aabb hoặc entity trực tiếp)
+  // Dừng mọi chuyến bay camera cũ
+  if (viewer.cameraFlight && typeof viewer.cameraFlight.stop === 'function') {
+    viewer.cameraFlight.stop();
+  }
+
+  // 1. Gọi cameraFlight.flyTo của Xeokit
   if (viewer.cameraFlight && typeof viewer.cameraFlight.flyTo === 'function') {
     try {
       viewer.cameraFlight.flyTo({
@@ -216,7 +228,6 @@ function focusCameraOnEntity(globalId, expressId, assetName = '') {
     const eye = camera.eye || [0, 0, 0];
     const target = camera.target || [0, 0, 0];
 
-    // Vector hướng nhìn hiện tại
     let dir = [eye[0] - target[0], eye[1] - target[1], eye[2] - target[2]];
     let len = Math.sqrt(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]);
     if (len === 0 || isNaN(len)) {
@@ -226,7 +237,6 @@ function focusCameraOnEntity(globalId, expressId, assetName = '') {
 
     dir = [dir[0] / len, dir[1] / len, dir[2] / len];
 
-    // Tính khoảng cách Zoom phù hợp với kích thước đối tượng
     const dist = Math.max(radius * 2.8, 2.0);
     const newEye = [
       center[0] + dir[0] * dist,
@@ -243,10 +253,12 @@ function focusCameraOnEntity(globalId, expressId, assetName = '') {
   }
 }
 
-// Kết nối từ Dashboard sang View Chi tiết
+// Kết nối từ Dashboard sang View Chi tiết (Bổ sung Delay 120ms để giải phóng DOM)
 window.focusAndOpenAssetFromDashboard = function(expressId, globalId, assetName) {
   closeDigitalTwinDashboard();
-  openDigitalTwinPanel(expressId, globalId, assetName);
+  setTimeout(() => {
+    openDigitalTwinPanel(expressId, globalId, assetName);
+  }, 120);
 };
 
 // =========================================================================
@@ -428,7 +440,7 @@ async function openDigitalTwinPanel(expressID, globalID, assetName = '') {
 
   applyValues(finalGlobalID, finalExpressID, assetName);
 
-  // Zoom tới thiết bị với ID chính xác nhất
+  // Zoom tới thiết bị
   focusCameraOnEntity(finalGlobalID, finalExpressID, assetName);
 
   const client = getDigitalTwinSupabaseClient();
@@ -471,7 +483,7 @@ async function openDigitalTwinPanel(expressID, globalID, assetName = '') {
 function closeAssetPanel() { document.getElementById('dt-asset-panel').style.display = 'none'; }
 
 // =========================================================================
-// --- TÔ MÀU 3D & HIỂN THỊ MARKER 3D ĐÃ SỬA LỖI TÍNH TOÁN ---
+// --- TÔ MÀU 3D & HIỂN THỊ MARKER 3D ---
 // =========================================================================
 
 async function applyAssetColorCoding() {
@@ -498,7 +510,6 @@ async function applyAssetColorCoding() {
     viewer.scene._needUpdate = 1;
     if (typeof viewer.scene.render === 'function') viewer.scene.render();
 
-    // Đặt cờ trước khi render Marker để không bị cản
     isColorCodingActive = true;
     render3DMarkers(assets);
   } catch (err) {
@@ -581,7 +592,6 @@ function render3DMarkers(assets) {
     }
   });
 
-  // HÀM TÍNH TOÁN VỊ TRÍ MARKER
   function updateMarkerPositions() {
     if (!isColorCodingActive || trackedItems.length === 0) return;
     const currentViewer = window.xeokitViewer || window.viewer;
@@ -593,7 +603,6 @@ function render3DMarkers(assets) {
     
     const rect = canvas.getBoundingClientRect();
 
-    // 1. Kiểm tra nếu Xeokit hỗ trợ hàm chiếu worldToCanvas trực tiếp
     if (currentViewer.scene.canvas && typeof currentViewer.scene.canvas.worldToCanvas === 'function') {
       trackedItems.forEach(item => {
         const canvasPos = [0, 0];
@@ -605,7 +614,6 @@ function render3DMarkers(assets) {
       return;
     }
 
-    // 2. Thuật toán nhân Ma Trận chuyển đổi 3D -> 2D
     const viewMat = camera.viewMatrix;
     const projMat = camera.projMatrix || (camera.project && camera.project.projMatrix);
 
@@ -614,27 +622,22 @@ function render3DMarkers(assets) {
     trackedItems.forEach(item => {
       const pos = item.worldPos;
       
-      // World -> View Space
       let vx = viewMat[0]*pos[0] + viewMat[4]*pos[1] + viewMat[8]*pos[2] + viewMat[12];
       let vy = viewMat[1]*pos[0] + viewMat[5]*pos[1] + viewMat[9]*pos[2] + viewMat[13];
       let vz = viewMat[2]*pos[0] + viewMat[6]*pos[1] + viewMat[10]*pos[2] + viewMat[14];
       
-      // View -> Clip Space
       let px = projMat[0]*vx + projMat[4]*vy + projMat[8]*vz + projMat[12];
       let py = projMat[1]*vx + projMat[5]*vy + projMat[9]*vz + projMat[13];
       let pw = projMat[3]*vx + projMat[7]*vy + projMat[11]*vz + projMat[15];
 
-      // Vật thể nằm phía sau Camera -> Ẩn Marker
       if (pw <= 0) {
         item.element.style.display = 'none';
         return;
       }
 
-      // Tọa độ NDC (-1 đến 1)
       let nx = px / pw;
       let ny = py / pw;
       
-      // Đổi sang Pixel trên Màn Hình
       let x = rect.left + (nx + 1) * 0.5 * rect.width;
       let y = rect.top + (1 - ny) * 0.5 * rect.height;
 
@@ -650,13 +653,11 @@ function render3DMarkers(assets) {
     });
   }
 
-  // Đăng ký sự kiện cập nhật vị trí linh hoạt
   markerTickListener = viewer.scene.on("tick", updateMarkerPositions);
   if (viewer.scene.camera && typeof viewer.scene.camera.on === 'function') {
     viewer.scene.camera.on("matrix", updateMarkerPositions);
   }
   
-  // Chạy ngay lần đầu
   setTimeout(updateMarkerPositions, 50);
 }
 
@@ -727,6 +728,21 @@ function injectDigitalTwinDashboardModal() {
     </div>
   `;
   document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+  // Đăng ký Event Delegation cho các nút "Xem Chi Tiết" trong Dashboard
+  const tbody = document.getElementById('dt-dash-table-body');
+  if (tbody && !tbody.dataset.eventBound) {
+    tbody.dataset.eventBound = 'true';
+    tbody.addEventListener('click', function(e) {
+      const btn = e.target.closest('.dt-btn-view-detail');
+      if (btn) {
+        const eId = btn.getAttribute('data-express-id') || '';
+        const gId = btn.getAttribute('data-global-id') || '';
+        const aName = decodeURIComponent(btn.getAttribute('data-asset-name') || '');
+        window.focusAndOpenAssetFromDashboard(eId, gId, aName);
+      }
+    });
+  }
 }
 
 async function openDigitalTwinDashboard() {
@@ -754,7 +770,7 @@ async function openDigitalTwinDashboard() {
           
           const safeEId = cleanId(asset.express_id);
           const safeGId = cleanId(asset.global_id);
-          const safeName = (asset.asset_name || '').replace(/'/g, "\\'").replace(/"/g, "&quot;");
+          const encodedName = encodeURIComponent(asset.asset_name || '');
 
           alertRowsHtml += `
             <tr style="border-bottom:1px solid #eee;">
@@ -763,7 +779,10 @@ async function openDigitalTwinDashboard() {
               <td style="padding:8px;">${badge}</td>
               <td style="padding:8px; color:#1a73e8; font-weight:bold;">${asset.next_maintenance_date || '-'}</td>
               <td style="padding:8px; text-align:center;">
-                <button type="button" onclick="focusAndOpenAssetFromDashboard('${safeEId}', '${safeGId}', '${safeName}')" 
+                <button type="button" class="dt-btn-view-detail" 
+                        data-express-id="${safeEId}" 
+                        data-global-id="${safeGId}" 
+                        data-asset-name="${encodedName}"
                         style="padding:4px 8px; background:#1a73e8; color:#fff; border:none; border-radius:4px; font-size:11px; cursor:pointer;">
                   🔎 Xem Chi Tiết
                 </button>
