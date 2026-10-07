@@ -14,6 +14,16 @@ let activeMarkerElements = [];
 let markerTickListener = null;   
 
 /**
+ * Làm sạch giá trị ID (loại bỏ null, undefined, 'null', 'undefined', '0')
+ */
+function cleanId(val) {
+  if (val === null || val === undefined) return '';
+  const s = String(val).trim();
+  if (s === 'null' || s === 'undefined' || s === '0') return '';
+  return s;
+}
+
+/**
  * Kiểm tra Bounding Box (AABB)
  */
 function isValidAABB(aabb) {
@@ -94,34 +104,55 @@ function getDigitalTwinSupabaseClient() {
 function findEntityByAsset(viewer, asset) {
   if (!viewer || !viewer.scene || !viewer.scene.objects) return null;
   const objects = viewer.scene.objects;
-  const targetGId = String(asset.global_id || asset.globalID || '').trim();
-  const targetEId = String(asset.express_id || asset.expressID || '').trim();
+  
+  let targetGId = cleanId(asset.global_id || asset.globalID);
+  let targetEId = cleanId(asset.express_id || asset.expressID);
 
-  // 1. Khớp khóa trực tiếp
+  // Fallback: Tách Express ID từ tên thiết bị hoặc mã tài sản nếu bị thiếu (VD: "...:4246714")
+  if (!targetGId && !targetEId) {
+    const text = (asset.asset_name || '') + ' ' + (asset.asset_code || '');
+    const match = text.match(/[:#\s-](\d{4,})/);
+    if (match) {
+      targetEId = match[1];
+    }
+  }
+
+  // 1. Khớp khóa trực tiếp trong dictionary
   if (targetGId && objects[targetGId]) return objects[targetGId];
   if (targetEId && objects[targetEId]) return objects[targetEId];
 
   const allObjects = Object.values(objects);
 
-  // 2. Tìm theo Global ID (IFC)
+  // 2. Tìm chính xác theo Global ID (IFC)
   if (targetGId) {
     const match = allObjects.find(obj => 
       obj.id === targetGId || 
       obj.globalId === targetGId || 
-      (obj.id && obj.id.includes(targetGId)) ||
-      (obj.globalId && obj.globalId.includes(targetGId))
+      (obj.id && obj.id.split(/[:#]/).includes(targetGId)) ||
+      (obj.globalId && obj.globalId === targetGId)
     );
     if (match) return match;
   }
 
   // 3. Tìm theo Express ID / ID rút gọn
-  if (targetEId && targetEId !== '0') {
+  if (targetEId) {
+    const match = allObjects.find(obj => {
+      if (!obj.id) return false;
+      const parts = String(obj.id).split(/[:#]/);
+      return parts.includes(targetEId) || obj.id === targetEId || obj.id.endsWith('#' + targetEId) || obj.id.endsWith(':' + targetEId);
+    });
+    if (match) return match;
+  }
+
+  // 4. Tìm kiếm tương đối (Sub-string) cho Global ID
+  if (targetGId && targetGId.length > 5) {
     const match = allObjects.find(obj => 
-      obj.id === targetEId || 
-      (obj.id && (obj.id.endsWith('#' + targetEId) || obj.id.endsWith(':' + targetEId) || obj.id.includes(targetEId)))
+      (obj.id && obj.id.includes(targetGId)) || 
+      (obj.globalId && obj.globalId.includes(targetGId))
     );
     if (match) return match;
   }
+
   return null;
 }
 
@@ -129,68 +160,95 @@ function findEntityByAsset(viewer, asset) {
 // --- CAMERA CONTROLS (ZOOM & HIGHLIGHT CHUẨN XÁC) ---
 // =========================================================================
 
-function focusCameraOnEntity(globalId, expressId) {
+function focusCameraOnEntity(globalId, expressId, assetName = '') {
   const viewer = window.xeokitViewer || window.viewer;
   if (!viewer || !viewer.scene) return;
 
-  const pseudoAsset = { global_id: globalId, express_id: expressId };
+  const pseudoAsset = { global_id: globalId, express_id: expressId, asset_name: assetName };
   const entity = findEntityByAsset(viewer, pseudoAsset);
 
-  if (entity && isValidAABB(entity.aabb)) {
-    // Ép hiển thị và Highlight thiết bị
-    entity.visible = true; 
-    entity.highlighted = true; 
-    setTimeout(() => { if (entity) entity.highlighted = false; }, 3500);
+  if (!entity) {
+    console.warn('⚠️ Không tìm thấy đối tượng 3D tương ứng với tài sản:', pseudoAsset);
+    return;
+  }
 
-    const aabb = entity.aabb;
-    const center = [
-      (aabb[0] + aabb[3]) / 2,
-      (aabb[1] + aabb[4]) / 2,
-      (aabb[2] + aabb[5]) / 2
-    ];
+  if (!isValidAABB(entity.aabb)) {
+    console.warn('⚠️ Đối tượng 3D không có Bounding Box (AABB) hợp lệ:', entity);
+    return;
+  }
 
-    // Cách 1: Sử dụng Camera Flight Animation nếu thư viện hỗ trợ
-    if (viewer.cameraFlight && typeof viewer.cameraFlight.flyTo === 'function') {
+  // Ép hiển thị, mở ẩn và Highlight nổi bật thiết bị
+  entity.visible = true; 
+  if (typeof entity.culled !== 'undefined') entity.culled = false;
+  entity.highlighted = true; 
+  setTimeout(() => { if (entity) entity.highlighted = false; }, 3500);
+
+  const aabb = entity.aabb;
+  const center = [
+    (aabb[0] + aabb[3]) / 2,
+    (aabb[1] + aabb[4]) / 2,
+    (aabb[2] + aabb[5]) / 2
+  ];
+
+  // 1. Ưu tiên dùng Camera Flight Animation chính thức của Xeokit
+  if (viewer.cameraFlight && typeof viewer.cameraFlight.flyTo === 'function') {
+    try {
+      viewer.cameraFlight.flyTo({
+        entity: entity,
+        duration: 1.2
+      });
+      return;
+    } catch (e) {
       try {
         viewer.cameraFlight.flyTo({
           aabb: aabb,
           duration: 1.2
         });
         return;
-      } catch (e) {
-        console.warn('Lỗi Camera Flight, chuyển sang tính toán khoảng cách Zoom:', e);
+      } catch (err) {
+        console.warn('Lỗi Camera Flight flyTo, chuyển sang tính toán vị trí camera direct:', err);
       }
     }
+  }
 
-    // Cách 2: Tự tính toán vị trí Eye & Target để Zoom trực tiếp vào vật thể
-    const camera = viewer.scene.camera;
-    if (camera) {
-      const dx = aabb[3] - aabb[0];
-      const dy = aabb[4] - aabb[1];
-      const dz = aabb[5] - aabb[2];
-      const radius = Math.max(Math.sqrt(dx * dx + dy * dy + dz * dz) * 0.5, 1.0);
+  // 2. Dự phòng: Tự tính toán vị trí Eye & Target để Zoom trực tiếp vào thiết bị
+  const camera = viewer.scene.camera;
+  if (camera) {
+    const dx = aabb[3] - aabb[0];
+    const dy = aabb[4] - aabb[1];
+    const dz = aabb[5] - aabb[2];
+    const radius = Math.max(Math.sqrt(dx * dx + dy * dy + dz * dz) * 0.5, 0.5);
 
-      const eye = camera.eye || [0, 0, 0];
-      const target = camera.target || [0, 0, 0];
+    const eye = camera.eye || [0, 0, 0];
+    const target = camera.target || [0, 0, 0];
 
-      // Vector hướng nhìn
-      let dir = [eye[0] - target[0], eye[1] - target[1], eye[2] - target[2]];
-      let len = Math.sqrt(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]);
-      if (len === 0) dir = [1, 1, 1], len = Math.sqrt(3);
+    // Vector hướng nhìn hiện tại
+    let dir = [eye[0] - target[0], eye[1] - target[1], eye[2] - target[2]];
+    let len = Math.sqrt(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]);
+    if (len === 0 || isNaN(len)) {
+      dir = [1, 1, 1];
+      len = Math.sqrt(3);
+    }
 
-      dir = [dir[0] / len, dir[1] / len, dir[2] / len];
+    dir = [dir[0] / len, dir[1] / len, dir[2] / len];
 
-      // Tính khoảng cách Zoom phù hợp với kích thước đối tượng
-      const dist = Math.max(radius * 3.0, 2.5);
-      const newEye = [
-        center[0] + dir[0] * dist,
-        center[1] + dir[1] * dist,
-        center[2] + dir[2] * dist
-      ];
+    // Tính khoảng cách Zoom phù hợp với kích thước đối tượng
+    const dist = Math.max(radius * 2.8, 2.0);
+    const newEye = [
+      center[0] + dir[0] * dist,
+      center[1] + dir[1] * dist,
+      center[2] + dir[2] * dist
+    ];
 
+    if (viewer.cameraFlight && typeof viewer.cameraFlight.flyTo === 'function') {
+      viewer.cameraFlight.flyTo({
+        eye: newEye,
+        target: center,
+        duration: 1.0
+      });
+    } else {
       camera.target = center;
       camera.eye = newEye;
-      
       if (viewer.scene) {
         viewer.scene._needUpdate = 1;
         if (typeof viewer.scene.render === 'function') viewer.scene.render();
@@ -353,6 +411,9 @@ async function openDigitalTwinPanel(expressID, globalID, assetName = '') {
   document.getElementById('dt-asset-form').reset();
   document.getElementById('dt_doc_list').innerHTML = '';
 
+  let finalExpressID = cleanId(expressID);
+  let finalGlobalID = cleanId(globalID);
+
   function getIfcGlobalIdFromDOM() {
     const elements = Array.from(document.querySelectorAll('tr, div, td, span'));
     for (const el of elements) {
@@ -367,8 +428,7 @@ async function openDigitalTwinPanel(expressID, globalID, assetName = '') {
     return '';
   }
 
-  let finalGlobalID = globalID;
-  if (!finalGlobalID || String(finalGlobalID) === String(expressID)) {
+  if (!finalGlobalID) {
     const domId = getIfcGlobalIdFromDOM();
     if (domId && domId !== 'ID Cấu Kiện') finalGlobalID = domId;
   }
@@ -380,23 +440,23 @@ async function openDigitalTwinPanel(expressID, globalID, assetName = '') {
     if (aName) document.getElementById('dt_asset_name').value = aName;
   };
 
-  applyValues(finalGlobalID, expressID, assetName);
+  applyValues(finalGlobalID, finalExpressID, assetName);
 
   // Zoom tới thiết bị với ID chính xác nhất
-  if (finalGlobalID || expressID) {
-    focusCameraOnEntity(finalGlobalID, expressID);
-  }
+  focusCameraOnEntity(finalGlobalID, finalExpressID, assetName);
 
   const client = getDigitalTwinSupabaseClient();
-  const searchId = finalGlobalID || expressID;
 
-  if (client && searchId) {
+  if (client && (finalGlobalID || finalExpressID)) {
     try {
-      const { data: existingAsset } = await client
-        .from('project_assets')
-        .select('*, asset_documents(*)')
-        .filter('global_id', 'ilike', `%${searchId}%`)
-        .maybeSingle();
+      let query = client.from('project_assets').select('*, asset_documents(*)');
+      if (finalGlobalID) {
+        query = query.eq('global_id', finalGlobalID);
+      } else if (finalExpressID) {
+        query = query.eq('express_id', parseInt(finalExpressID));
+      }
+
+      const { data: existingAsset } = await query.maybeSingle();
 
       if (existingAsset) {
         document.getElementById('dt_asset_code').value = existingAsset.asset_code || '';
@@ -416,7 +476,9 @@ async function openDigitalTwinPanel(expressID, globalID, assetName = '') {
           document.getElementById('dt_doc_list').innerHTML = docsHtml;
         }
       }
-    } catch (e) {}
+    } catch (e) {
+      console.warn('Lỗi đọc thông tin tài sản từ CSDL:', e);
+    }
   }
 }
 
@@ -522,7 +584,9 @@ function render3DMarkers(assets) {
 
       markerDiv.onclick = (e) => {
         e.stopPropagation();
-        openDigitalTwinPanel(asset.express_id, asset.global_id, asset.asset_name);
+        const safeEId = cleanId(asset.express_id);
+        const safeGId = cleanId(asset.global_id);
+        openDigitalTwinPanel(safeEId, safeGId, asset.asset_name);
       };
 
       container.appendChild(markerDiv);
@@ -701,6 +765,11 @@ async function openDigitalTwinDashboard() {
 
         if (asset.status !== 'OPERATIONAL') {
           const badge = asset.status === 'FAULT' ? '<span style="color:#dc3545; font-weight:bold;">🔴 Sự cố</span>' : '<span style="color:#f39c12; font-weight:bold;">🟡 Bảo trì</span>';
+          
+          const safeEId = cleanId(asset.express_id);
+          const safeGId = cleanId(asset.global_id);
+          const safeName = (asset.asset_name || '').replace(/'/g, "\'").replace(/"/g, "&quot;");
+
           alertRowsHtml += `
             <tr style="border-bottom:1px solid #eee;">
               <td style="padding:8px; font-weight:bold;">${asset.asset_code || '-'}</td>
@@ -708,7 +777,7 @@ async function openDigitalTwinDashboard() {
               <td style="padding:8px;">${badge}</td>
               <td style="padding:8px; color:#1a73e8; font-weight:bold;">${asset.next_maintenance_date || '-'}</td>
               <td style="padding:8px; text-align:center;">
-                <button type="button" onclick="focusAndOpenAssetFromDashboard('${asset.express_id}', '${asset.global_id}', '${asset.asset_name}')" 
+                <button type="button" onclick="focusAndOpenAssetFromDashboard('${safeEId}', '${safeGId}', '${safeName}')" 
                         style="padding:4px 8px; background:#1a73e8; color:#fff; border:none; border-radius:4px; font-size:11px; cursor:pointer;">
                   🔎 Xem Chi Tiết
                 </button>
