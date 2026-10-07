@@ -26,10 +26,14 @@ function cleanId(val) {
 }
 
 /**
- * Kiểm tra Bounding Box (AABB)
+ * Kiểm tra Bounding Box (AABB) hợp lệ
  */
 function isValidAABB(aabb) {
-  return Array.isArray(aabb) && aabb.length === 6 && !isNaN(aabb[0]);
+  if (!aabb || (!Array.isArray(aabb) && !ArrayBuffer.isView(aabb)) || aabb.length !== 6) return false;
+  if (!isFinite(aabb[0]) || !isFinite(aabb[3]) || aabb[0] >= aabb[3]) return false;
+  if (!isFinite(aabb[1]) || !isFinite(aabb[4]) || aabb[1] >= aabb[4]) return false;
+  if (!isFinite(aabb[2]) || !isFinite(aabb[5]) || aabb[2] >= aabb[5]) return false;
+  return true;
 }
 
 /**
@@ -100,17 +104,17 @@ function getDigitalTwinSupabaseClient() {
 }
 
 // =========================================================================
-// --- THUẬT TOÁN TÌM KIẾM THIẾT BỊ TRONG MÔ HÌNH 3D (ĐÃ TỐI ƯU HÓA) ---
+// --- THUẬT TOÁN TÌM KIẾM THIẾT BỊ TRONG MÔ HÌNH 3D (XEOKIT OPTIMIZED) ---
 // =========================================================================
 
 function findEntityByAsset(viewer, asset) {
   if (!viewer || !viewer.scene || !viewer.scene.objects) return null;
   const objects = viewer.scene.objects;
   
-  let targetGId = cleanId(asset.global_id || asset.globalID);
-  let targetEId = cleanId(asset.express_id || asset.expressID);
+  let targetGId = cleanId(asset.global_id || asset.globalID || asset.globalId);
+  let targetEId = cleanId(asset.express_id || asset.expressID || asset.expressId);
 
-  if (!targetEId) {
+  if (!targetEId && asset.asset_name) {
     const text = (asset.asset_name || '') + ' ' + (asset.asset_code || '');
     const match = text.match(/[:#\s-](\d{4,})/);
     if (match) targetEId = match[1];
@@ -122,31 +126,30 @@ function findEntityByAsset(viewer, asset) {
   if (targetEId && objects['#' + targetEId]) return objects['#' + targetEId];
   if (targetEId && objects['0#' + targetEId]) return objects['0#' + targetEId];
 
-  const allObjects = Object.values(objects);
+  // 2. Tìm kiếm linh hoạt theo ID trong Xeokit (Xử lý tiền tố dạng ModelID#GlobalID)
+  for (const id in objects) {
+    const obj = objects[id];
+    if (!obj) continue;
+    
+    const objId = String(obj.id || id || '');
+    const objGId = String(obj.globalId || obj.originalSystemId || '');
 
-  // 2. Tìm kiếm linh hoạt theo GlobalID (Xử lý tiền tố modelId# / modelId:)
-  if (targetGId) {
-    for (const obj of allObjects) {
-      if (!obj || !obj.aabb) continue;
-      const objId = String(obj.id || '');
-      const objGId = String(obj.globalId || obj.originalSystemId || '');
+    // So sánh GlobalID
+    if (targetGId) {
       if (
         objId === targetGId ||
         objGId === targetGId ||
         objId.endsWith('#' + targetGId) ||
         objId.endsWith(':' + targetGId) ||
+        objId.includes(targetGId) ||
         objGId.includes(targetGId)
       ) {
         return obj;
       }
     }
-  }
 
-  // 3. Tìm kiếm theo ExpressID
-  if (targetEId) {
-    for (const obj of allObjects) {
-      if (!obj || !obj.aabb) continue;
-      const objId = String(obj.id || '');
+    // So sánh ExpressID
+    if (targetEId) {
       const parts = objId.split(/[:#]/);
       if (
         parts.includes(targetEId) ||
@@ -159,11 +162,12 @@ function findEntityByAsset(viewer, asset) {
     }
   }
 
-  // 4. Tìm theo Tên thiết bị
-  const targetName = (asset.asset_name || '').trim().toLowerCase();
+  // 3. Tìm theo Tên thiết bị (Fallback)
+  const targetName = (asset.asset_name || asset.assetName || '').trim().toLowerCase();
   if (targetName) {
-    for (const obj of allObjects) {
-      if (!obj || !obj.aabb) continue;
+    for (const id in objects) {
+      const obj = objects[id];
+      if (!obj) continue;
       const name = String(obj.name || '').toLowerCase();
       if (name && (name === targetName || name.includes(targetName))) {
         return obj;
@@ -198,12 +202,38 @@ function focusCameraOnEntity(globalId, expressId, assetName = '') {
   entity.highlighted = true; 
   setTimeout(() => { if (entity) entity.highlighted = false; }, 3500);
 
-  if (!isValidAABB(entity.aabb)) {
-    console.warn('⚠️ Bounding Box (AABB) không hợp lệ:', entity);
-    return;
+  // 🎯 PHƯƠNG ÁN NATIVE XEOKIT (Khuyên dùng): Giao việc flyTo cho cameraFlight xử lý entity trực tiếp
+  if (viewer.cameraFlight && typeof viewer.cameraFlight.flyTo === 'function') {
+    try {
+      viewer.cameraFlight.flyTo({
+        entity: entity,
+        duration: 0.8
+      });
+      return;
+    } catch (e1) {
+      try {
+        if (isValidAABB(entity.aabb)) {
+          viewer.cameraFlight.flyTo({
+            aabb: entity.aabb,
+            duration: 0.8
+          });
+          return;
+        }
+      } catch (e2) {}
+    }
   }
 
-  const aabb = entity.aabb;
+  // 🎯 PHƯƠNG ÁN TỰ TÍNH TỌA ĐỘ (Dự phòng)
+  let aabb = entity.aabb;
+  if (!isValidAABB(aabb)) {
+    console.warn('⚠️ AABB của Entity không hợp lệ, đang thử lấy từ Model parent...');
+    if (entity.model && isValidAABB(entity.model.aabb)) {
+      aabb = entity.model.aabb;
+    } else {
+      console.error('❌ Không thể xác định vị trí không gian cho thiết bị này.');
+      return;
+    }
+  }
 
   // 2. Tính toán tâm thiết bị (Center) & khoảng cách Zoom phù hợp
   const center = [
@@ -220,31 +250,12 @@ function focusCameraOnEntity(globalId, expressId, assetName = '') {
   // Khoảng cách lùi camera ra để nhìn vừa vặn thiết bị
   const fitDist = Math.max(diagonal * 2.2, 2.5);
 
-  // 3. Cập nhật tâm xoay chuột (Pivot) để không bị bật ngược lại
+  // 3. Cập nhật tâm xoay chuột (PivotPos) để camera xoay quanh thiết bị mới
   if (viewer.cameraControl) {
     viewer.cameraControl.pivotPos = center;
   }
 
-  // 🎯 PHƯƠNG ÁN 1: Dùng cameraFlight.flyTo của Xeokit (Nếu hỗ trợ)
-  if (viewer.cameraFlight && typeof viewer.cameraFlight.flyTo === 'function') {
-    try {
-      viewer.cameraFlight.flyTo({
-        aabb: aabb,
-        duration: 0.8
-      });
-      return;
-    } catch (e1) {
-      try {
-        viewer.cameraFlight.flyTo({
-          entity: entity,
-          duration: 0.8
-        });
-        return;
-      } catch (e2) {}
-    }
-  }
-
-  // 🎯 PHƯƠNG ÁN 2 (THAY ĐỔI TỌA ĐỘ TRỰC TIẾP CHUẨN XEOKIT): Dùng camera.eye & camera.look
+  // 4. Di chuyển camera bằng animation mượt mà
   const camera = viewer.scene.camera;
   if (camera) {
     // CHÚ Ý: Xeokit dùng `camera.look` (KHÔNG PHẢI `camera.target`)
@@ -264,7 +275,6 @@ function focusCameraOnEntity(globalId, expressId, assetName = '') {
       center[2] + dir[2] * fitDist
     ];
 
-    // Animation di chuyển camera trong 0.7s
     const duration = 700;
     const startTime = performance.now();
 
