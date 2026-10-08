@@ -587,16 +587,13 @@
 
         <div class="ribbon-sep"></div>
 
-       <!-- Nhóm Nút Báo Cáo BI & Digital Twin -->
-       <div class="ribbon-group">
-        <div class="ribbon-group-buttons">
-         <button class="btn btn-primary" onclick="toggleBimDashboard()" title="Tổng hợp báo cáo dữ liệu BIM">📊 Tổng Hợp BI</button>
-    
-         <!-- BỔ SUNG NÚT DIGITAL TWIN VÀO ĐÂY -->
-         <button class="btn btn-primary" onclick="toggleDigitalTwinPanelFromMenu()" title="Quản lý tài sản & vận hành Digital Twin">🏷️ Digital Twin</button>
+        <!-- Nhóm Nút Báo Cáo BI -->
+        <div class="ribbon-group">
+          <div class="ribbon-group-buttons">
+            <button class="btn btn-primary" onclick="toggleBimDashboard()" title="Tổng hợp báo cáo dữ liệu BIM">📊 Tổng Hợp BI</button>
+          </div>
+          <div class="ribbon-group-label">Báo Cáo</div>
         </div>
-        <div class="ribbon-group-label">Báo Cáo</div>
-       </div>
       </div>
 
       <!-- ===================== TAB: KIỂM TRA ===================== -->
@@ -2378,48 +2375,21 @@
     // và 1 thanh trượt chỉnh độ trong suốt riêng cho đúng cấu kiện đang chọn.
     // -------------------------------------------------------------
     function openSelectionToolbar(entity, metaObject) {
-     // 1. Lưu lại thiết bị đang chọn vào biến toàn cục
-     window.selectedEntity = entity;
-     window.selectedMetaObject = metaObject;
+      const bar = document.getElementById("selectionToolbar");
+      const label = document.getElementById("selLabel");
+      const opacitySlider = document.getElementById("selOpacity");
+      const opacityVal = document.getElementById("selOpacityVal");
 
-     const bar = document.getElementById("selectionToolbar");
-     const label = document.getElementById("selLabel");
-     const opacitySlider = document.getElementById("selOpacity");
-     const opacityVal = document.getElementById("selOpacityVal");
+      label.innerText = (metaObject && metaObject.name) ? metaObject.name : entity.id;
+      label.title = entity.id;
 
-     label.innerText = (metaObject && metaObject.name) ? metaObject.name : entity.id;
-     label.title = entity.id;
+      const currentOpacity = (typeof entity.opacity === "number") ? entity.opacity : 1;
+      opacitySlider.value = Math.round(currentOpacity * 100);
+      opacityVal.innerText = opacitySlider.value + "%";
 
-     const currentOpacity = (typeof entity.opacity === "number") ? entity.opacity : 1;
-     opacitySlider.value = Math.round(currentOpacity * 100);
-     opacityVal.innerText = opacitySlider.value + "%";
-
-     bar.classList.add("open");
-     updateSelHideLabel();
-
-     // ⚡ 2. CẬP NHẬT TỰ ĐỘNG CHO DIGITAL TWIN:
-     // Nếu Panel Digital Twin đang mở trên màn hình, tự động cập nhật dữ liệu sang thiết bị mới chọn
-     const dtPanel = document.getElementById('dt-asset-panel');
-     if (dtPanel && dtPanel.style.display !== 'none' && dtPanel.style.display !== '') {
-       const expressID = entity.id;
-       let globalID = '';
-       let assetName = (metaObject && metaObject.name) ? metaObject.name : '';
-
-       if (metaObject) {
-         if (metaObject.originalSystemId) globalID = metaObject.originalSystemId;
-         else if (metaObject.globalId) globalID = metaObject.globalId;
-         else if (metaObject.id && String(metaObject.id).includes('-')) globalID = metaObject.id;
-       }
-       if (!globalID && entity.globalId) {
-         globalID = entity.globalId;
-       }
-
-       // Gọi hàm nạp dữ liệu thiết bị mới vào Panel đang mở
-       if (typeof openDigitalTwinPanel === 'function') {
-         openDigitalTwinPanel(expressID, globalID, assetName);
-       }
-     }
-   }
+      bar.classList.add("open");
+      updateSelHideLabel();
+    }
 
     function closeSelectionToolbar() {
       document.getElementById("selectionToolbar").classList.remove("open");
@@ -3812,27 +3782,26 @@ window.debugClashPair = function() {
       document.getElementById("bcfPanel").style.display = "block";
     });
 
-    document.getElementById("exportBcfBtn").addEventListener("click", async () => {
-      const title = document.getElementById("bcfTitle").value || "Sự cố BIM CDE";
-      const desc = document.getElementById("bcfDescription").value || "Cần kiểm tra lại va chạm thiết kế.";
-      // Dùng đúng GlobalId ổn định (originalSystemId) thay vì id nội bộ của
-      // phiên hiện tại — nếu không, Revit/phần mềm khác sẽ không khớp được
-      // đúng cấu kiện cần highlight.
-      const targetId = selectedEntity ? (selectedEntity.originalSystemId || selectedEntity.id) : null;
+    // Hàm dùng chung tạo + tải file .bcfzip — nhận sẵn title/description và
+    // (tuỳ chọn) camera/targetIds thay vì luôn đọc từ form + camera hiện tại,
+    // để các nơi khác (vd nút "Xuất BCF" trong từng ToDo) gọi lại được, mang
+    // theo đúng góc nhìn đã lưu của ToDo đó thay vì góc nhìn đang xem dở.
+    window.exportBcfIssue = async function ({ title, description, eye, look, up, targetIds }) {
+      title = title || "Sự cố BIM CDE";
+      description = description || "Cần kiểm tra lại va chạm thiết kế.";
 
-      const eye = viewer.camera.eye;
-      const look = viewer.camera.look;
-      const up = viewer.camera.up;
+      // Không truyền camera -> mặc định lấy camera hiện tại (giữ hành vi cũ
+      // cho nút "Tạo BCF Issue" thủ công)
+      if (!eye) { eye = viewer.camera.eye; look = viewer.camera.look; up = viewer.camera.up; }
+      // Không truyền targetIds -> dùng cấu kiện đang được click chọn (hành
+      // vi cũ), hỗ trợ GlobalId ổn định thay vì id nội bộ phiên hiện tại
+      if (!targetIds) {
+        targetIds = selectedEntity ? [selectedEntity.originalSystemId || selectedEntity.id] : [];
+      }
 
-      // Vector hướng nhìn PHẢI chuẩn hoá (unit vector) theo đúng chuẩn BCF —
-      // để nguyên chưa chuẩn hoá là 1 nguyên nhân phổ biến khiến phần mềm
-      // nhận (Revit, Navisworks, Solibri...) tính sai/không tính được góc nhìn.
       const dirRaw = [look[0] - eye[0], look[1] - eye[1], look[2] - eye[2]];
       const dirLen = Math.sqrt(dirRaw[0] ** 2 + dirRaw[1] ** 2 + dirRaw[2] ** 2) || 1;
       const dir = dirRaw.map(v => v / dirLen);
-
-      // Góc nhìn (FOV) — bắt buộc phải có trong PerspectiveCamera theo chuẩn
-      // BCF, thiếu là nhiều phần mềm sẽ từ chối đọc cả khối camera.
       const fov = (viewer.camera.perspective && viewer.camera.perspective.fov) || 60;
 
       const zip = new JSZip();
@@ -3843,15 +3812,19 @@ window.debugClashPair = function() {
 <Markup>
   <Topic Guid="${topicGuid}" TopicType="Comment" TopicStatus="Open">
     <Title>${title}</Title>
-    <Description>${desc}</Description>
+    <Description>${description}</Description>
     <CreationDate>${new Date().toISOString()}</CreationDate>
   </Topic>
   <Viewpoints Guid="${generateUUID()}"><Viewpoint>viewpoint.bcfv</Viewpoint></Viewpoints>
 </Markup>`;
 
+      const componentsXml = (targetIds && targetIds.length > 0)
+        ? `<Components><Selection>${targetIds.map(id => `<Component IfcGuid="${id}" />`).join("")}</Selection></Components>`
+        : "";
+
       const viewpointContent = `<?xml version="1.0" encoding="UTF-8"?>
 <VisualizationInfo Guid="${generateUUID()}">
-  ${targetId ? `<Components><Selection><Component IfcGuid="${targetId}" /></Selection></Components>` : ""}
+  ${componentsXml}
   <PerspectiveCamera>
     <CameraViewPoint>
       <X>${eye[0]}</X><Y>${eye[1]}</Y><Z>${eye[2]}</Z>
@@ -3874,8 +3847,16 @@ window.debugClashPair = function() {
       const link = document.createElement("a");
       link.href = URL.createObjectURL(blob);
       link.download = `CDE_Issue_${title.replace(/\s+/g, '_')}.bcfzip`;
+      document.body.appendChild(link);
       link.click();
+      link.remove();
+      URL.revokeObjectURL(link.href);
+    };
 
+    document.getElementById("exportBcfBtn").addEventListener("click", async () => {
+      const title = document.getElementById("bcfTitle").value;
+      const description = document.getElementById("bcfDescription").value;
+      await window.exportBcfIssue({ title, description });
       alert("🎉 Đã xuất thành công file BCFzip!");
     });
 
@@ -4090,6 +4071,5 @@ window.debugClashPair = function() {
   <script src="./cde-wind-analysis.js"></script>
   <script src="./cde-wind-streamlines.js"></script>
   <script src="./cde-dashboard.js"></script>
-  <script src="./cde-digital-twin.js"></script>
 </body>
 </html>
