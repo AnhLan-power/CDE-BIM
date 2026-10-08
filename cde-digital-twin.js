@@ -32,7 +32,6 @@ function isValidAABB(aabb) {
   if (!aabb || (!Array.isArray(aabb) && !ArrayBuffer.isView(aabb)) || aabb.length !== 6) return false;
   if (!isFinite(aabb[0]) || !isFinite(aabb[1]) || !isFinite(aabb[2]) ||
       !isFinite(aabb[3]) || !isFinite(aabb[4]) || !isFinite(aabb[5])) return false;
-  // Cho phép các mặt phẳng mỏng (aabb min <= max)
   if (aabb[0] > aabb[3] || aabb[1] > aabb[4] || aabb[2] > aabb[5]) return false;
   return true;
 }
@@ -127,7 +126,7 @@ function findEntityByAsset(viewer, asset) {
   if (targetEId && objects['#' + targetEId]) return objects['#' + targetEId];
   if (targetEId && objects['0#' + targetEId]) return objects['0#' + targetEId];
 
-  // 2. Tìm kiếm linh hoạt theo ID trong Xeokit (Xử lý tiền tố dạng ModelID#GlobalID)
+  // 2. Tìm kiếm linh hoạt theo ID trong Xeokit
   for (const id in objects) {
     const obj = objects[id];
     if (!obj) continue;
@@ -135,7 +134,6 @@ function findEntityByAsset(viewer, asset) {
     const objId = String(obj.id || id || '');
     const objGId = String(obj.globalId || obj.originalSystemId || '');
 
-    // So sánh GlobalID
     if (targetGId) {
       if (
         objId === targetGId ||
@@ -149,7 +147,6 @@ function findEntityByAsset(viewer, asset) {
       }
     }
 
-    // So sánh ExpressID
     if (targetEId) {
       const parts = objId.split(/[:#]/);
       if (
@@ -195,7 +192,6 @@ function focusCameraOnEntity(globalId, expressId, assetName = '') {
     return;
   }
 
-  // 1. Hiển thị & Highlight thiết bị
   entity.visible = true; 
   if (typeof entity.culled !== 'undefined') entity.culled = false;
 
@@ -203,31 +199,27 @@ function focusCameraOnEntity(globalId, expressId, assetName = '') {
   entity.highlighted = true; 
   setTimeout(() => { if (entity) entity.highlighted = false; }, 3500);
 
-  // Lấy Bounding Box của chính thiết bị
   const aabb = entity.aabb;
   if (!isValidAABB(aabb)) {
     console.warn('⚠️ AABB của thiết bị không hợp lệ.');
     return;
   }
 
-  // Tính tâm điểm (Center) của thiết bị
   const center = [
     (aabb[0] + aabb[3]) / 2,
     (aabb[1] + aabb[4]) / 2,
     (aabb[2] + aabb[5]) / 2
   ];
 
-  // Đặt tâm xoay chuột (Pivot) chuẩn vào thiết bị
   if (viewer.cameraControl) {
     viewer.cameraControl.pivotPos = center;
   }
 
-  // 🎯 PHƯƠNG ÁN 1: Dùng cameraFlight với fitFOV hẹp (20 deg) để zoom sát thiết bị
   if (viewer.cameraFlight && typeof viewer.cameraFlight.flyTo === 'function') {
     try {
       viewer.cameraFlight.flyTo({
         aabb: aabb,
-        fitFOV: 20, // Thu hẹp FOV để camera tiến sát hơn nữa
+        fitFOV: 20,
         duration: 0.8
       });
       return;
@@ -236,13 +228,10 @@ function focusCameraOnEntity(globalId, expressId, assetName = '') {
     }
   }
 
-  // 🎯 PHƯƠNG ÁN 2: Tự tính toán vị trí Camera cận cảnh (Dự phòng)
   const dx = aabb[3] - aabb[0];
   const dy = aabb[4] - aabb[1];
   const dz = aabb[5] - aabb[2];
   const diagonal = Math.sqrt(dx * dx + dy * dy + dz * dz);
-  
-  // Khoảng cách zoom cận cảnh (Sử dụng hệ số 0.9 để thu hẹp khoảng cách)
   const fitDist = Math.max(diagonal * 0.9, 0.8);
 
   const camera = viewer.scene.camera;
@@ -250,7 +239,6 @@ function focusCameraOnEntity(globalId, expressId, assetName = '') {
     const startEye = camera.eye ? [...camera.eye] : [0, 10, 10];
     const startLook = camera.look ? [...camera.look] : [0, 0, 0];
 
-    // Hướng nhìn từ Eye -> Look
     let dir = [startEye[0] - startLook[0], startEye[1] - startLook[1], startEye[2] - startLook[2]];
     let len = Math.sqrt(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]);
     if (len === 0 || isNaN(len)) { dir = [1, 1, 1]; len = Math.sqrt(3); }
@@ -269,7 +257,7 @@ function focusCameraOnEntity(globalId, expressId, assetName = '') {
     function animateCamera(now) {
       const elapsed = now - startTime;
       const progress = Math.min(elapsed / duration, 1.0);
-      const ease = 1 - Math.pow(1 - progress, 3); // Ease-out smooth
+      const ease = 1 - Math.pow(1 - progress, 3);
 
       camera.look = [
         startLook[0] + (endLook[0] - startLook[0]) * ease,
@@ -297,7 +285,6 @@ function focusCameraOnEntity(globalId, expressId, assetName = '') {
   }
 }
 
-// Kết nối Dashboard sang View Chi tiết
 window.focusAndOpenAssetFromDashboard = function(expressId, globalId, assetName) {
   closeDigitalTwinDashboard();
   setTimeout(() => {
@@ -314,7 +301,7 @@ function injectDigitalTwinPanel() {
   if (document.getElementById('dt-asset-panel')) return;
 
   const panelHtml = `
-    <div id="dt-asset-panel" style="display:none; position:fixed; left:20px; top:80px; width:380px; max-height:85vh; overflow-y:auto; background:#fff; border-radius:10px; box-shadow: 0 4px 20px rgba(0,0,0,0.2); z-index:9999; padding:20px; font-family:sans-serif; user-select:none;">
+    <div id="dt-asset-panel" style="display:none; position:fixed; left:20px; top:80px; width:390px; max-height:88vh; overflow-y:auto; background:#fff; border-radius:10px; box-shadow: 0 4px 20px rgba(0,0,0,0.2); z-index:9999; padding:20px; font-family:sans-serif; user-select:none;">
       
       <div id="dt-panel-header" style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #eee; padding-bottom:10px; margin-bottom:15px; cursor:move; background:#f8f9fa; margin:-20px -20px 15px -20px; padding:15px 20px; border-radius:10px 10px 0 0;">
         <h3 style="margin:0; font-size:15px; color:#1a73e8; pointer-events:none;">🏷️ Quản Lý Tài Sản (Digital Twin)</h3>
@@ -382,9 +369,37 @@ function injectDigitalTwinPanel() {
           </div>
         </div>
 
-        <div style="margin-bottom:10px;">
-          <label style="font-size:12px; font-weight:bold;">📝 Nhật Ký Vận Hành / Bảo Trì:</label>
-          <textarea id="dt_maint_log" rows="3" style="width:100%; padding:6px; border:1px solid #ccc; border-radius:4px; font-size:12px; resize:vertical; box-sizing:border-box;"></textarea>
+        <!-- =================================================================== -->
+        <!-- MODULE NHẬT KÝ VẬN HÀNH / BẢO TRÌ NÂNG CAO (TIMELINE HISTORY) -->
+        <!-- =================================================================== -->
+        <div style="margin-bottom:15px; border-top:1px dashed #ccc; padding-top:12px;">
+          <label style="font-size:12px; font-weight:bold; color:#1a73e8; display:block; margin-bottom:8px;">📜 Nhật Ký & Lịch Sử Bảo Trì</label>
+
+          <!-- Form nhập nhật ký mới -->
+          <div style="background:#f8f9fa; padding:10px; border-radius:6px; border:1px solid #e0e0e0; margin-bottom:10px;">
+            <div style="display:flex; gap:6px; margin-bottom:6px;">
+              <select id="dt_new_log_type" style="flex:1; padding:4px; font-size:11px; border:1px solid #ccc; border-radius:4px;">
+                <option value="Bảo trì">🔧 Bảo trì định kỳ</option>
+                <option value="Sửa chữa">🚨 Sửa chữa sự cố</option>
+                <option value="Kiểm tra">🔍 Kiểm tra / Giám sát</option>
+                <option value="Thay thế">🔄 Thay thế linh kiện</option>
+              </select>
+              <input type="date" id="dt_new_log_date" style="flex:1; padding:4px; font-size:11px; border:1px solid #ccc; border-radius:4px;" />
+            </div>
+            <div style="margin-bottom:6px;">
+              <input type="text" id="dt_new_log_performer" placeholder="Người thực hiện (Kỹ thuật viên...)" style="width:100%; padding:4px; font-size:11px; border:1px solid #ccc; border-radius:4px; box-sizing:border-box;" />
+            </div>
+            <div style="margin-bottom:6px;">
+              <textarea id="dt_new_log_desc" rows="2" placeholder="Nội dung công việc sửa chữa/bảo trì..." style="width:100%; padding:4px; font-size:11px; border:1px solid #ccc; border-radius:4px; resize:vertical; box-sizing:border-box;"></textarea>
+            </div>
+            <button type="button" onclick="addMaintenanceLogRecord()" style="width:100%; padding:6px; background:#28a745; color:#fff; border:none; border-radius:4px; font-size:11px; font-weight:bold; cursor:pointer;">➕ Thêm Nhật Ký Mới</button>
+          </div>
+
+          <!-- Danh sách Timeline lịch sử -->
+          <div style="font-size:11px; font-weight:bold; color:#555; margin-bottom:5px;">📋 Lịch sử các lần bảo trì:</div>
+          <div id="dt_log_history_list" style="max-height:180px; overflow-y:auto; border:1px solid #e0e0e0; border-radius:6px; padding:6px; background:#fafafa;">
+            <div style="font-size:11px; color:#888; font-style:italic; text-align:center;">Đang tải lịch sử...</div>
+          </div>
         </div>
 
         <div style="margin-bottom:15px;">
@@ -452,6 +467,11 @@ async function openDigitalTwinPanel(expressID, globalID, assetName = '') {
 
   document.getElementById('dt-asset-form').reset();
   document.getElementById('dt_doc_list').innerHTML = '';
+  
+  // Đặt mặc định ngày hiện tại cho form thêm nhật ký
+  if (document.getElementById('dt_new_log_date')) {
+    document.getElementById('dt_new_log_date').value = new Date().toISOString().split('T')[0];
+  }
 
   let finalExpressID = cleanId(expressID);
   let finalGlobalID = cleanId(globalID);
@@ -487,6 +507,12 @@ async function openDigitalTwinPanel(expressID, globalID, assetName = '') {
   // Zoom cận cảnh tới thiết bị
   focusCameraOnEntity(finalGlobalID, finalExpressID, assetName);
 
+  // Tải danh sách nhật ký bảo trì từ CSDL
+  const activeGlobalId = finalGlobalID || finalExpressID;
+  if (activeGlobalId) {
+    loadMaintenanceHistory(activeGlobalId);
+  }
+
   const client = getDigitalTwinSupabaseClient();
 
   if (client && (finalGlobalID || finalExpressID)) {
@@ -508,7 +534,6 @@ async function openDigitalTwinPanel(expressID, globalID, assetName = '') {
         document.getElementById('dt_warranty_date').value = existingAsset.warranty_expiry || '';
         document.getElementById('dt_last_maint_date').value = existingAsset.last_maintenance_date || '';
         document.getElementById('dt_next_maint_date').value = existingAsset.next_maintenance_date || '';
-        document.getElementById('dt_maint_log').value = existingAsset.maintenance_log || '';
 
         if (existingAsset.asset_documents?.length > 0) {
           let docsHtml = '<b>Tài liệu đã đính kèm:</b><br>';
@@ -525,6 +550,117 @@ async function openDigitalTwinPanel(expressID, globalID, assetName = '') {
 }
 
 function closeAssetPanel() { document.getElementById('dt-asset-panel').style.display = 'none'; }
+
+// =========================================================================
+// --- TÍNH NĂNG NHẬT KÝ BẢO TRÌ NÂNG CAO (TIMELINE HISTORY) ---
+// =========================================================================
+
+/**
+ * Tải danh sách lịch sử bảo trì từ Supabase
+ */
+async function loadMaintenanceHistory(globalId) {
+  const container = document.getElementById('dt_log_history_list');
+  if (!container) return;
+
+  if (!globalId) {
+    container.innerHTML = '<div style="font-size:11px; color:#888; font-style:italic; text-align:center;">Chưa chọn thiết bị.</div>';
+    return;
+  }
+
+  container.innerHTML = '<div style="font-size:11px; color:#888; text-align:center; padding:8px;">⏳ Đang tải lịch sử...</div>';
+
+  const client = getDigitalTwinSupabaseClient();
+  if (!client) {
+    container.innerHTML = '<div style="font-size:11px; color:red; text-align:center;">Chưa kết nối CSDL.</div>';
+    return;
+  }
+
+  try {
+    const { data: logs, error } = await client
+      .from('asset_maintenance_logs')
+      .select('*')
+      .eq('global_id', globalId)
+      .order('log_date', { ascending: false })
+      .order('id', { ascending: false });
+
+    if (error) throw error;
+
+    if (!logs || logs.length === 0) {
+      container.innerHTML = '<div style="font-size:11px; color:#888; font-style:italic; text-align:center; padding:8px;">Chưa có nhật ký bảo trì nào.</div>';
+      return;
+    }
+
+    let html = '';
+    logs.forEach(log => {
+      let badgeBg = '#1a73e8';
+      if (log.action_type === 'Sửa chữa') badgeBg = '#dc3545';
+      if (log.action_type === 'Thay thế') badgeBg = '#e67e22';
+      if (log.action_type === 'Kiểm tra') badgeBg = '#17a2b8';
+
+      html += `
+        <div style="border-left: 3px solid ${badgeBg}; padding: 6px 8px; margin-bottom: 6px; background: #ffffff; border-radius: 0 4px 4px 0; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+          <div style="display:flex; justify-content:space-between; align-items:center; font-size:10px; color:#666; margin-bottom:3px;">
+            <span>📅 <b>${log.log_date || '-'}</b></span>
+            <span style="background:${badgeBg}; color:#fff; padding:1px 6px; border-radius:3px; font-weight:bold; font-size:9px;">${log.action_type || 'Nhật ký'}</span>
+          </div>
+          <div style="font-size:11px; color:#333; word-break:break-word; white-space:pre-wrap;">${log.description}</div>
+          ${log.performer ? `<div style="font-size:10px; color:#777; margin-top:3px;">👤 Người thực hiện: <i>${log.performer}</i></div>` : ''}
+        </div>
+      `;
+    });
+
+    container.innerHTML = html;
+  } catch (err) {
+    console.error('Lỗi tải lịch sử bảo trì:', err);
+    container.innerHTML = '<div style="font-size:11px; color:red; text-align:center;">Lỗi tải dữ liệu nhật ký.</div>';
+  }
+}
+
+/**
+ * Thêm một bản ghi nhật ký mới vào CSDL
+ */
+async function addMaintenanceLogRecord() {
+  const globalId = document.getElementById('dt_global_id').value;
+  const actionType = document.getElementById('dt_new_log_type').value;
+  const description = document.getElementById('dt_new_log_desc').value;
+  const performer = document.getElementById('dt_new_log_performer').value;
+  const logDate = document.getElementById('dt_new_log_date').value;
+
+  if (!globalId) return alert('⚠️ Chưa chọn thiết bị!');
+  if (!description.trim()) return alert('⚠️ Vui lòng nhập nội dung công việc!');
+
+  const client = getDigitalTwinSupabaseClient();
+  if (!client) return alert('⚠️ Chưa kết nối CSDL Supabase!');
+
+  try {
+    const payload = {
+      global_id: globalId,
+      action_type: actionType,
+      description: description.trim(),
+      performer: performer.trim(),
+      log_date: logDate || new Date().toISOString().split('T')[0]
+    };
+
+    const { error } = await client.from('asset_maintenance_logs').insert([payload]);
+
+    if (error) throw error;
+
+    // Tự động cập nhật Ngày bảo trì gần nhất trên form chính
+    if (logDate && (actionType === 'Bảo trì' || actionType === 'Sửa chữa')) {
+      document.getElementById('dt_last_maint_date').value = logDate;
+    }
+
+    // Reset nội dung nhập
+    document.getElementById('dt_new_log_desc').value = '';
+    document.getElementById('dt_new_log_performer').value = '';
+
+    // Tải lại danh sách lịch sử
+    loadMaintenanceHistory(globalId);
+
+  } catch (err) {
+    alert('❌ Lỗi thêm nhật ký: ' + err.message);
+  }
+}
 
 // =========================================================================
 // --- TÔ MÀU 3D & HIỂN THỊ MARKER 3D ---
@@ -773,7 +909,6 @@ function injectDigitalTwinDashboardModal() {
   `;
   document.body.insertAdjacentHTML('beforeend', modalHtml);
 
-  // Đăng ký Event Delegation cho nút "Xem Chi Tiết"
   const tbody = document.getElementById('dt-dash-table-body');
   if (tbody && !tbody.dataset.eventBound) {
     tbody.dataset.eventBound = 'true';
@@ -880,13 +1015,12 @@ async function saveAssetToDatabase() {
       warranty_expiry: document.getElementById('dt_warranty_date').value || null,
       last_maintenance_date: document.getElementById('dt_last_maint_date').value || null,
       next_maintenance_date: document.getElementById('dt_next_maint_date').value || null,
-      maintenance_log: document.getElementById('dt_maint_log').value || '',
       updated_at: new Date()
     }, { onConflict: 'global_id' });
 
     if (error) throw error;
     if (isColorCodingActive) applyAssetColorCoding();
-    alert('✅ Lưu hồ sơ thành công!');
+    alert('✅ Lưu hồ sơ thiết bị thành công!');
     closeAssetPanel();
   } catch (err) {
     alert('Lỗi: ' + err.message);
