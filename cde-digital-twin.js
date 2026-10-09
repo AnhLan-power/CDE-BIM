@@ -23,9 +23,6 @@ let currentTraceGraph = null;
 let isTraceActive = false;
 let traceDashOffset = 0;
 
-/**
- * Làm sạch giá trị ID
- */
 function cleanId(val) {
   if (val === null || val === undefined) return '';
   const s = String(val).trim();
@@ -33,9 +30,6 @@ function cleanId(val) {
   return s;
 }
 
-/**
- * Kiểm tra Bounding Box (AABB) hợp lệ
- */
 function isValidAABB(aabb) {
   if (!aabb || (!Array.isArray(aabb) && !ArrayBuffer.isView(aabb)) || aabb.length !== 6) return false;
   if (!isFinite(aabb[0]) || !isFinite(aabb[1]) || !isFinite(aabb[2]) ||
@@ -44,9 +38,6 @@ function isValidAABB(aabb) {
   return true;
 }
 
-/**
- * Lấy tọa độ tâm 3D từ AABB
- */
 function getAABBCenter(aabb) {
   return [
     (aabb[0] + aabb[3]) / 2,
@@ -56,8 +47,47 @@ function getAABBCenter(aabb) {
 }
 
 /**
- * Inject Style Marker & Trace Bar (Toolbar Autodesk Tandem)
+ * Chuyển đổi an toàn Tọa độ 3D World -> 2D Screen Canvas (Khắc phục lỗi treo chuột)
  */
+function projectWorldToCanvas(viewer, worldPos) {
+  if (!viewer || !viewer.scene) return null;
+  const scene = viewer.scene;
+
+  if (scene.canvas && typeof scene.canvas.worldToCanvas === 'function') {
+    const out = [0, 0];
+    scene.canvas.worldToCanvas(worldPos, out);
+    return out;
+  }
+
+  const camera = scene.camera;
+  if (!camera || !camera.viewMatrix || !camera.projMatrix) return null;
+
+  const canvasEl = scene.canvas.canvas;
+  if (!canvasEl) return null;
+
+  const viewMat = camera.viewMatrix;
+  const projMat = camera.projMatrix;
+
+  let vx = viewMat[0]*worldPos[0] + viewMat[4]*worldPos[1] + viewMat[8]*worldPos[2] + viewMat[12];
+  let vy = viewMat[1]*worldPos[0] + viewMat[5]*worldPos[1] + viewMat[9]*worldPos[2] + viewMat[13];
+  let vz = viewMat[2]*worldPos[0] + viewMat[6]*worldPos[1] + viewMat[10]*worldPos[2] + viewMat[14];
+
+  let px = projMat[0]*vx + projMat[4]*vy + projMat[8]*vz + projMat[12];
+  let py = projMat[1]*vx + projMat[5]*vy + projMat[9]*vz + projMat[13];
+  let pw = projMat[3]*vx + projMat[7]*vy + projMat[11]*vz + projMat[15];
+
+  if (pw <= 0) return null;
+
+  let nx = px / pw;
+  let ny = py / pw;
+
+  const rect = canvasEl.getBoundingClientRect();
+  let x = (nx + 1) * 0.5 * rect.width;
+  let y = (1 - ny) * 0.5 * rect.height;
+
+  return [x, y];
+}
+
 function injectMarkerStyles() {
   if (document.getElementById('dt-marker-styles')) return;
   const style = document.createElement('style');
@@ -101,7 +131,6 @@ function injectMarkerStyles() {
       animation: dt-pulse 1.5s infinite !important;
     }
 
-    /* SYSTEM TRACE FLOATING TOOLBAR (TANDEM STYLE) */
     #dt-trace-toolbar {
       position: fixed !important;
       top: 25px !important;
@@ -119,6 +148,7 @@ function injectMarkerStyles() {
       font-size: 13px !important;
       font-family: sans-serif !important;
       z-index: 999999 !important;
+      pointer-events: auto !important;
       box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5) !important;
     }
     #dt-trace-toolbar select {
@@ -139,12 +169,6 @@ function injectMarkerStyles() {
       font-weight: bold !important;
       font-size: 12px !important;
       cursor: pointer !important;
-      transition: background 0.2s;
-    }
-    @keyframes dt-pulse {
-      0% { box-shadow: 0 0 0 0 rgba(220, 53, 69, 0.8); }
-      70% { box-shadow: 0 0 0 10px rgba(220, 53, 69, 0); }
-      100% { box-shadow: 0 0 0 0 rgba(220, 53, 69, 0); }
     }
   `;
   document.head.appendChild(style);
@@ -162,10 +186,6 @@ function getDigitalTwinSupabaseClient() {
   }
   return null;
 }
-
-// =========================================================================
-// --- THUẬT TOÁN TÌM KIẾM THIẾT BỊ TRONG MÔ HÌNH 3D ---
-// =========================================================================
 
 function findEntityByAsset(viewer, asset) {
   if (!viewer || !viewer.scene || !viewer.scene.objects) return null;
@@ -232,10 +252,6 @@ function findEntityByAsset(viewer, asset) {
 
   return null;
 }
-
-// =========================================================================
-// --- CAMERA ZOOM CẬN CẢNH ---
-// =========================================================================
 
 function focusCameraOnEntity(globalId, expressId, assetName = '') {
   const viewer = window.xeokitViewer || window.viewer;
@@ -341,9 +357,6 @@ window.focusAndOpenAssetFromDashboard = function(expressId, globalId, assetName)
 // --- SYSTEM TRACE CHUẨN AUTODESK TANDEM (TRUY VẾT & DÒNG CHẢY 3D) ---
 // =========================================================================
 
-/**
- * 1. Tự động quét danh sách tất cả các loại đường ống / hệ thống trong mô hình
- */
 function discoverAllPipeSystems() {
   const viewer = window.xeokitViewer || window.viewer;
   if (!viewer || !viewer.scene) return ['Tất cả hệ thống ống (All Pipes)'];
@@ -364,9 +377,6 @@ function discoverAllPipeSystems() {
   return Array.from(systems);
 }
 
-/**
- * 2. Lấy danh sách đường ống phù hợp
- */
 function getEntitiesInSystem(systemKey) {
   const viewer = window.xeokitViewer || window.viewer;
   if (!viewer || !viewer.scene) return [];
@@ -391,7 +401,6 @@ function getEntitiesInSystem(systemKey) {
     }
   });
 
-  // Fallback: Nếu không lọc được theo tên, lấy tất cả đối tượng có AABB hợp lệ trong mô hình
   if (matchedEntities.length === 0) {
     Object.values(viewer.scene.objects).forEach(entity => {
       if (isValidAABB(entity.aabb)) matchedEntities.push(entity);
@@ -401,9 +410,6 @@ function getEntitiesInSystem(systemKey) {
   return matchedEntities;
 }
 
-/**
- * 3. Dựng ma trận liên kết đồ thị từ Nguồn -> Nhánh
- */
 function buildFlowGraph(sourceEntity, systemEntities) {
   if (systemEntities.length === 0) return null;
 
@@ -445,7 +451,7 @@ function buildFlowGraph(sourceEntity, systemEntities) {
           const dz = curr.center[2] - target.center[2];
           const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
 
-          if (dist < 6.0) { // Nối các đoạn ống có khoảng cách < 6m
+          if (dist < 8.0) { // Tăng bán kính liên kết giữa các đoạn ống lân cận
             target.visited = true;
             edges.push({ from: curr, to: target });
             nextFrontier.push(target);
@@ -460,67 +466,60 @@ function buildFlowGraph(sourceEntity, systemEntities) {
   return { source: sourceNode, nodes, edges };
 }
 
-/**
- * 4. Khởi chạy System Trace chuẩn Autodesk Tandem
- */
 function startTandemSystemTrace(systemKey = '') {
   stopTandemSystemTrace();
 
   const viewer = window.xeokitViewer || window.viewer;
   if (!viewer || !viewer.scene) return;
 
-  // Luôn Inject Toolbar ở vị trí trên cùng trước tiên
   injectSystemTraceToolbar(systemKey);
 
   const matchedEntities = getEntitiesInSystem(systemKey);
 
-  // Ghost Mode mờ toàn bộ mô hình
   Object.values(viewer.scene.objects).forEach(obj => {
     obj.opacity = 0.08;
     obj.colorized = false;
   });
 
-  // Tô màu Xanh Ngọc Nổi Bật cho hệ thống ống
   matchedEntities.forEach(obj => {
     obj.opacity = 1.0;
-    obj.colorize = [0.0, 0.9, 0.8]; // Aqua Cyan
+    obj.colorize = [0.0, 0.9, 0.8]; 
     obj.colorized = true;
   });
 
-  // Giữ nổi bật cho thiết bị Nguồn (Máy thổi khí)
   const sourceEntity = window.selectedEntity;
   if (sourceEntity) {
     sourceEntity.opacity = 1.0;
-    sourceEntity.colorize = [0.1, 0.8, 0.3]; // Green
+    sourceEntity.colorize = [0.1, 0.8, 0.3]; 
     sourceEntity.colorized = true;
   }
 
   currentTraceGraph = buildFlowGraph(sourceEntity, matchedEntities);
 
-  // Tạo Canvas Overlay vẽ đường dòng chảy động
   let canvas = document.getElementById('dt-trace-canvas');
   if (!canvas) {
     canvas = document.createElement('canvas');
     canvas.id = 'dt-trace-canvas';
-    canvas.style.cssText = 'position:fixed; top:0; left:0; width:100vw; height:100vh; pointer-events:none; z-index:502;';
+    canvas.style.cssText = 'position:fixed !important; top:0 !important; left:0 !important; width:100vw !important; height:100vh !important; pointer-events:none !important; z-index:450 !important;';
     document.body.appendChild(canvas);
   }
   activeTraceCanvas = canvas;
 
-  traceTickListener = viewer.scene.on('tick', renderTraceFlowLines);
-  
   isTraceActive = true;
-  renderTraceFlowLines();
+  animateTraceLoop();
 }
 
-/**
- * 5. Render chuyển động dòng chảy (Flow Animation)
- */
+function animateTraceLoop() {
+  if (!isTraceActive) return;
+  renderTraceFlowLines();
+  traceAnimFrameId = requestAnimationFrame(animateTraceLoop);
+}
+
 function renderTraceFlowLines() {
   if (!isTraceActive || !currentTraceGraph || !activeTraceCanvas) return;
 
   const viewer = window.xeokitViewer || window.viewer;
-  if (!viewer || !viewer.scene || !viewer.scene.canvas) return;
+  if (!viewer || !viewer.scene) return;
 
   const canvas = activeTraceCanvas;
   const ctx = canvas.getContext('2d');
@@ -529,65 +528,47 @@ function renderTraceFlowLines() {
   canvas.height = window.innerHeight;
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  const xeokitCanvas = viewer.scene.canvas;
-  const rect = xeokitCanvas.canvas.getBoundingClientRect();
-
   traceDashOffset -= 0.8;
 
   ctx.lineWidth = 4;
   ctx.strokeStyle = '#00f2ff';
-  ctx.setLineDash([8, 6]);
+  ctx.setLineDash([10, 8]);
   ctx.lineDashOffset = traceDashOffset;
   ctx.shadowColor = '#00f2ff';
-  ctx.shadowBlur = 8;
-
-  const p1 = [0, 0];
-  const p2 = [0, 0];
+  ctx.shadowBlur = 10;
 
   currentTraceGraph.edges.forEach(edge => {
-    xeokitCanvas.worldToCanvas(edge.from.center, p1);
-    xeokitCanvas.worldToCanvas(edge.to.center, p2);
+    const p1 = projectWorldToCanvas(viewer, edge.from.center);
+    const p2 = projectWorldToCanvas(viewer, edge.to.center);
 
-    const x1 = rect.left + p1[0];
-    const y1 = rect.top + p1[1];
-    const x2 = rect.left + p2[0];
-    const y2 = rect.top + p2[1];
-
-    ctx.beginPath();
-    ctx.moveTo(x1, y1);
-    ctx.lineTo(x2, y2);
-    ctx.stroke();
+    if (p1 && p2) {
+      ctx.beginPath();
+      ctx.moveTo(p1[0], p1[1]);
+      ctx.lineTo(p2[0], p2[1]);
+      ctx.stroke();
+    }
   });
 
-  // Vẽ Marker Nguồn (Pin xanh lá)
+  // Marker Nguồn (Xanh lá)
   if (currentTraceGraph.source) {
-    xeokitCanvas.worldToCanvas(currentTraceGraph.source.center, p1);
-    const sx = rect.left + p1[0];
-    const sy = rect.top + p1[1];
-
-    ctx.fillStyle = '#28a745';
-    ctx.beginPath();
-    ctx.arc(sx, sy, 7, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 2;
-    ctx.stroke();
+    const sp = projectWorldToCanvas(viewer, currentTraceGraph.source.center);
+    if (sp) {
+      ctx.fillStyle = '#28a745';
+      ctx.beginPath();
+      ctx.arc(sp[0], sp[1], 8, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
   }
-
-  traceAnimFrameId = requestAnimationFrame(renderTraceFlowLines);
 }
 
-/**
- * 6. Tắt System Trace & Khôi phục màu gốc
- */
 function stopTandemSystemTrace() {
   isTraceActive = false;
-  if (traceAnimFrameId) cancelAnimationFrame(traceAnimFrameId);
-
-  const viewer = window.xeokitViewer || window.viewer;
-  if (viewer && viewer.scene && traceTickListener) {
-    try { viewer.scene.off(traceTickListener); } catch (e) {}
-    traceTickListener = null;
+  if (traceAnimFrameId) {
+    cancelAnimationFrame(traceAnimFrameId);
+    traceAnimFrameId = null;
   }
 
   if (activeTraceCanvas && activeTraceCanvas.parentElement) {
@@ -598,6 +579,7 @@ function stopTandemSystemTrace() {
   const toolbar = document.getElementById('dt-trace-toolbar');
   if (toolbar) toolbar.parentElement.removeChild(toolbar);
 
+  const viewer = window.xeokitViewer || window.viewer;
   if (viewer && viewer.scene) {
     Object.values(viewer.scene.objects).forEach(obj => {
       obj.opacity = 1.0;
@@ -609,9 +591,6 @@ function stopTandemSystemTrace() {
   }
 }
 
-/**
- * 7. Inject Floating Toolbar chuẩn Autodesk Tandem
- */
 function injectSystemTraceToolbar(selectedSys = '') {
   injectMarkerStyles();
   let toolbar = document.getElementById('dt-trace-toolbar');
@@ -1105,56 +1084,12 @@ function render3DMarkers(assets) {
     const currentViewer = window.xeokitViewer || window.viewer;
     if (!currentViewer || !currentViewer.scene || !currentViewer.scene.camera) return;
 
-    const camera = currentViewer.scene.camera;
-    const canvas = currentViewer.scene.canvas.canvas;
-    if (!canvas) return;
-    
-    const rect = canvas.getBoundingClientRect();
-
-    if (currentViewer.scene.canvas && typeof currentViewer.scene.canvas.worldToCanvas === 'function') {
-      trackedItems.forEach(item => {
-        const canvasPos = [0, 0];
-        currentViewer.scene.canvas.worldToCanvas(item.worldPos, canvasPos);
-        item.element.style.display = 'flex';
-        item.element.style.left = Math.round(rect.left + canvasPos[0]) + 'px';
-        item.element.style.top = Math.round(rect.top + canvasPos[1]) + 'px';
-      });
-      return;
-    }
-
-    const viewMat = camera.viewMatrix;
-    const projMat = camera.projMatrix || (camera.project && camera.project.projMatrix);
-
-    if (!viewMat || !projMat) return;
-
     trackedItems.forEach(item => {
-      const pos = item.worldPos;
-      
-      let vx = viewMat[0]*pos[0] + viewMat[4]*pos[1] + viewMat[8]*pos[2] + viewMat[12];
-      let vy = viewMat[1]*pos[0] + viewMat[5]*pos[1] + viewMat[9]*pos[2] + viewMat[13];
-      let vz = viewMat[2]*pos[0] + viewMat[6]*pos[1] + viewMat[10]*pos[2] + viewMat[14];
-      
-      let px = projMat[0]*vx + projMat[4]*vy + projMat[8]*vz + projMat[12];
-      let py = projMat[1]*vx + projMat[5]*vy + projMat[9]*vz + projMat[13];
-      let pw = projMat[3]*vx + projMat[7]*vy + projMat[11]*vz + projMat[15];
-
-      if (pw <= 0) {
-        item.element.style.display = 'none';
-        return;
-      }
-
-      let nx = px / pw;
-      let ny = py / pw;
-      
-      let x = rect.left + (nx + 1) * 0.5 * rect.width;
-      let y = rect.top + (1 - ny) * 0.5 * rect.height;
-
-      const margin = 50;
-      if (x >= rect.left - margin && x <= rect.left + rect.width + margin && 
-          y >= rect.top - margin && y <= rect.top + rect.height + margin) {
+      const sp = projectWorldToCanvas(currentViewer, item.worldPos);
+      if (sp) {
         item.element.style.display = 'flex';
-        item.element.style.left = Math.round(x) + 'px';
-        item.element.style.top = Math.round(y) + 'px';
+        item.element.style.left = Math.round(sp[0]) + 'px';
+        item.element.style.top = Math.round(sp[1]) + 'px';
       } else {
         item.element.style.display = 'none';
       }
@@ -1314,10 +1249,6 @@ function closeDigitalTwinDashboard() {
   const modal = document.getElementById('dt-dashboard-modal');
   if (modal) modal.style.display = 'none';
 }
-
-// =========================================================================
-// --- LƯU DỮ LIỆU TÀI SẢN ---
-// =========================================================================
 
 async function saveAssetToDatabase() {
   const globalId = document.getElementById('dt_global_id').value;
