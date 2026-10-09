@@ -15,6 +15,11 @@ let isColorCodingActive = false;
 let activeMarkerElements = [];   
 let markerTickListener = null;   
 
+// Biến quản lý trạng thái System Trace (Dòng chảy)
+let activeTraceInterval = null;
+let originalEntityStates = new Map();
+let isTraceActive = false;
+
 /**
  * Làm sạch giá trị ID
  */
@@ -293,6 +298,154 @@ window.focusAndOpenAssetFromDashboard = function(expressId, globalId, assetName)
 };
 
 // =========================================================================
+// --- TÍNH NĂNG SYSTEM TRACE (MÔ PHỎNG DÒNG CHẢY HỆ THỐNG 3D) ---
+// =========================================================================
+
+/**
+ * Khởi chạy System Trace cho một tuyến ống/hệ thống
+ */
+function startSystemTrace(systemKeyword = '', targetEntityIds = []) {
+  const viewer = window.xeokitViewer || window.viewer;
+  if (!viewer || !viewer.scene) return;
+
+  stopSystemTrace(); // Clear trace cũ trước khi chạy mới
+
+  const objects = viewer.scene.objects;
+  const traceEntities = [];
+
+  // Từ khóa mặc định nếu chưa truyền
+  const keyword = systemKeyword.trim().toLowerCase();
+
+  // 1. Duyệt qua tất cả cấu kiện để phân loại: thuộc hệ thống hay nằm ngoài hệ thống
+  Object.values(objects).forEach(entity => {
+    // Lưu trạng thái nguyên bản để phục hồi về sau
+    originalEntityStates.set(entity.id, {
+      colorize: entity.colorize ? [...entity.colorize] : null,
+      colorized: entity.colorized,
+      opacity: entity.opacity,
+      highlighted: entity.highlighted
+    });
+
+    const entityName = String(entity.name || '').toLowerCase();
+    const entityId = String(entity.id || '').toLowerCase();
+
+    const isMatchKeyword = keyword && (entityName.includes(keyword) || entityId.includes(keyword));
+    const isMatchTarget = targetEntityIds.some(id => entityId.includes(String(id).toLowerCase()));
+
+    if (isMatchKeyword || isMatchTarget || (!keyword && targetEntityIds.length === 0 && entity.highlighted)) {
+      traceEntities.push(entity);
+    } else {
+      // Làm mờ cấu kiện xung quanh (Ghost Mode)
+      entity.opacity = 0.12;
+      entity.colorized = false;
+    }
+  });
+
+  if (traceEntities.length === 0) {
+    alert('⚠️ Không tìm thấy tuyến ống/cấu kiện nào khớp với hệ thống!');
+    stopSystemTrace();
+    return;
+  }
+
+  // 2. Đặt màu nền xanh ngọc dạ quang cho hệ thống
+  const FLOW_BASE_COLOR = [0.0, 0.85, 0.95]; // Teal Cyan
+  traceEntities.forEach(entity => {
+    entity.opacity = 1.0;
+    entity.colorize = FLOW_BASE_COLOR;
+    entity.colorized = true;
+  });
+
+  // 3. Animation vòng lặp chạy điểm sóng sáng dọc tuyến ống
+  let frame = 0;
+  activeTraceInterval = setInterval(() => {
+    traceEntities.forEach((entity, index) => {
+      const isPulsePoint = (index + frame) % 4 === 0;
+      if (isPulsePoint) {
+        entity.colorize = [1.0, 1.0, 1.0]; // Điểm sáng Trắng
+        entity.highlighted = true;
+      } else {
+        entity.colorize = FLOW_BASE_COLOR;
+        entity.highlighted = false;
+      }
+    });
+
+    viewer.scene._needUpdate = 1;
+    if (typeof viewer.scene.render === 'function') viewer.scene.render();
+
+    frame++;
+  }, 160);
+
+  isTraceActive = true;
+  updateTraceButtonUI(true);
+}
+
+/**
+ * Tắt System Trace & Phục hồi nguyên trạng mô hình
+ */
+function stopSystemTrace() {
+  if (activeTraceInterval) {
+    clearInterval(activeTraceInterval);
+    activeTraceInterval = null;
+  }
+
+  const viewer = window.xeokitViewer || window.viewer;
+  if (viewer && viewer.scene) {
+    originalEntityStates.forEach((state, id) => {
+      const entity = viewer.scene.objects[id];
+      if (entity) {
+        entity.colorize = state.colorize;
+        entity.colorized = state.colorized;
+        entity.opacity = state.opacity;
+        entity.highlighted = state.highlighted;
+      }
+    });
+
+    viewer.scene._needUpdate = 1;
+    if (typeof viewer.scene.render === 'function') viewer.scene.render();
+  }
+
+  originalEntityStates.clear();
+  isTraceActive = false;
+  updateTraceButtonUI(false);
+}
+
+/**
+ * Toggle System Trace từ giao diện
+ */
+function toggleSystemTraceFromUI() {
+  if (isTraceActive) {
+    stopSystemTrace();
+  } else {
+    const assetName = document.getElementById('dt_asset_name')?.value || '';
+    const globalId = document.getElementById('dt_global_id')?.value || '';
+    
+    // Tự lấy từ khóa tìm kiếm theo tên thiết bị hiện tại hoặc nhập từ Prompt
+    let keyword = assetName.split(/[:#\s-]/)[0] || '';
+    const userKeyword = prompt('Nhập từ khóa hệ thống / tuyến ống cần xem dòng chảy:', keyword || 'MAY THOI KHI');
+    
+    if (userKeyword !== null) {
+      startSystemTrace(userKeyword, globalId ? [globalId] : []);
+    }
+  }
+}
+
+function updateTraceButtonUI(active) {
+  const btn = document.getElementById('dt-btn-system-trace');
+  if (!btn) return;
+  if (active) {
+    btn.innerText = '⏹️ Dừng Dòng Chảy';
+    btn.style.backgroundColor = '#dc3545';
+    btn.style.color = '#fff';
+    btn.style.borderColor = '#dc3545';
+  } else {
+    btn.innerText = '🌊 Mô Phỏng Dòng Chảy';
+    btn.style.backgroundColor = '#e8f0fe';
+    btn.style.color = '#1a73e8';
+    btn.style.borderColor = '#b6d4fe';
+  }
+}
+
+// =========================================================================
 // --- UI PANELS ---
 // =========================================================================
 
@@ -308,14 +461,18 @@ function injectDigitalTwinPanel() {
         <button type="button" onclick="closeAssetPanel()" style="border:none; background:none; cursor:pointer; font-size:18px; font-weight:bold;">✕</button>
       </div>
 
-      <div style="margin-bottom:15px; display:flex; gap:8px;">
+      <div style="margin-bottom:15px; display:flex; gap:6px;">
         <button type="button" id="dt-btn-toggle-color" onclick="toggleColorCodingMode(this)" 
-                style="flex:1; padding:8px 10px; background:#f0f4f9; color:#1a73e8; border:1px solid #b6d4fe; border-radius:6px; font-weight:bold; cursor:pointer; font-size:11px; display:flex; align-items:center; justify-content:center;">
-          🎨 Xem Trạng Thái 3D
+                style="flex:1; padding:8px 6px; background:#f0f4f9; color:#1a73e8; border:1px solid #b6d4fe; border-radius:6px; font-weight:bold; cursor:pointer; font-size:11px; display:flex; align-items:center; justify-content:center;">
+          🎨 Trạng Thái 3D
         </button>
         <button type="button" onclick="openDigitalTwinDashboard()" 
-                style="flex:1; padding:8px 10px; background:#e8f0fe; color:#1a73e8; border:1px solid #b6d4fe; border-radius:6px; font-weight:bold; cursor:pointer; font-size:11px; display:flex; align-items:center; justify-content:center;">
-          📊 Dashboard Thống Kê
+                style="flex:1; padding:8px 6px; background:#e8f0fe; color:#1a73e8; border:1px solid #b6d4fe; border-radius:6px; font-weight:bold; cursor:pointer; font-size:11px; display:flex; align-items:center; justify-content:center;">
+          📊 Thống Kê
+        </button>
+        <button type="button" id="dt-btn-system-trace" onclick="toggleSystemTraceFromUI()" 
+                style="flex:1.2; padding:8px 6px; background:#e8f0fe; color:#1a73e8; border:1px solid #b6d4fe; border-radius:6px; font-weight:bold; cursor:pointer; font-size:11px; display:flex; align-items:center; justify-content:center;">
+          🌊 Mô Phỏng Dòng Chảy
         </button>
       </div>
 
@@ -468,7 +625,6 @@ async function openDigitalTwinPanel(expressID, globalID, assetName = '') {
   document.getElementById('dt-asset-form').reset();
   document.getElementById('dt_doc_list').innerHTML = '';
   
-  // Đặt mặc định ngày hiện tại cho form thêm nhật ký
   if (document.getElementById('dt_new_log_date')) {
     document.getElementById('dt_new_log_date').value = new Date().toISOString().split('T')[0];
   }
@@ -549,7 +705,10 @@ async function openDigitalTwinPanel(expressID, globalID, assetName = '') {
   }
 }
 
-function closeAssetPanel() { document.getElementById('dt-asset-panel').style.display = 'none'; }
+function closeAssetPanel() { 
+  stopSystemTrace(); // Tắt trace khi đóng panel
+  document.getElementById('dt-asset-panel').style.display = 'none'; 
+}
 
 // =========================================================================
 // --- TÍNH NĂNG NHẬT KÝ BẢO TRÌ NÂNG CAO (TIMELINE HISTORY) ---
@@ -645,16 +804,13 @@ async function addMaintenanceLogRecord() {
 
     if (error) throw error;
 
-    // Tự động cập nhật Ngày bảo trì gần nhất trên form chính
     if (logDate && (actionType === 'Bảo trì' || actionType === 'Sửa chữa')) {
       document.getElementById('dt_last_maint_date').value = logDate;
     }
 
-    // Reset nội dung nhập
     document.getElementById('dt_new_log_desc').value = '';
     document.getElementById('dt_new_log_performer').value = '';
 
-    // Tải lại danh sách lịch sử
     loadMaintenanceHistory(globalId);
 
   } catch (err) {
@@ -717,7 +873,7 @@ function toggleColorCodingMode(btn) {
     if (btn) { btn.innerText = '🔄 Khôi Phục Màu Mặc Định'; btn.style.backgroundColor = '#28a745'; btn.style.color = '#fff'; btn.style.borderColor = '#28a745'; }
   } else {
     resetModelColors();
-    if (btn) { btn.innerText = '🎨 Xem Trạng Thái 3D'; btn.style.backgroundColor = '#f0f4f9'; btn.style.color = '#1a73e8'; btn.style.borderColor = '#b6d4fe'; }
+    if (btn) { btn.innerText = '🎨 Trạng Thái 3D'; btn.style.backgroundColor = '#f0f4f9'; btn.style.color = '#1a73e8'; btn.style.borderColor = '#b6d4fe'; }
   }
 }
 
