@@ -15,16 +15,16 @@ let isColorCodingActive = false;
 let activeMarkerElements = [];   
 let markerTickListener = null;   
 
-// --- TANDEM SYSTEM TRACE & PICKING VARIABLES ---
+// --- SYSTEM TRACE MULTI-SELECTION VARIABLES ---
 let activeTraceCanvas = null;
 let traceAnimFrameId = null;
 let currentTraceGraph = null; 
 let isTraceActive = false;
 let traceDashOffset = 0;
 
-let selectedSourceEntity = null;      // Nguồn (Máy thổi khí / Bơm)
-let selectedDestinationEntity = null; // Nhánh / Điểm cuối
-let currentPickMode = null;            // 'source' | 'destination' | null
+let selectedSourceEntity = null;        // 1 Nguồn phát (Máy thổi khí / Bơm)
+let selectedBranchEntities = [];        // Danh sách chọn NHIỀU Nhánh
+let currentPickMode = null;              // 'source' | 'branch' | null
 
 function cleanId(val) {
   if (val === null || val === undefined) return '';
@@ -167,17 +167,20 @@ function injectMarkerStyles() {
       cursor: pointer !important;
     }
     #dt-trace-toolbar button {
-      padding: 5px 10px !important;
+      padding: 6px 12px !important;
       border-radius: 4px !important;
       border: none !important;
       font-weight: bold !important;
       font-size: 11px !important;
       cursor: pointer !important;
       transition: all 0.2s;
+      display: flex !important;
+      align-items: center !important;
+      gap: 4px !important;
     }
     #dt-trace-toolbar button:hover {
-      opacity: 0.85;
-      transform: scale(1.03);
+      opacity: 0.9;
+      transform: translateY(-1px);
     }
   `;
   document.head.appendChild(style);
@@ -367,7 +370,7 @@ window.focusAndOpenAssetFromDashboard = function(expressId, globalId, assetName)
 // =========================================================================
 
 /**
- * 1. Tự động bóc tách thuộc tính SystemType, Reference (AP, WP...) từ IFC
+ * 1. Quét danh sách thuộc tính hệ thống từ IFC
  */
 function discoverAllPipeSystems() {
   const viewer = window.xeokitViewer || window.viewer;
@@ -375,14 +378,13 @@ function discoverAllPipeSystems() {
 
   const systems = new Set();
   systems.add('Tất cả hệ thống (All)');
-  systems.add('Hệ AP (Khí thổi / Máy thổi khí)');
-  systems.add('Hệ WP (Bơm / Nước thải)');
+  systems.add('Hệ AP (Khí thổi / AP. SUS304)');
+  systems.add('Hệ WP (Bơm / Nước)');
 
   Object.values(viewer.scene.objects).forEach(entity => {
     const name = String(entity.name || '');
     const id = String(entity.id || '');
 
-    // Đọc thuộc tính từ Tên Cấu Kiện IFC
     if (name.includes('AP.') || name.includes('SUS304')) systems.add('AP. SUS304');
     if (name.includes('WP') || id.includes('WP')) systems.add('WP (Water Pump)');
 
@@ -392,28 +394,11 @@ function discoverAllPipeSystems() {
     }
   });
 
-  // Đọc thuộc tính từ MetaScene PropertySets nếu có
-  if (viewer.metaScene && viewer.metaScene.metaObjects) {
-    Object.values(viewer.metaScene.metaObjects).forEach(metaObj => {
-      if (metaObj.propertySets) {
-        metaObj.propertySets.forEach(pset => {
-          if (pset.properties) {
-            pset.properties.forEach(p => {
-              if (p.name === 'Reference' || p.name === 'System Name' || p.name === 'SystemType') {
-                if (p.value) systems.add(String(p.value).trim());
-              }
-            });
-          }
-        });
-      }
-    });
-  }
-
   return Array.from(systems);
 }
 
 /**
- * 2. Lọc chính xác danh sách đường ống theo từ khóa AP, WP, SUS304...
+ * 2. Lọc danh sách đường ống / thiết bị theo Hệ Thống
  */
 function getEntitiesInSystem(systemKey) {
   const viewer = window.xeokitViewer || window.viewer;
@@ -430,7 +415,8 @@ function getEntitiesInSystem(systemKey) {
 
     const isPipeOrFitting = name.includes('pipe') || name.includes('duct') || name.includes('ap.') || 
                             name.includes('wp') || name.includes('sus304') || name.includes('flowsegment') || 
-                            name.includes('flowfitting') || id.includes('flowsegment') || id.includes('pipe');
+                            name.includes('flowfitting') || id.includes('flowsegment') || id.includes('pipe') ||
+                            name.includes('thoi khi') || name.includes('bom');
 
     if (!isPipeOrFitting) return;
 
@@ -455,9 +441,9 @@ function getEntitiesInSystem(systemKey) {
 }
 
 /**
- * 3. Dựng ma trận luồng chảy từ Nguồn (Source) -> Nhánh (Destination)
+ * 3. Thuật toán Xây dựng Ma Trận Dòng Chảy từ Nguồn -> Chọn Nhiều Nhánh
  */
-function buildFlowGraph(sourceEntity, systemEntities, destinationEntity = null) {
+function buildMultiBranchFlowGraph(sourceEntity, branchEntities, systemEntities) {
   if (!systemEntities || systemEntities.length === 0) return null;
 
   const nodes = systemEntities.map(entity => ({
@@ -467,7 +453,7 @@ function buildFlowGraph(sourceEntity, systemEntities, destinationEntity = null) 
     visited: false
   }));
 
-  // Tìm node Nguồn phát
+  // Xác định Node Nguồn (Source Node)
   let sourceNode = null;
   if (sourceEntity && isValidAABB(sourceEntity.aabb)) {
     const sourceCenter = getAABBCenter(sourceEntity.aabb);
@@ -485,24 +471,30 @@ function buildFlowGraph(sourceEntity, systemEntities, destinationEntity = null) 
   if (!sourceNode) sourceNode = nodes[0];
   sourceNode.visited = true;
 
-  // Tìm node Nhánh đích (nếu có chọn)
-  let destNode = null;
-  if (destinationEntity && isValidAABB(destinationEntity.aabb)) {
-    const destCenter = getAABBCenter(destinationEntity.aabb);
-    let minDist = Infinity;
-    nodes.forEach(node => {
-      const d = Math.sqrt(
-        Math.pow(node.center[0] - destCenter[0], 2) +
-        Math.pow(node.center[1] - destCenter[1], 2) +
-        Math.pow(node.center[2] - destCenter[2], 2)
-      );
-      if (d < minDist) { minDist = d; destNode = node; }
+  // Xác định danh sách các Node Nhánh (Branch Nodes)
+  const targetBranchNodes = [];
+  if (branchEntities && branchEntities.length > 0) {
+    branchEntities.forEach(bEnt => {
+      if (isValidAABB(bEnt.aabb)) {
+        const bCenter = getAABBCenter(bEnt.aabb);
+        let minDist = Infinity;
+        let matchedNode = null;
+        nodes.forEach(node => {
+          const d = Math.sqrt(
+            Math.pow(node.center[0] - bCenter[0], 2) +
+            Math.pow(node.center[1] - bCenter[1], 2) +
+            Math.pow(node.center[2] - bCenter[2], 2)
+          );
+          if (d < minDist) { minDist = d; matchedNode = node; }
+        });
+        if (matchedNode) targetBranchNodes.push(matchedNode);
+      }
     });
   }
 
   const edges = [];
   const visitedNodes = [sourceNode];
-  const MAX_CONNECT_DIST = 3.8; // Khoảng cách liên kết nối ống
+  const MAX_CONNECT_DIST = 4.2; // Khoảng cách nối các đoạn ống gần nhau
 
   let addedNew = true;
   while (addedNew) {
@@ -534,56 +526,68 @@ function buildFlowGraph(sourceEntity, systemEntities, destinationEntity = null) 
       edges.push({ from: bestFrom, to: bestTo });
       addedNew = true;
 
-      // Nếu đã chọn Nhánh cụ thể và thuật toán tìm tới Nhánh đó thì dừng lại
-      if (destNode && bestTo.id === destNode.id) break;
+      // Nếu đã kết nối đủ tất cả các Nhánh được chọn thì dừng thuật toán
+      if (targetBranchNodes.length > 0) {
+        const allReached = targetBranchNodes.every(bn => bn.visited);
+        if (allReached) break;
+      }
     }
   }
 
-  return { source: sourceNode, destination: destNode, nodes: visitedNodes, edges };
+  return { source: sourceNode, branches: targetBranchNodes, nodes: visitedNodes, edges };
 }
 
 /**
- * 4. Khởi chạy System Trace chuẩn Autodesk Tandem
+ * Mở cửa sổ Toolbar System Trace
  */
-function startTandemSystemTrace(systemKey = '') {
-  stopTandemSystemTrace();
+function openSystemTraceToolbar() {
+  injectSystemTraceToolbar();
+  bind3DPickListener();
+}
 
+/**
+ * Kích hoạt Mô phỏng Dòng chảy (Khi bấm nút "▶ Chạy Mô Phỏng")
+ */
+function executeSystemTraceSimulation() {
   const viewer = window.xeokitViewer || window.viewer;
   if (!viewer || !viewer.scene) return;
 
-  injectSystemTraceToolbar(systemKey);
+  const selectedSys = document.getElementById('dt-trace-sys-select')?.value || '';
+  const matchedEntities = getEntitiesInSystem(selectedSys);
 
-  const matchedEntities = getEntitiesInSystem(systemKey);
+  if (matchedEntities.length === 0) {
+    alert('⚠️ Không tìm thấy đối tượng ống phù hợp trong hệ thống này!');
+    return;
+  }
 
-  // Ghost Mode mờ các cấu kiện khác
+  // Ghost Mode làm mờ các đối tượng ngoài hệ thống
   Object.values(viewer.scene.objects).forEach(obj => {
     obj.opacity = 0.08;
     obj.colorized = false;
   });
 
-  // Tô màu Xanh Ngọc cho hệ thống ống
+  // Highlight hệ thống ống được chọn
   matchedEntities.forEach(obj => {
     obj.opacity = 1.0;
-    obj.colorize = [0.0, 0.9, 0.8]; 
+    obj.colorize = [0.0, 0.9, 0.8]; // Cyan
     obj.colorized = true;
   });
 
-  // Nguồn (Máy thổi khí / Bơm) tô Xanh Lá
-  const sourceEntity = selectedSourceEntity || window.selectedEntity;
-  if (sourceEntity) {
-    sourceEntity.opacity = 1.0;
-    sourceEntity.colorize = [0.1, 0.8, 0.3]; 
-    sourceEntity.colorized = true;
+  // Tô Nguồn màu Xanh Lá
+  if (selectedSourceEntity) {
+    selectedSourceEntity.opacity = 1.0;
+    selectedSourceEntity.colorize = [0.1, 0.8, 0.3];
+    selectedSourceEntity.colorized = true;
   }
 
-  // Nhánh cuối tô Vàng
-  if (selectedDestinationEntity) {
-    selectedDestinationEntity.opacity = 1.0;
-    selectedDestinationEntity.colorize = [1.0, 0.75, 0.0]; 
-    selectedDestinationEntity.colorized = true;
-  }
+  // Tô các Nhánh đã chọn màu Vàng Cam
+  selectedBranchEntities.forEach(bEnt => {
+    bEnt.opacity = 1.0;
+    bEnt.colorize = [1.0, 0.75, 0.0];
+    bEnt.colorized = true;
+  });
 
-  currentTraceGraph = buildFlowGraph(sourceEntity, matchedEntities, selectedDestinationEntity);
+  currentTraceGraph = buildMultiBranchFlowGraph(selectedSourceEntity, selectedBranchEntities, matchedEntities);
 
   let canvas = document.getElementById('dt-trace-canvas');
   if (!canvas) {
@@ -594,32 +598,46 @@ function startTandemSystemTrace(systemKey = '') {
   }
   activeTraceCanvas = canvas;
 
-  // Lắng nghe sự kiện click 3D để chọn Nguồn / Nhánh
-  bind3DPickListener(viewer);
-
+  if (traceAnimFrameId) cancelAnimationFrame(traceAnimFrameId);
   isTraceActive = true;
   animateTraceLoop();
+  
+  viewer.scene._needUpdate = 1;
+  if (typeof viewer.scene.render === 'function') viewer.scene.render();
 }
 
 /**
- * Lắng nghe Click 3D để Đặt Nguồn / Nhánh
+ * Lắng nghe sự kiện Click 3D để Đặt Nguồn / Chọn Nhiều Nhánh
  */
-function bind3DPickListener(viewer) {
-  if (viewer.scene.input && !viewer.scene.input._dtBound) {
-    viewer.scene.input._dtBound = true;
+function bind3DPickListener() {
+  const viewer = window.xeokitViewer || window.viewer;
+  if (!viewer || !viewer.scene || !viewer.scene.input) return;
+
+  if (!viewer.scene.input._dtMultiBranchBound) {
+    viewer.scene.input._dtMultiBranchBound = true;
     viewer.scene.input.on("mouseClicked", (coords) => {
       if (!currentPickMode) return;
       const hit = viewer.scene.pick({ canvasPos: coords });
       if (hit && hit.entity) {
         if (currentPickMode === 'source') {
           selectedSourceEntity = hit.entity;
-          alert(`✅ Đã đặt Nguồn xuất phát: ${hit.entity.name || hit.entity.id}`);
-        } else if (currentPickMode === 'destination') {
-          selectedDestinationEntity = hit.entity;
-          alert(`🎯 Đã chọn Nhánh / Điểm cuối: ${hit.entity.name || hit.entity.id}`);
+          hit.entity.colorize = [0.1, 0.8, 0.3];
+          hit.entity.colorized = true;
+          alert(`🟢 ĐÃ CHỌN NGUỒN: ${hit.entity.name || hit.entity.id}`);
+          currentPickMode = null;
+        } else if (currentPickMode === 'branch') {
+          if (!selectedBranchEntities.includes(hit.entity)) {
+            selectedBranchEntities.push(hit.entity);
+            hit.entity.colorize = [1.0, 0.75, 0.0];
+            hit.entity.colorized = true;
+          }
+          alert(`🎯 ĐÃ THÊM NHÁNH (${selectedBranchEntities.length}): ${hit.entity.name || hit.entity.id}`);
         }
-        currentPickMode = null;
-        startTandemSystemTrace(document.getElementById('dt-trace-sys-select')?.value || '');
+        updateToolbarStatusText();
+        if (viewer.scene) {
+          viewer.scene._needUpdate = 1;
+          if (typeof viewer.scene.render === 'function') viewer.scene.render();
+        }
       }
     });
   }
@@ -628,9 +646,26 @@ function bind3DPickListener(viewer) {
 function enablePickMode(mode) {
   currentPickMode = mode;
   if (mode === 'source') {
-    alert('👉 Hãy CLICK trực tiếp vào Máy thổi khí hoặc Bơm trên View 3D để chọn làm Nguồn phát!');
-  } else if (mode === 'destination') {
-    alert('👉 Hãy CLICK trực tiếp vào đoạn ống hoặc van cuối trên View 3D để chọn làm Nhánh mô phỏng!');
+    alert('👉 Vui lòng CLICK trực tiếp vào Máy thổi khí hoặc Bơm trên View 3D để làm NGUỒN!');
+  } else if (mode === 'branch') {
+    alert('👉 Vui lòng CLICK liên tiếp vào các ĐOẠN ỐNG / NHÁNH XẢ trên View 3D để chọn nhiều Nhánh!');
+  }
+}
+
+function resetTraceSelections() {
+  selectedSourceEntity = null;
+  selectedBranchEntities = [];
+  currentPickMode = null;
+  stopTandemSystemTrace();
+  openSystemTraceToolbar();
+}
+
+function updateToolbarStatusText() {
+  const statusEl = document.getElementById('dt-trace-status-info');
+  if (statusEl) {
+    const srcName = selectedSourceEntity ? (selectedSourceEntity.name || 'Đã chọn').substring(0, 12) + '...' : 'Chưa chọn';
+    const branchCount = selectedBranchEntities.length;
+    statusEl.innerHTML = `📍 Nguồn: <b>${srcName}</b> | 🎯 Nhánh: <b>${branchCount} đối tượng</b>`;
   }
 }
 
@@ -641,7 +676,7 @@ function animateTraceLoop() {
 }
 
 /**
- * 5. Render chuyển động dòng chảy
+ * 4. Render chuyển động dòng chảy nét đứt 3D -> 2D Overlay
  */
 function renderTraceFlowLines() {
   if (!isTraceActive || !currentTraceGraph || !activeTraceCanvas) return;
@@ -677,7 +712,7 @@ function renderTraceFlowLines() {
     }
   });
 
-  // Pin Nguồn (Xanh lá)
+  // Pin Nguồn (🟢 Green Pin)
   if (currentTraceGraph.source) {
     const sp = projectWorldToCanvas(viewer, currentTraceGraph.source.center);
     if (sp) {
@@ -691,27 +726,30 @@ function renderTraceFlowLines() {
     }
   }
 
-  // Pin Nhánh (Vàng)
-  if (currentTraceGraph.destination) {
-    const dp = projectWorldToCanvas(viewer, currentTraceGraph.destination.center);
-    if (dp) {
-      ctx.fillStyle = '#f39c12';
-      ctx.beginPath();
-      ctx.arc(dp[0], dp[1], 8, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = 2;
-      ctx.stroke();
-    }
+  // Pins Nhánh (🟡 Yellow Pins)
+  if (currentTraceGraph.branches && currentTraceGraph.branches.length > 0) {
+    currentTraceGraph.branches.forEach(bNode => {
+      const bp = projectWorldToCanvas(viewer, bNode.center);
+      if (bp) {
+        ctx.fillStyle = '#f39c12';
+        ctx.beginPath();
+        ctx.arc(bp[0], bp[1], 7, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+    });
   }
 }
 
 /**
- * 6. Tắt System Trace
+ * 5. Tắt System Trace & Đóng Toolbar
  */
 function stopTandemSystemTrace() {
   isTraceActive = false;
   currentPickMode = null;
+
   if (traceAnimFrameId) {
     cancelAnimationFrame(traceAnimFrameId);
     traceAnimFrameId = null;
@@ -738,7 +776,7 @@ function stopTandemSystemTrace() {
 }
 
 /**
- * 7. Inject Floating Toolbar
+ * 6. Inject Floating Toolbar chuẩn Autodesk Tandem
  */
 function injectSystemTraceToolbar(selectedSys = '') {
   injectMarkerStyles();
@@ -758,11 +796,19 @@ function injectSystemTraceToolbar(selectedSys = '') {
 
   toolbar.innerHTML = `
     <span>🌊 <b>System Trace:</b></span>
-    <select id="dt-trace-sys-select" onchange="startTandemSystemTrace(this.value)">${optionsHtml}</select>
+    <select id="dt-trace-sys-select">${optionsHtml}</select>
     <button style="background:#28a745; color:#fff;" onclick="enablePickMode('source')">📍 Chọn Nguồn</button>
-    <button style="background:#f39c12; color:#fff;" onclick="enablePickMode('destination')">🎯 Chọn Nhánh</button>
-    <button style="background:#dc3545; color:#fff;" onclick="stopTandemSystemTrace()">✕ Đóng Trace</button>
+    <button style="background:#f39c12; color:#fff;" onclick="enablePickMode('branch')">🎯 Chọn Nhánh (+)</button>
+    <button style="background:#0d6efd; color:#fff; font-size:12px;" onclick="executeSystemTraceSimulation()">▶ Chạy Mô Phỏng</button>
+    <button style="background:#6c757d; color:#fff;" onclick="resetTraceSelections()">🔄 Xóa Chọn</button>
+    <button style="background:#dc3545; color:#fff;" onclick="stopTandemSystemTrace()">✕ Đóng</button>
   `;
+
+  setTimeout(updateToolbarStatusText, 50);
+}
+
+function startTandemSystemTrace(systemKey = '') {
+  openSystemTraceToolbar();
 }
 
 // =========================================================================
@@ -790,7 +836,7 @@ function injectDigitalTwinPanel() {
                 style="flex:1; padding:8px 6px; background:#e8f0fe; color:#1a73e8; border:1px solid #b6d4fe; border-radius:6px; font-weight:bold; cursor:pointer; font-size:11px; display:flex; align-items:center; justify-content:center;">
           📊 Thống Kê
         </button>
-        <button type="button" id="dt-btn-system-trace" onclick="startTandemSystemTrace('')" 
+        <button type="button" id="dt-btn-system-trace" onclick="openSystemTraceToolbar()" 
                 style="flex:1.2; padding:8px 6px; background:#e8f0fe; color:#1a73e8; border:1px solid #b6d4fe; border-radius:6px; font-weight:bold; cursor:pointer; font-size:11px; display:flex; align-items:center; justify-content:center;">
           🌊 System Trace 3D
         </button>
