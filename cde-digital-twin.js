@@ -56,7 +56,7 @@ function getAABBCenter(aabb) {
 }
 
 /**
- * Inject Style Marker & Trace Bar
+ * Inject Style Marker & Trace Bar (Toolbar Autodesk Tandem)
  */
 function injectMarkerStyles() {
   if (document.getElementById('dt-marker-styles')) return;
@@ -104,40 +104,42 @@ function injectMarkerStyles() {
     /* SYSTEM TRACE FLOATING TOOLBAR (TANDEM STYLE) */
     #dt-trace-toolbar {
       position: fixed !important;
-      top: 20px !important;
+      top: 25px !important;
       left: 50% !important;
       transform: translateX(-50%) !important;
-      background: rgba(20, 24, 33, 0.92) !important;
-      backdrop-filter: blur(8px) !important;
-      border: 1px solid rgba(255, 255, 255, 0.2) !important;
+      background: rgba(18, 24, 38, 0.95) !important;
+      backdrop-filter: blur(10px) !important;
+      border: 1px solid rgba(0, 242, 255, 0.4) !important;
       border-radius: 8px !important;
-      padding: 8px 16px !important;
+      padding: 8px 18px !important;
       display: flex !important;
       align-items: center !important;
       gap: 12px !important;
       color: #fff !important;
-      font-size: 12px !important;
+      font-size: 13px !important;
       font-family: sans-serif !important;
-      z-index: 99999 !important;
-      box-shadow: 0 8px 24px rgba(0,0,0,0.4) !important;
+      z-index: 999999 !important;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5) !important;
     }
     #dt-trace-toolbar select {
-      background: #2a3142 !important;
+      background: #222c3d !important;
       color: #00f2ff !important;
-      border: 1px solid #404b61 !important;
-      padding: 5px 10px !important;
+      border: 1px solid #3b4c66 !important;
+      padding: 5px 12px !important;
       border-radius: 4px !important;
       font-size: 12px !important;
       font-weight: bold !important;
       outline: none !important;
+      cursor: pointer !important;
     }
     #dt-trace-toolbar button {
       padding: 5px 12px !important;
       border-radius: 4px !important;
       border: none !important;
       font-weight: bold !important;
-      font-size: 11px !important;
+      font-size: 12px !important;
       cursor: pointer !important;
+      transition: background 0.2s;
     }
     @keyframes dt-pulse {
       0% { box-shadow: 0 0 0 0 rgba(220, 53, 69, 0.8); }
@@ -340,27 +342,25 @@ window.focusAndOpenAssetFromDashboard = function(expressId, globalId, assetName)
 // =========================================================================
 
 /**
- * 1. Tự động quét danh sách tất cả các Hệ Thống Ống trong mô hình IFC
+ * 1. Tự động quét danh sách tất cả các loại đường ống / hệ thống trong mô hình
  */
 function discoverAllPipeSystems() {
   const viewer = window.xeokitViewer || window.viewer;
-  if (!viewer || !viewer.scene) return [];
+  if (!viewer || !viewer.scene) return ['Tất cả hệ thống ống (All Pipes)'];
 
   const systems = new Set();
+  systems.add('Tất cả hệ thống ống (All Pipes)');
+
   Object.values(viewer.scene.objects).forEach(entity => {
     const name = String(entity.name || '');
-    if (name.includes('Pipe Types:') || name.includes('Duct Types:')) {
-      const sysName = name.replace('Pipe Types:', '').replace('Duct Types:', '').split(':')[0].trim();
+    if (name.includes('Pipe Types:')) {
+      const sysName = name.replace('Pipe Types:', '').split(':')[0].trim();
       if (sysName) systems.add(sysName);
-    } else if (name.includes('AP.') || name.toLowerCase().includes('pipe') || name.toLowerCase().includes('duct')) {
-      const parts = name.split(/[:#]/);
-      if (parts.length > 0 && parts[0].trim()) systems.add(parts[0].trim());
+    } else if (name.includes('AP.') || name.includes('SUS304')) {
+      systems.add('AP. SUS304');
     }
   });
 
-  if (systems.size === 0) {
-    systems.add('Tất cả đường ống (Pipe)');
-  }
   return Array.from(systems);
 }
 
@@ -375,19 +375,28 @@ function getEntitiesInSystem(systemKey) {
   const matchedEntities = [];
 
   Object.values(viewer.scene.objects).forEach(entity => {
+    if (!isValidAABB(entity.aabb)) return;
+
     const name = String(entity.name || '').toLowerCase();
     const id = String(entity.id || '').toLowerCase();
 
-    const isPipeOrFitting = name.includes('pipe') || name.includes('duct') || name.includes('ap.') || name.includes('flowsegment') || name.includes('flowfitting');
+    const isPipeOrFitting = name.includes('pipe') || name.includes('duct') || name.includes('ap.') || name.includes('sus304') || name.includes('flowsegment') || name.includes('flowfitting');
 
-    if (!key || key === 'tất cả đường ống (pipe)') {
-      if (isPipeOrFitting && isValidAABB(entity.aabb)) matchedEntities.push(entity);
+    if (!key || key.includes('tất cả') || key.includes('all')) {
+      if (isPipeOrFitting) matchedEntities.push(entity);
     } else {
-      if ((name.includes(key) || id.includes(key) || isPipeOrFitting) && isValidAABB(entity.aabb)) {
+      if (name.includes(key) || id.includes(key) || isPipeOrFitting) {
         matchedEntities.push(entity);
       }
     }
   });
+
+  // Fallback: Nếu không lọc được theo tên, lấy tất cả đối tượng có AABB hợp lệ trong mô hình
+  if (matchedEntities.length === 0) {
+    Object.values(viewer.scene.objects).forEach(entity => {
+      if (isValidAABB(entity.aabb)) matchedEntities.push(entity);
+    });
+  }
 
   return matchedEntities;
 }
@@ -408,7 +417,6 @@ function buildFlowGraph(sourceEntity, systemEntities) {
   let sourceNode = null;
   if (sourceEntity && isValidAABB(sourceEntity.aabb)) {
     const sourceCenter = getAABBCenter(sourceEntity.aabb);
-    // Tìm node đường ống gần thiết bị nguồn nhất
     let minDist = Infinity;
     nodes.forEach(node => {
       const d = Math.sqrt(
@@ -437,7 +445,7 @@ function buildFlowGraph(sourceEntity, systemEntities) {
           const dz = curr.center[2] - target.center[2];
           const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
 
-          if (dist < 5.0) { // Khoảng cách nối ống < 5m
+          if (dist < 6.0) { // Nối các đoạn ống có khoảng cách < 6m
             target.visited = true;
             edges.push({ from: curr, to: target });
             nextFrontier.push(target);
@@ -461,22 +469,21 @@ function startTandemSystemTrace(systemKey = '') {
   const viewer = window.xeokitViewer || window.viewer;
   if (!viewer || !viewer.scene) return;
 
-  const matchedEntities = getEntitiesInSystem(systemKey);
-  if (matchedEntities.length === 0) {
-    alert('⚠️ Không tìm thấy đường ống thuộc hệ thống này!');
-    return;
-  }
+  // Luôn Inject Toolbar ở vị trí trên cùng trước tiên
+  injectSystemTraceToolbar(systemKey);
 
-  // Ghost Mode toàn bộ mô hình
+  const matchedEntities = getEntitiesInSystem(systemKey);
+
+  // Ghost Mode mờ toàn bộ mô hình
   Object.values(viewer.scene.objects).forEach(obj => {
     obj.opacity = 0.08;
     obj.colorized = false;
   });
 
-  // Tô màu Xanh Ngọc cho đường ống thuộc hệ thống
+  // Tô màu Xanh Ngọc Nổi Bật cho hệ thống ống
   matchedEntities.forEach(obj => {
     obj.opacity = 1.0;
-    obj.colorize = [0.0, 0.9, 0.8]; // Teal Cyan
+    obj.colorize = [0.0, 0.9, 0.8]; // Aqua Cyan
     obj.colorized = true;
   });
 
@@ -490,7 +497,7 @@ function startTandemSystemTrace(systemKey = '') {
 
   currentTraceGraph = buildFlowGraph(sourceEntity, matchedEntities);
 
-  // Tạo Canvas Overlay vẽ dòng chảy
+  // Tạo Canvas Overlay vẽ đường dòng chảy động
   let canvas = document.getElementById('dt-trace-canvas');
   if (!canvas) {
     canvas = document.createElement('canvas');
@@ -503,7 +510,6 @@ function startTandemSystemTrace(systemKey = '') {
   traceTickListener = viewer.scene.on('tick', renderTraceFlowLines);
   
   isTraceActive = true;
-  injectSystemTraceToolbar(systemKey);
   renderTraceFlowLines();
 }
 
@@ -553,7 +559,7 @@ function renderTraceFlowLines() {
     ctx.stroke();
   });
 
-  // Mark Nguồn (Pin xanh lá)
+  // Vẽ Marker Nguồn (Pin xanh lá)
   if (currentTraceGraph.source) {
     xeokitCanvas.worldToCanvas(currentTraceGraph.source.center, p1);
     const sx = rect.left + p1[0];
