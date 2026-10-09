@@ -18,7 +18,6 @@ let markerTickListener = null;
 // --- TANDEM SYSTEM TRACE VARIABLES ---
 let activeTraceCanvas = null;
 let traceAnimFrameId = null;
-let traceTickListener = null;
 let currentTraceGraph = null; 
 let isTraceActive = false;
 let traceDashOffset = 0;
@@ -47,7 +46,7 @@ function getAABBCenter(aabb) {
 }
 
 /**
- * Chuyển đổi an toàn Tọa độ 3D World -> 2D Screen Canvas (Khắc phục lỗi treo chuột)
+ * Chuyển đổi an toàn Tọa độ 3D World -> 2D Screen Canvas
  */
 function projectWorldToCanvas(viewer, worldPos) {
   if (!viewer || !viewer.scene) return null;
@@ -357,31 +356,39 @@ window.focusAndOpenAssetFromDashboard = function(expressId, globalId, assetName)
 // --- SYSTEM TRACE CHUẨN AUTODESK TANDEM (TRUY VẾT & DÒNG CHẢY 3D) ---
 // =========================================================================
 
+/**
+ * 1. Tự động quét tất cả thuộc tính SystemType từ IFC
+ */
 function discoverAllPipeSystems() {
   const viewer = window.xeokitViewer || window.viewer;
   if (!viewer || !viewer.scene) return ['Tất cả hệ thống ống (All Pipes)'];
 
   const systems = new Set();
-  systems.add('Tất cả hệ thống ống (All Pipes)');
 
   Object.values(viewer.scene.objects).forEach(entity => {
     const name = String(entity.name || '');
-    if (name.includes('Pipe Types:')) {
-      const sysName = name.replace('Pipe Types:', '').split(':')[0].trim();
-      if (sysName) systems.add(sysName);
+    
+    // Đọc tên Hệ Thống từ 'Pipe Types: <SystemName>' hoặc 'Duct Types: <SystemName>'
+    const pipeMatch = name.match(/(?:Pipe|Duct)\s*Types:\s*([^#:\n]+)/i);
+    if (pipeMatch && pipeMatch[1].trim()) {
+      systems.add(pipeMatch[1].trim());
     } else if (name.includes('AP.') || name.includes('SUS304')) {
       systems.add('AP. SUS304');
     }
   });
 
-  return Array.from(systems);
+  const resultList = Array.from(systems);
+  return resultList.length > 0 ? resultList : ['Tất cả hệ thống ống (All Pipes)'];
 }
 
+/**
+ * 2. Lọc các đoạn ống thuộc Hệ Thống được chọn
+ */
 function getEntitiesInSystem(systemKey) {
   const viewer = window.xeokitViewer || window.viewer;
   if (!viewer || !viewer.scene) return [];
 
-  const key = systemKey.toLowerCase().trim();
+  const key = systemKey ? systemKey.toLowerCase().trim() : '';
   const matchedEntities = [];
 
   Object.values(viewer.scene.objects).forEach(entity => {
@@ -390,28 +397,29 @@ function getEntitiesInSystem(systemKey) {
     const name = String(entity.name || '').toLowerCase();
     const id = String(entity.id || '').toLowerCase();
 
-    const isPipeOrFitting = name.includes('pipe') || name.includes('duct') || name.includes('ap.') || name.includes('sus304') || name.includes('flowsegment') || name.includes('flowfitting');
+    const isPipeOrFitting = name.includes('pipe') || name.includes('duct') || name.includes('ap.') || 
+                            name.includes('sus304') || name.includes('flowsegment') || name.includes('flowfitting') ||
+                            id.includes('flowsegment') || id.includes('pipe');
+
+    if (!isPipeOrFitting) return;
 
     if (!key || key.includes('tất cả') || key.includes('all')) {
-      if (isPipeOrFitting) matchedEntities.push(entity);
+      matchedEntities.push(entity);
     } else {
-      if (name.includes(key) || id.includes(key) || isPipeOrFitting) {
+      if (name.includes(key) || id.includes(key)) {
         matchedEntities.push(entity);
       }
     }
   });
 
-  if (matchedEntities.length === 0) {
-    Object.values(viewer.scene.objects).forEach(entity => {
-      if (isValidAABB(entity.aabb)) matchedEntities.push(entity);
-    });
-  }
-
   return matchedEntities;
 }
 
+/**
+ * 3. Thuật toán Prim (MST) dựng cây liên kết dòng chảy chuẩn từ Nguồn -> Các Nhánh
+ */
 function buildFlowGraph(sourceEntity, systemEntities) {
-  if (systemEntities.length === 0) return null;
+  if (!systemEntities || systemEntities.length === 0) return null;
 
   const nodes = systemEntities.map(entity => ({
     id: entity.id,
@@ -438,34 +446,50 @@ function buildFlowGraph(sourceEntity, systemEntities) {
   sourceNode.visited = true;
 
   const edges = [];
-  let currentFrontier = [sourceNode];
+  const visitedNodes = [sourceNode];
 
-  while (currentFrontier.length > 0) {
-    const nextFrontier = [];
+  // Giới hạn khoảng cách vật lý tối đa kết nối 2 đoạn ống kề nhau (< 3.5m)
+  const MAX_CONNECT_DIST = 3.5;
 
-    currentFrontier.forEach(curr => {
-      nodes.forEach(target => {
-        if (!target.visited) {
-          const dx = curr.center[0] - target.center[0];
-          const dy = curr.center[1] - target.center[1];
-          const dz = curr.center[2] - target.center[2];
+  let addedNew = true;
+  while (addedNew) {
+    addedNew = false;
+    let bestFrom = null;
+    let bestTo = null;
+    let minEdgeDist = Infinity;
+
+    // Tìm đoạn ống kề cận nhất thuộc cùng tuyến
+    for (const vNode of visitedNodes) {
+      for (const candidate of nodes) {
+        if (!candidate.visited) {
+          const dx = vNode.center[0] - candidate.center[0];
+          const dy = vNode.center[1] - candidate.center[1];
+          const dz = vNode.center[2] - candidate.center[2];
           const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
 
-          if (dist < 8.0) { // Tăng bán kính liên kết giữa các đoạn ống lân cận
-            target.visited = true;
-            edges.push({ from: curr, to: target });
-            nextFrontier.push(target);
+          if (dist <= MAX_CONNECT_DIST && dist < minEdgeDist) {
+            minEdgeDist = dist;
+            bestFrom = vNode;
+            bestTo = candidate;
           }
         }
-      });
-    });
+      }
+    }
 
-    currentFrontier = nextFrontier;
+    if (bestFrom && bestTo) {
+      bestTo.visited = true;
+      visitedNodes.push(bestTo);
+      edges.push({ from: bestFrom, to: bestTo });
+      addedNew = true;
+    }
   }
 
-  return { source: sourceNode, nodes, edges };
+  return { source: sourceNode, nodes: visitedNodes, edges };
 }
 
+/**
+ * 4. Khởi chạy System Trace chuẩn Autodesk Tandem
+ */
 function startTandemSystemTrace(systemKey = '') {
   stopTandemSystemTrace();
 
@@ -476,17 +500,20 @@ function startTandemSystemTrace(systemKey = '') {
 
   const matchedEntities = getEntitiesInSystem(systemKey);
 
+  // Ghost Mode làm mờ các cấu kiện bên ngoài hệ thống được chọn
   Object.values(viewer.scene.objects).forEach(obj => {
     obj.opacity = 0.08;
     obj.colorized = false;
   });
 
+  // Tô màu Xanh Ngọc Nổi Bật cho hệ thống ống được chọn
   matchedEntities.forEach(obj => {
     obj.opacity = 1.0;
     obj.colorize = [0.0, 0.9, 0.8]; 
     obj.colorized = true;
   });
 
+  // Làm nổi bật thiết bị Nguồn (Máy thổi khí)
   const sourceEntity = window.selectedEntity;
   if (sourceEntity) {
     sourceEntity.opacity = 1.0;
@@ -515,6 +542,9 @@ function animateTraceLoop() {
   traceAnimFrameId = requestAnimationFrame(animateTraceLoop);
 }
 
+/**
+ * 5. Render đường dòng chảy động 3D -> 2D Screen
+ */
 function renderTraceFlowLines() {
   if (!isTraceActive || !currentTraceGraph || !activeTraceCanvas) return;
 
@@ -564,6 +594,9 @@ function renderTraceFlowLines() {
   }
 }
 
+/**
+ * 6. Tắt System Trace
+ */
 function stopTandemSystemTrace() {
   isTraceActive = false;
   if (traceAnimFrameId) {
@@ -591,6 +624,9 @@ function stopTandemSystemTrace() {
   }
 }
 
+/**
+ * 7. Inject Floating Toolbar chuẩn Autodesk Tandem
+ */
 function injectSystemTraceToolbar(selectedSys = '') {
   injectMarkerStyles();
   let toolbar = document.getElementById('dt-trace-toolbar');
