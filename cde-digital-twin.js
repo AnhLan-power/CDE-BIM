@@ -22,8 +22,8 @@ let currentTraceGraph = null;
 let isTraceActive = false;
 let traceDashOffset = 0;
 
-let selectedSourceEntity = null;        // 1 Nguồn phát (Máy thổi khí / Bơm)
-let selectedBranchEntities = [];        // Danh sách chọn NHIỀU Nhánh
+let selectedSourceEntity = null;        // 1 Nguồn phát (Máy thổi khí / Bơm)[cite: 19]
+let selectedBranchEntities = [];        // Danh sách chọn NHIỀU Nhánh[cite: 19]
 let currentPickMode = null;              // 'source' | 'branch' | null
 
 function cleanId(val) {
@@ -155,17 +155,6 @@ function injectMarkerStyles() {
       pointer-events: auto !important;
       box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6) !important;
     }
-    #dt-trace-toolbar select {
-      background: #222c3d !important;
-      color: #00f2ff !important;
-      border: 1px solid #3b4c66 !important;
-      padding: 5px 10px !important;
-      border-radius: 4px !important;
-      font-size: 12px !important;
-      font-weight: bold !important;
-      outline: none !important;
-      cursor: pointer !important;
-    }
     #dt-trace-toolbar button {
       padding: 6px 12px !important;
       border-radius: 4px !important;
@@ -181,6 +170,51 @@ function injectMarkerStyles() {
     #dt-trace-toolbar button:hover {
       opacity: 0.9;
       transform: translateY(-1px);
+    }
+    /* MULTI-SYSTEM DROPDOWN POPUP */
+    #dt-sys-dropdown-container {
+      position: relative !important;
+      display: inline-block !important;
+    }
+    #dt-sys-dropdown-btn {
+      background: #222c3d !important;
+      color: #00f2ff !important;
+      border: 1px solid #3b4c66 !important;
+      padding: 6px 12px !important;
+      border-radius: 4px !important;
+      font-size: 12px !important;
+      font-weight: bold !important;
+      cursor: pointer !important;
+      display: flex !important;
+      align-items: center !important;
+      gap: 6px !important;
+    }
+    #dt-sys-dropdown-menu {
+      display: none;
+      position: absolute;
+      top: 100% !important;
+      left: 0 !important;
+      background: #1a2332 !important;
+      border: 1px solid #00f2ff !important;
+      border-radius: 6px !important;
+      padding: 10px !important;
+      min-width: 200px !important;
+      max-height: 250px !important;
+      overflow-y: auto !important;
+      z-index: 1000000 !important;
+      box-shadow: 0 6px 20px rgba(0,0,0,0.5) !important;
+    }
+    #dt-sys-dropdown-menu label {
+      display: flex !important;
+      align-items: center !important;
+      gap: 8px !important;
+      padding: 5px 0 !important;
+      color: #fff !important;
+      font-size: 11px !important;
+      cursor: pointer !important;
+    }
+    #dt-sys-dropdown-menu label:hover {
+      color: #00f2ff !important;
     }
   `;
   document.head.appendChild(style);
@@ -271,7 +305,6 @@ function focusCameraOnEntity(globalId, expressId, assetName = '') {
 
   const pseudoAsset = { global_id: globalId, express_id: expressId, asset_name: assetName };
   const entity = findEntityByAsset(viewer, pseudoAsset);
-
   if (!entity) return;
 
   entity.visible = true; 
@@ -283,95 +316,27 @@ function focusCameraOnEntity(globalId, expressId, assetName = '') {
 
   const aabb = entity.aabb;
   if (!isValidAABB(aabb)) return;
-
   const center = getAABBCenter(aabb);
 
-  if (viewer.cameraControl) {
-    viewer.cameraControl.pivotPos = center;
-  }
+  if (viewer.cameraControl) viewer.cameraControl.pivotPos = center;
 
   if (viewer.cameraFlight && typeof viewer.cameraFlight.flyTo === 'function') {
     try {
-      viewer.cameraFlight.flyTo({
-        aabb: aabb,
-        fitFOV: 20,
-        duration: 0.8
-      });
+      viewer.cameraFlight.flyTo({ aabb: aabb, fitFOV: 20, duration: 0.8 });
       return;
     } catch (e) {}
-  }
-
-  const dx = aabb[3] - aabb[0];
-  const dy = aabb[4] - aabb[1];
-  const dz = aabb[5] - aabb[2];
-  const diagonal = Math.sqrt(dx * dx + dy * dy + dz * dz);
-  const fitDist = Math.max(diagonal * 0.9, 0.8);
-
-  const camera = viewer.scene.camera;
-  if (camera) {
-    const startEye = camera.eye ? [...camera.eye] : [0, 10, 10];
-    const startLook = camera.look ? [...camera.look] : [0, 0, 0];
-
-    let dir = [startEye[0] - startLook[0], startEye[1] - startLook[1], startEye[2] - startLook[2]];
-    let len = Math.sqrt(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]);
-    if (len === 0 || isNaN(len)) { dir = [1, 1, 1]; len = Math.sqrt(3); }
-    dir = [dir[0] / len, dir[1] / len, dir[2] / len];
-
-    const endLook = center;
-    const endEye = [
-      center[0] + dir[0] * fitDist,
-      center[1] + dir[1] * fitDist,
-      center[2] + dir[2] * fitDist
-    ];
-
-    const duration = 700;
-    const startTime = performance.now();
-
-    function animateCamera(now) {
-      const elapsed = now - startTime;
-      const progress = Math.min(elapsed / duration, 1.0);
-      const ease = 1 - Math.pow(1 - progress, 3);
-
-      camera.look = [
-        startLook[0] + (endLook[0] - startLook[0]) * ease,
-        startLook[1] + (endLook[1] - startLook[1]) * ease,
-        startLook[2] + (endLook[2] - startLook[2]) * ease
-      ];
-
-      camera.eye = [
-        startEye[0] + (endEye[0] - startEye[0]) * ease,
-        startEye[1] + (endEye[1] - startEye[1]) * ease,
-        startEye[2] + (endEye[2] - startEye[2]) * ease
-      ];
-
-      if (viewer.scene) {
-        viewer.scene._needUpdate = 1;
-        if (typeof viewer.scene.render === 'function') viewer.scene.render();
-      }
-
-      if (progress < 1.0) {
-        requestAnimationFrame(animateCamera);
-      }
-    }
-
-    requestAnimationFrame(animateCamera);
   }
 }
 
 window.focusAndOpenAssetFromDashboard = function(expressId, globalId, assetName) {
   closeDigitalTwinDashboard();
-  setTimeout(() => {
-    openDigitalTwinPanel(expressId, globalId, assetName);
-  }, 120);
+  setTimeout(() => { openDigitalTwinPanel(expressId, globalId, assetName); }, 120);
 };
 
 // =========================================================================
-// --- SYSTEM TRACE CHUẨN AUTODESK TANDEM (TRUY VẾT & DÒNG CHẢY 3D) ---
+// --- SYSTEM TRACE CHUẨN AUTODESK TANDEM (NHIỀU HỆ THỐNG & MULTI-BRANCH) ---
 // =========================================================================
 
-/**
- * 1. Quét sâu toàn bộ thuộc tính Reference, System Name, Pipe Types từ IFC & MetaScene
- */
 function discoverAllPipeSystems() {
   const viewer = window.xeokitViewer || window.viewer;
   if (!viewer) return ['Tất cả hệ thống (All)'];
@@ -379,7 +344,6 @@ function discoverAllPipeSystems() {
   const systems = new Set();
   systems.add('Tất cả hệ thống (All)');
 
-  // Quét qua MetaScene propertySets để lấy đúng các giá trị Reference (như AP, SUS304, WP...)
   if (viewer.metaScene && viewer.metaScene.metaObjects) {
     Object.values(viewer.metaScene.metaObjects).forEach(metaObj => {
       if (metaObj.propertySets) {
@@ -399,7 +363,6 @@ function discoverAllPipeSystems() {
     });
   }
 
-  // Quét qua tên cấu kiện 3D trong scene.objects
   if (viewer.scene && viewer.scene.objects) {
     Object.values(viewer.scene.objects).forEach(entity => {
       const name = String(entity.name || '');
@@ -417,20 +380,32 @@ function discoverAllPipeSystems() {
   return Array.from(systems);
 }
 
+function getSelectedSystemKeys() {
+  const checkboxes = document.querySelectorAll('.dt-sys-checkbox');
+  const selected = [];
+  checkboxes.forEach(cb => {
+    if (cb.checked) selected.push(cb.value);
+  });
+  if (selected.length === 0 || selected.includes('Tất cả hệ thống (All)')) {
+    return ['all'];
+  }
+  return selected;
+}
+
 /**
- * 2. Lọc danh sách đường ống / thiết bị theo Hệ Thống được chọn
+ * Lọc danh sách đường ống theo NHIỀU hệ thống được tích chọn
  */
-function getEntitiesInSystem(systemKey) {
+function getEntitiesInSelectedSystems() {
   const viewer = window.xeokitViewer || window.viewer;
   if (!viewer || !viewer.scene) return [];
 
-  const key = systemKey ? systemKey.toLowerCase().trim() : '';
+  const selectedKeys = getSelectedSystemKeys();
   const matchedEntities = [];
 
   Object.values(viewer.scene.objects).forEach(entity => {
     if (!isValidAABB(entity.aabb)) return;
 
-    if (!key || key.includes('tất cả') || key.includes('all')) {
+    if (selectedKeys.includes('all')) {
       matchedEntities.push(entity);
       return;
     }
@@ -438,7 +413,6 @@ function getEntitiesInSystem(systemKey) {
     const name = String(entity.name || '').toLowerCase();
     const id = String(entity.id || '').toLowerCase();
 
-    // Đọc thêm Meta Reference propertySet nếu có
     let metaRef = '';
     if (viewer.metaScene && viewer.metaScene.metaObjects) {
       const metaObj = viewer.metaScene.metaObjects[entity.id] || viewer.metaScene.metaObjects[entity.originalSystemId];
@@ -457,19 +431,22 @@ function getEntitiesInSystem(systemKey) {
       }
     }
 
-    if (name.includes(key) || id.includes(key) || metaRef.includes(key)) {
+    const matchFound = selectedKeys.some(sysKey => {
+      const k = sysKey.toLowerCase();
+      return name.includes(k) || id.includes(k) || metaRef.includes(k);
+    });
+
+    if (matchFound) {
       matchedEntities.push(entity);
     }
   });
 
-  // Fallback nếu danh sách rỗng
   if (matchedEntities.length === 0) {
     Object.values(viewer.scene.objects).forEach(entity => {
       if (isValidAABB(entity.aabb)) matchedEntities.push(entity);
     });
   }
 
-  // Đảm bảo Nguồn và các Nhánh đã chọn luôn được bao gồm trong phạm vi hệ thống
   if (selectedSourceEntity && !matchedEntities.includes(selectedSourceEntity)) {
     matchedEntities.push(selectedSourceEntity);
   }
@@ -480,9 +457,6 @@ function getEntitiesInSystem(systemKey) {
   return matchedEntities;
 }
 
-/**
- * 3. Thuật toán Xây dựng Ma Trận Dòng Chảy từ Nguồn -> Chọn Nhiều Nhánh
- */
 function buildMultiBranchFlowGraph(sourceEntity, branchEntities, systemEntities) {
   if (!systemEntities || systemEntities.length === 0) return null;
 
@@ -532,7 +506,7 @@ function buildMultiBranchFlowGraph(sourceEntity, branchEntities, systemEntities)
 
   const edges = [];
   const visitedNodes = [sourceNode];
-  const MAX_CONNECT_DIST = 5.0; // Khoảng cách nối ống liên thông
+  const MAX_CONNECT_DIST = 5.0;
 
   let addedNew = true;
   while (addedNew) {
@@ -586,10 +560,8 @@ function executeSystemTraceSimulation() {
   const viewer = window.xeokitViewer || window.viewer;
   if (!viewer || !viewer.scene) return;
 
-  const selectedSys = document.getElementById('dt-trace-sys-select')?.value || '';
-  const matchedEntities = getEntitiesInSystem(selectedSys);
+  const matchedEntities = getEntitiesInSelectedSystems();
 
-  // Ghost Mode làm mờ cấu kiện ngoài hệ thống
   Object.values(viewer.scene.objects).forEach(obj => {
     obj.opacity = 0.08;
     obj.colorized = false;
@@ -632,13 +604,16 @@ function executeSystemTraceSimulation() {
   if (typeof viewer.scene.render === 'function') viewer.scene.render();
 }
 
+/**
+ * Đã sửa sự kiện click chuẩn `mouseclicked` của xeokit
+ */
 function bind3DPickListener() {
   const viewer = window.xeokitViewer || window.viewer;
   if (!viewer || !viewer.scene || !viewer.scene.input) return;
 
   if (!viewer.scene.input._dtMultiBranchBound) {
     viewer.scene.input._dtMultiBranchBound = true;
-    viewer.scene.input.on("mouseClicked", (coords) => {
+    viewer.scene.input.on("mouseclicked", (coords) => {
       if (!currentPickMode) return;
       const hit = viewer.scene.pick({ canvasPos: coords });
       if (hit && hit.entity) {
@@ -646,7 +621,7 @@ function bind3DPickListener() {
           selectedSourceEntity = hit.entity;
           hit.entity.colorize = [0.1, 0.8, 0.3];
           hit.entity.colorized = true;
-          alert(`🟢 ĐÃ CHỌN NGUỒN: ${hit.entity.name || hit.entity.id}`);
+          alert(`🟢 ĐÃ NHẬN NGUỒN: ${hit.entity.name || hit.entity.id}`);
           currentPickMode = null;
         } else if (currentPickMode === 'branch') {
           if (!selectedBranchEntities.includes(hit.entity)) {
@@ -669,9 +644,9 @@ function bind3DPickListener() {
 function enablePickMode(mode) {
   currentPickMode = mode;
   if (mode === 'source') {
-    alert('👉 Vui lòng CLICK trực tiếp vào Máy thổi khí hoặc Bơm trên View 3D để làm NGUỒN!');
+    alert('👉 Đang ở chế độ chọn NGUỒN: Hãy click chuột vào Máy thổi khí hoặc Bơm trên 3D!');
   } else if (mode === 'branch') {
-    alert('👉 Vui lòng CLICK liên tiếp vào các ĐOẠN ỐNG / NHÁNH XẢ trên View 3D để chọn nhiều Nhánh!');
+    alert('👉 Đang ở chế độ chọn NHÁNH: Hãy click liên tiếp vào các đoạn ống trên 3D!');
   }
 }
 
@@ -684,11 +659,17 @@ function resetTraceSelections() {
 }
 
 function updateToolbarStatusText() {
-  const statusEl = document.getElementById('dt-trace-status-info');
-  if (statusEl) {
-    const srcName = selectedSourceEntity ? (selectedSourceEntity.name || 'Đã chọn').substring(0, 12) + '...' : 'Chưa chọn';
-    const branchCount = selectedBranchEntities.length;
-    statusEl.innerHTML = `📍 Nguồn: <b>${srcName}</b> | 🎯 Nhánh: <b>${branchCount} đối tượng</b>`;
+  const btn = document.getElementById('dt-sys-dropdown-btn');
+  if (btn) {
+    const checkedBoxes = document.querySelectorAll('.dt-sys-checkbox:checked');
+    let text = 'Chọn hệ thống...';
+    if (checkedBoxes.length > 0) {
+      const names = Array.from(checkedBoxes).map(cb => cb.value);
+      text = names.join(', ');
+      if (text.length > 25) text = names.length + ' hệ thống đã chọn';
+    }
+    const labelSpan = btn.querySelector('span');
+    if (labelSpan) labelSpan.innerText = text;
   }
 }
 
@@ -790,7 +771,10 @@ function stopTandemSystemTrace() {
   }
 }
 
-function injectSystemTraceToolbar(selectedSys = '') {
+/**
+ * Giao diện Toolbar mới hỗ trợ Tích chọn NHIỀU HỆ THỐNG
+ */
+function injectSystemTraceToolbar() {
   injectMarkerStyles();
   let toolbar = document.getElementById('dt-trace-toolbar');
   if (!toolbar) {
@@ -800,15 +784,27 @@ function injectSystemTraceToolbar(selectedSys = '') {
   }
 
   const detectedSystems = discoverAllPipeSystems();
-  let optionsHtml = '';
-  detectedSystems.forEach(sys => {
-    const sel = (selectedSys && sys.toLowerCase().includes(selectedSys.toLowerCase())) ? 'selected' : '';
-    optionsHtml += `<option value="${sys}" ${sel}>${sys}</option>`;
+  let checkboxesHtml = '';
+  detectedSystems.forEach((sys, idx) => {
+    const checked = (idx === 0) ? 'checked' : '';
+    checkboxesHtml += `
+      <label>
+        <input type="checkbox" class="dt-sys-checkbox" value="${sys}" ${checked} onchange="updateToolbarStatusText()" />
+        ${sys}
+      </label>
+    `;
   });
 
   toolbar.innerHTML = `
     <span>🌊 <b>System Trace:</b></span>
-    <select id="dt-trace-sys-select">${optionsHtml}</select>
+    <div id="dt-sys-dropdown-container">
+      <button type="button" id="dt-sys-dropdown-btn" onclick="toggleSysDropdown()">
+        <span>Chọn hệ thống...</span> ▾
+      </button>
+      <div id="dt-sys-dropdown-menu">
+        ${checkboxesHtml}
+      </div>
+    </div>
     <button style="background:#28a745; color:#fff;" onclick="enablePickMode('source')">📍 Chọn Nguồn</button>
     <button style="background:#f39c12; color:#fff;" onclick="enablePickMode('branch')">🎯 Chọn Nhánh (+)</button>
     <button style="background:#0d6efd; color:#fff; font-size:12px;" onclick="executeSystemTraceSimulation()">▶ Chạy Mô Phỏng</button>
@@ -819,7 +815,23 @@ function injectSystemTraceToolbar(selectedSys = '') {
   setTimeout(updateToolbarStatusText, 50);
 }
 
-function startTandemSystemTrace(systemKey = '') {
+function toggleSysDropdown() {
+  const menu = document.getElementById('dt-sys-dropdown-menu');
+  if (menu) {
+    menu.style.display = (menu.style.display === 'block') ? 'none' : 'block';
+  }
+}
+
+// Đóng menu dropdown khi click ra ngoài
+window.addEventListener('click', function(e) {
+  const container = document.getElementById('dt-sys-dropdown-container');
+  const menu = document.getElementById('dt-sys-dropdown-menu');
+  if (container && menu && !container.contains(e.target)) {
+    menu.style.display = 'none';
+  }
+});
+
+function startTandemSystemTrace() {
   openSystemTraceToolbar();
 }
 
@@ -1032,27 +1044,19 @@ async function openDigitalTwinPanel(expressID, globalID, assetName = '') {
   };
 
   applyValues(finalGlobalID, finalExpressID, assetName);
-
   focusCameraOnEntity(finalGlobalID, finalExpressID, assetName);
 
   const activeGlobalId = finalGlobalID || finalExpressID;
-  if (activeGlobalId) {
-    loadMaintenanceHistory(activeGlobalId);
-  }
+  if (activeGlobalId) loadMaintenanceHistory(activeGlobalId);
 
   const client = getDigitalTwinSupabaseClient();
-
   if (client && (finalGlobalID || finalExpressID)) {
     try {
       let query = client.from('project_assets').select('*, asset_documents(*)');
-      if (finalGlobalID) {
-        query = query.eq('global_id', finalGlobalID);
-      } else if (finalExpressID && !isNaN(parseInt(finalExpressID))) {
-        query = query.eq('express_id', parseInt(finalExpressID));
-      }
+      if (finalGlobalID) query = query.eq('global_id', finalGlobalID);
+      else if (finalExpressID && !isNaN(parseInt(finalExpressID))) query = query.eq('express_id', parseInt(finalExpressID));
 
       const { data: existingAsset } = await query.maybeSingle();
-
       if (existingAsset) {
         document.getElementById('dt_asset_code').value = existingAsset.asset_code || '';
         document.getElementById('dt_asset_name').value = existingAsset.asset_name || assetName;
@@ -1166,7 +1170,6 @@ async function addMaintenanceLogRecord() {
     };
 
     const { error } = await client.from('asset_maintenance_logs').insert([payload]);
-
     if (error) throw error;
 
     if (logDate && (actionType === 'Bảo trì' || actionType === 'Sửa chữa')) {
@@ -1175,7 +1178,6 @@ async function addMaintenanceLogRecord() {
 
     document.getElementById('dt_new_log_desc').value = '';
     document.getElementById('dt_new_log_performer').value = '';
-
     loadMaintenanceHistory(globalId);
 
   } catch (err) {
@@ -1277,9 +1279,7 @@ function render3DMarkers(assets) {
 
       markerDiv.onclick = (e) => {
         e.stopPropagation();
-        const safeEId = cleanId(asset.express_id);
-        const safeGId = cleanId(asset.global_id);
-        openDigitalTwinPanel(safeEId, safeGId, asset.asset_name);
+        openDigitalTwinPanel(cleanId(asset.express_id), cleanId(asset.global_id), asset.asset_name);
       };
 
       container.appendChild(markerDiv);
@@ -1306,10 +1306,6 @@ function render3DMarkers(assets) {
   }
 
   markerTickListener = viewer.scene.on("tick", updateMarkerPositions);
-  if (viewer.scene.camera && typeof viewer.scene.camera.on === 'function') {
-    viewer.scene.camera.on("matrix", updateMarkerPositions);
-  }
-  
   setTimeout(updateMarkerPositions, 50);
 }
 
@@ -1387,10 +1383,7 @@ function injectDigitalTwinDashboardModal() {
     tbody.addEventListener('click', function(e) {
       const btn = e.target.closest('.dt-btn-view-detail');
       if (btn) {
-        const eId = btn.getAttribute('data-express-id') || '';
-        const gId = btn.getAttribute('data-global-id') || '';
-        const aName = decodeURIComponent(btn.getAttribute('data-asset-name') || '');
-        window.focusAndOpenAssetFromDashboard(eId, gId, aName);
+        window.focusAndOpenAssetFromDashboard(btn.getAttribute('data-express-id'), btn.getAttribute('data-global-id'), decodeURIComponent(btn.getAttribute('data-asset-name')));
       }
     });
   }
@@ -1398,8 +1391,7 @@ function injectDigitalTwinDashboardModal() {
 
 async function openDigitalTwinDashboard() {
   injectDigitalTwinDashboardModal();
-  const modal = document.getElementById('dt-dashboard-modal');
-  if (modal) modal.style.display = 'flex';
+  document.getElementById('dt-dashboard-modal').style.display = 'flex';
 
   const client = getDigitalTwinSupabaseClient();
   if (!client) return;
@@ -1418,11 +1410,6 @@ async function openDigitalTwinDashboard() {
 
         if (asset.status !== 'OPERATIONAL') {
           const badge = asset.status === 'FAULT' ? '<span style="color:#dc3545; font-weight:bold;">🔴 Sự cố</span>' : '<span style="color:#f39c12; font-weight:bold;">🟡 Bảo trì</span>';
-          
-          const safeEId = cleanId(asset.express_id);
-          const safeGId = cleanId(asset.global_id);
-          const encodedName = encodeURIComponent(asset.asset_name || '');
-
           alertRowsHtml += `
             <tr style="border-bottom:1px solid #eee;">
               <td style="padding:8px; font-weight:bold;">${asset.asset_code || '-'}</td>
@@ -1430,13 +1417,7 @@ async function openDigitalTwinDashboard() {
               <td style="padding:8px;">${badge}</td>
               <td style="padding:8px; color:#1a73e8; font-weight:bold;">${asset.next_maintenance_date || '-'}</td>
               <td style="padding:8px; text-align:center;">
-                <button type="button" class="dt-btn-view-detail" 
-                        data-express-id="${safeEId}" 
-                        data-global-id="${safeGId}" 
-                        data-asset-name="${encodedName}"
-                        style="padding:4px 8px; background:#1a73e8; color:#fff; border:none; border-radius:4px; font-size:11px; cursor:pointer;">
-                  🔎 Xem Chi Tiết
-                </button>
+                <button type="button" class="dt-btn-view-detail" data-express-id="${cleanId(asset.express_id)}" data-global-id="${cleanId(asset.global_id)}" data-asset-name="${encodeURIComponent(asset.asset_name || '')}" style="padding:4px 8px; background:#1a73e8; color:#fff; border:none; border-radius:4px; font-size:11px; cursor:pointer;">🔎 Xem Chi Tiết</button>
               </td>
             </tr>
           `;
