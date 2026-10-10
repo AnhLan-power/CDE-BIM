@@ -334,7 +334,7 @@ window.focusAndOpenAssetFromDashboard = function(expressId, globalId, assetName)
 };
 
 // =========================================================================
-// --- SYSTEM TRACE CHUẨN AUTODESK TANDEM (NHIỀU HỆ THỐNG & MULTI-BRANCH) ---
+// --- SYSTEM TRACE CHUẨN AUTODESK TANDEM (WAYPOINT PATHING CHUẨN ĐƯỜNG CHỌN) ---
 // =========================================================================
 
 function discoverAllPipeSystems() {
@@ -392,9 +392,6 @@ function getSelectedSystemKeys() {
   return selected;
 }
 
-/**
- * Lọc danh sách đường ống theo NHIỀU hệ thống được tích chọn
- */
 function getEntitiesInSelectedSystems() {
   const viewer = window.xeokitViewer || window.viewer;
   if (!viewer || !viewer.scene) return [];
@@ -457,95 +454,114 @@ function getEntitiesInSelectedSystems() {
   return matchedEntities;
 }
 
+/**
+ * Thuật toán Waypoint-Guided Pathing: Ưu tiên tuyệt đối chạy qua đúng tuyến đường đã chọn
+ */
 function buildMultiBranchFlowGraph(sourceEntity, branchEntities, systemEntities) {
   if (!systemEntities || systemEntities.length === 0) return null;
 
   const nodes = systemEntities.map(entity => ({
     id: entity.id,
     entity: entity,
-    center: getAABBCenter(entity.aabb),
-    visited: false
+    center: getAABBCenter(entity.aabb)
   }));
 
+  // Tìm Node Nguồn chính
   let sourceNode = null;
   if (sourceEntity && isValidAABB(sourceEntity.aabb)) {
-    const sourceCenter = getAABBCenter(sourceEntity.aabb);
+    const sCenter = getAABBCenter(sourceEntity.aabb);
     let minDist = Infinity;
     nodes.forEach(node => {
-      const d = Math.sqrt(
-        Math.pow(node.center[0] - sourceCenter[0], 2) +
-        Math.pow(node.center[1] - sourceCenter[1], 2) +
-        Math.pow(node.center[2] - sourceCenter[2], 2)
-      );
+      const d = Math.sqrt(Math.pow(node.center[0] - sCenter[0], 2) + Math.pow(node.center[1] - sCenter[1], 2) + Math.pow(node.center[2] - sCenter[2], 2));
       if (d < minDist) { minDist = d; sourceNode = node; }
     });
   }
-
   if (!sourceNode) sourceNode = nodes[0];
-  sourceNode.visited = true;
 
-  const targetBranchNodes = [];
+  // Map các điểm Nhánh (Waypoints) theo đúng thứ tự người dùng đã click
+  const waypoints = [sourceNode];
   if (branchEntities && branchEntities.length > 0) {
     branchEntities.forEach(bEnt => {
       if (isValidAABB(bEnt.aabb)) {
         const bCenter = getAABBCenter(bEnt.aabb);
         let minDist = Infinity;
-        let matchedNode = null;
+        let matched = null;
         nodes.forEach(node => {
-          const d = Math.sqrt(
-            Math.pow(node.center[0] - bCenter[0], 2) +
-            Math.pow(node.center[1] - bCenter[1], 2) +
-            Math.pow(node.center[2] - bCenter[2], 2)
-          );
-          if (d < minDist) { minDist = d; matchedNode = node; }
+          const d = Math.sqrt(Math.pow(node.center[0] - bCenter[0], 2) + Math.pow(node.center[1] - bCenter[1], 2) + Math.pow(node.center[2] - bCenter[2], 2));
+          if (d < minDist) { minDist = d; matched = node; }
         });
-        if (matchedNode) targetBranchNodes.push(matchedNode);
+        if (matched && !waypoints.includes(matched)) waypoints.push(matched);
       }
     });
   }
 
+  const MAX_CONNECT_DIST = 6.5; // Khoảng cách nối linh hoạt
   const edges = [];
-  const visitedNodes = [sourceNode];
-  const MAX_CONNECT_DIST = 5.0;
+  const edgeSet = new Set();
 
-  let addedNew = true;
-  while (addedNew) {
-    addedNew = false;
-    let bestFrom = null;
-    let bestTo = null;
-    let minEdgeDist = Infinity;
+  // Hàm Dijkstra ngắn nhất giữa 2 điểm Waypoint
+  function findPathBetween(startNode, targetNode) {
+    const distMap = new Map();
+    const prevMap = new Map();
+    const unvisited = new Set(nodes);
 
-    for (const vNode of visitedNodes) {
-      for (const candidate of nodes) {
-        if (!candidate.visited) {
-          const dx = vNode.center[0] - candidate.center[0];
-          const dy = vNode.center[1] - candidate.center[1];
-          const dz = vNode.center[2] - candidate.center[2];
-          const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    nodes.forEach(n => distMap.set(n, Infinity));
+    distMap.set(startNode, 0);
 
-          if (dist <= MAX_CONNECT_DIST && dist < minEdgeDist) {
-            minEdgeDist = dist;
-            bestFrom = vNode;
-            bestTo = candidate;
+    while (unvisited.size > 0) {
+      let current = null;
+      let minD = Infinity;
+      unvisited.forEach(n => {
+        if (distMap.get(n) < minD) {
+          minD = distMap.get(n);
+          current = n;
+        }
+      });
+
+      if (!current || current === targetNode || minD === Infinity) break;
+      unvisited.delete(current);
+
+      nodes.forEach(neighbor => {
+        if (unvisited.has(neighbor)) {
+          const d = Math.sqrt(
+            Math.pow(current.center[0] - neighbor.center[0], 2) +
+            Math.pow(current.center[1] - neighbor.center[1], 2) +
+            Math.pow(current.center[2] - neighbor.center[2], 2)
+          );
+          if (d <= MAX_CONNECT_DIST) {
+            const alt = distMap.get(current) + d;
+            if (alt < distMap.get(neighbor)) {
+              distMap.set(neighbor, alt);
+              prevMap.set(neighbor, current);
+            }
           }
         }
-      }
+      });
     }
 
-    if (bestFrom && bestTo) {
-      bestTo.visited = true;
-      visitedNodes.push(bestTo);
-      edges.push({ from: bestFrom, to: bestTo });
-      addedNew = true;
-
-      if (targetBranchNodes.length > 0) {
-        const allReached = targetBranchNodes.every(bn => bn.visited);
-        if (allReached) break;
-      }
+    const pathEdges = [];
+    let curr = targetNode;
+    while (prevMap.has(curr)) {
+      const p = prevMap.get(curr);
+      pathEdges.unshift({ from: p, to: curr });
+      curr = p;
     }
+    return pathEdges;
   }
 
-  return { source: sourceNode, branches: targetBranchNodes, nodes: visitedNodes, edges };
+  // Nối chuỗi đường đi từ Nguồn -> Waypoint 1 -> Waypoint 2 ...
+  for (let i = 0; i < waypoints.length - 1; i++) {
+    const subEdges = findPathBetween(waypoints[i], waypoints[i + 1]);
+    subEdges.forEach(e => {
+      const key = `${e.from.id}->${e.to.id}`;
+      if (!edgeSet.has(key)) {
+        edgeSet.add(key);
+        edges.push(e);
+      }
+    });
+  }
+
+  return { source: sourceNode, branches: waypoints.slice(1), edges };
 }
 
 function openSystemTraceToolbar() {
@@ -604,9 +620,6 @@ function executeSystemTraceSimulation() {
   if (typeof viewer.scene.render === 'function') viewer.scene.render();
 }
 
-/**
- * Đã sửa sự kiện click chuẩn `mouseclicked` của xeokit
- */
 function bind3DPickListener() {
   const viewer = window.xeokitViewer || window.viewer;
   if (!viewer || !viewer.scene || !viewer.scene.input) return;
@@ -646,7 +659,7 @@ function enablePickMode(mode) {
   if (mode === 'source') {
     alert('👉 Đang ở chế độ chọn NGUỒN: Hãy click chuột vào Máy thổi khí hoặc Bơm trên 3D!');
   } else if (mode === 'branch') {
-    alert('👉 Đang ở chế độ chọn NHÁNH: Hãy click liên tiếp vào các đoạn ống trên 3D!');
+    alert('👉 Đang ở chế độ chọn NHÁNH: Hãy click lần lượt theo đúng tuyến đường cậu muốn chảy qua!');
   }
 }
 
@@ -701,17 +714,19 @@ function renderTraceFlowLines() {
   ctx.shadowColor = '#00f2ff';
   ctx.shadowBlur = 10;
 
-  currentTraceGraph.edges.forEach(edge => {
-    const p1 = projectWorldToCanvas(viewer, edge.from.center);
-    const p2 = projectWorldToCanvas(viewer, edge.to.center);
+  if (currentTraceGraph.edges) {
+    currentTraceGraph.edges.forEach(edge => {
+      const p1 = projectWorldToCanvas(viewer, edge.from.center);
+      const p2 = projectWorldToCanvas(viewer, edge.to.center);
 
-    if (p1 && p2) {
-      ctx.beginPath();
-      ctx.moveTo(p1[0], p1[1]);
-      ctx.lineTo(p2[0], p2[1]);
-      ctx.stroke();
-    }
-  });
+      if (p1 && p2) {
+        ctx.beginPath();
+        ctx.moveTo(p1[0], p1[1]);
+        ctx.lineTo(p2[0], p2[1]);
+        ctx.stroke();
+      }
+    });
+  }
 
   if (currentTraceGraph.source) {
     const sp = projectWorldToCanvas(viewer, currentTraceGraph.source.center);
@@ -771,9 +786,6 @@ function stopTandemSystemTrace() {
   }
 }
 
-/**
- * Giao diện Toolbar mới hỗ trợ Tích chọn NHIỀU HỆ THỐNG
- */
 function injectSystemTraceToolbar() {
   injectMarkerStyles();
   let toolbar = document.getElementById('dt-trace-toolbar');
@@ -822,7 +834,6 @@ function toggleSysDropdown() {
   }
 }
 
-// Đóng menu dropdown khi click ra ngoài
 window.addEventListener('click', function(e) {
   const container = document.getElementById('dt-sys-dropdown-container');
   const menu = document.getElementById('dt-sys-dropdown-menu');
