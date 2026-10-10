@@ -369,33 +369,56 @@ window.focusAndOpenAssetFromDashboard = function(expressId, globalId, assetName)
 // --- SYSTEM TRACE CHUẨN AUTODESK TANDEM (TRUY VẾT & DÒNG CHẢY 3D) ---
 // =========================================================================
 
+/**
+ * 1. Quét sâu toàn bộ thuộc tính Reference, System Name, Pipe Types từ IFC & MetaScene
+ */
 function discoverAllPipeSystems() {
   const viewer = window.xeokitViewer || window.viewer;
-  if (!viewer || !viewer.scene) return ['Tất cả hệ thống (All)'];
+  if (!viewer) return ['Tất cả hệ thống (All)'];
 
   const systems = new Set();
   systems.add('Tất cả hệ thống (All)');
-  systems.add('Hệ AP (Khí thổi / AP. SUS304)');
-  systems.add('Hệ WP (Bơm / Nước)');
 
-  Object.values(viewer.scene.objects).forEach(entity => {
-    const name = String(entity.name || '');
-    const id = String(entity.id || '');
+  // Quét qua MetaScene propertySets để lấy đúng các giá trị Reference (như AP, SUS304, WP...)
+  if (viewer.metaScene && viewer.metaScene.metaObjects) {
+    Object.values(viewer.metaScene.metaObjects).forEach(metaObj => {
+      if (metaObj.propertySets) {
+        const psets = Array.isArray(metaObj.propertySets) ? metaObj.propertySets : Object.values(metaObj.propertySets);
+        psets.forEach(pset => {
+          if (pset && pset.properties) {
+            const props = Array.isArray(pset.properties) ? pset.properties : Object.values(pset.properties);
+            props.forEach(p => {
+              if (p && (p.name === 'Reference' || p.name === 'SystemName' || p.name === 'System Type') && p.value) {
+                const val = String(p.value).trim();
+                if (val) systems.add(val);
+              }
+            });
+          }
+        });
+      }
+    });
+  }
 
-    if (name.includes('AP.') || name.includes('SUS304')) systems.add('AP. SUS304');
-    if (name.includes('WP') || id.includes('WP')) systems.add('WP (Water Pump)');
-
-    const pipeMatch = name.match(/(?:Pipe|Duct)\s*Types:\s*([^#:\n]+)/i);
-    if (pipeMatch && pipeMatch[1].trim()) {
-      systems.add(pipeMatch[1].trim());
-    }
-  });
+  // Quét qua tên cấu kiện 3D trong scene.objects
+  if (viewer.scene && viewer.scene.objects) {
+    Object.values(viewer.scene.objects).forEach(entity => {
+      const name = String(entity.name || '');
+      const pipeMatch = name.match(/(?:Pipe|Duct)\s*Types?[:\s]+([^#:\n]+)/i);
+      if (pipeMatch && pipeMatch[1].trim()) {
+        systems.add(pipeMatch[1].trim());
+      } else if (name.includes('AP.') || name.includes('SUS304')) {
+        systems.add('AP, SUS304');
+      } else if (name.includes('WP')) {
+        systems.add('WP');
+      }
+    });
+  }
 
   return Array.from(systems);
 }
 
 /**
- * Lọc danh sách đường ống (Có cơ chế Fallback Linh Hoạt)
+ * 2. Lọc danh sách đường ống / thiết bị theo Hệ Thống được chọn
  */
 function getEntitiesInSystem(systemKey) {
   const viewer = window.xeokitViewer || window.viewer;
@@ -407,7 +430,6 @@ function getEntitiesInSystem(systemKey) {
   Object.values(viewer.scene.objects).forEach(entity => {
     if (!isValidAABB(entity.aabb)) return;
 
-    // Khi chọn "Tất cả hệ thống" -> Nhận toàn bộ đối tượng có hình học hợp lệ
     if (!key || key.includes('tất cả') || key.includes('all')) {
       matchedEntities.push(entity);
       return;
@@ -416,29 +438,38 @@ function getEntitiesInSystem(systemKey) {
     const name = String(entity.name || '').toLowerCase();
     const id = String(entity.id || '').toLowerCase();
 
-    if (key.includes('ap')) {
-      if (name.includes('ap') || name.includes('sus304') || name.includes('thoi khi') || id.includes('ap')) {
-        matchedEntities.push(entity);
+    // Đọc thêm Meta Reference propertySet nếu có
+    let metaRef = '';
+    if (viewer.metaScene && viewer.metaScene.metaObjects) {
+      const metaObj = viewer.metaScene.metaObjects[entity.id] || viewer.metaScene.metaObjects[entity.originalSystemId];
+      if (metaObj && metaObj.propertySets) {
+        const psets = Array.isArray(metaObj.propertySets) ? metaObj.propertySets : Object.values(metaObj.propertySets);
+        psets.forEach(pset => {
+          if (pset && pset.properties) {
+            const props = Array.isArray(pset.properties) ? pset.properties : Object.values(pset.properties);
+            props.forEach(p => {
+              if (p && p.name === 'Reference' && p.value) {
+                metaRef += ' ' + String(p.value).toLowerCase();
+              }
+            });
+          }
+        });
       }
-    } else if (key.includes('wp')) {
-      if (name.includes('wp') || name.includes('bom') || id.includes('wp')) {
-        matchedEntities.push(entity);
-      }
-    } else {
-      if (name.includes(key) || id.includes(key)) {
-        matchedEntities.push(entity);
-      }
+    }
+
+    if (name.includes(key) || id.includes(key) || metaRef.includes(key)) {
+      matchedEntities.push(entity);
     }
   });
 
-  // Fallback: Lấy tất cả đối tượng nếu kết quả lọc rỗng
+  // Fallback nếu danh sách rỗng
   if (matchedEntities.length === 0) {
     Object.values(viewer.scene.objects).forEach(entity => {
       if (isValidAABB(entity.aabb)) matchedEntities.push(entity);
     });
   }
 
-  // Tự động bổ sung Nguồn và các Nhánh đã chọn vào danh sách nếu chưa có
+  // Đảm bảo Nguồn và các Nhánh đã chọn luôn được bao gồm trong phạm vi hệ thống
   if (selectedSourceEntity && !matchedEntities.includes(selectedSourceEntity)) {
     matchedEntities.push(selectedSourceEntity);
   }
@@ -450,7 +481,7 @@ function getEntitiesInSystem(systemKey) {
 }
 
 /**
- * Thuật toán Ma Trận Dòng Chảy Nguồn -> Nhiều Nhánh
+ * 3. Thuật toán Xây dựng Ma Trận Dòng Chảy từ Nguồn -> Chọn Nhiều Nhánh
  */
 function buildMultiBranchFlowGraph(sourceEntity, branchEntities, systemEntities) {
   if (!systemEntities || systemEntities.length === 0) return null;
@@ -501,7 +532,7 @@ function buildMultiBranchFlowGraph(sourceEntity, branchEntities, systemEntities)
 
   const edges = [];
   const visitedNodes = [sourceNode];
-  const MAX_CONNECT_DIST = 5.0; // Khoảng cách nối ống linh hoạt
+  const MAX_CONNECT_DIST = 5.0; // Khoảng cách nối ống liên thông
 
   let addedNew = true;
   while (addedNew) {
@@ -558,7 +589,7 @@ function executeSystemTraceSimulation() {
   const selectedSys = document.getElementById('dt-trace-sys-select')?.value || '';
   const matchedEntities = getEntitiesInSystem(selectedSys);
 
-  // Ghost Mode
+  // Ghost Mode làm mờ cấu kiện ngoài hệ thống
   Object.values(viewer.scene.objects).forEach(obj => {
     obj.opacity = 0.08;
     obj.colorized = false;
