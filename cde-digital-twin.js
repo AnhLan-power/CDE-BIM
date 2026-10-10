@@ -22,8 +22,8 @@ let currentTraceGraph = null;
 let isTraceActive = false;
 let traceDashOffset = 0;
 
-let selectedSourceEntity = null;        // 1 Nguồn phát (Máy thổi khí / Bơm)[cite: 19]
-let selectedBranchEntities = [];        // Danh sách chọn NHIỀU Nhánh[cite: 19]
+let selectedSourceEntity = null;        // 1 Nguồn phát (Máy thổi khí / Bơm)
+let selectedBranchEntities = [];        // Danh sách chọn NHIỀU Nhánh
 let currentPickMode = null;              // 'source' | 'branch' | null
 
 function cleanId(val) {
@@ -371,6 +371,8 @@ function discoverAllPipeSystems() {
         systems.add(pipeMatch[1].trim());
       } else if (name.includes('AP.') || name.includes('SUS304')) {
         systems.add('AP, SUS304');
+      } else if (name.includes('HDPE')) {
+        systems.add('AP, HDPE');
       } else if (name.includes('WP')) {
         systems.add('WP');
       }
@@ -455,7 +457,7 @@ function getEntitiesInSelectedSystems() {
 }
 
 /**
- * Thuật toán Waypoint-Guided Pathing: Ưu tiên tuyệt đối chạy qua đúng tuyến đường đã chọn
+ * Thuật toán Waypoint-Guided Pathing với khoảng cách kết nối tối ưu (15 mét)
  */
 function buildMultiBranchFlowGraph(sourceEntity, branchEntities, systemEntities) {
   if (!systemEntities || systemEntities.length === 0) return null;
@@ -466,7 +468,6 @@ function buildMultiBranchFlowGraph(sourceEntity, branchEntities, systemEntities)
     center: getAABBCenter(entity.aabb)
   }));
 
-  // Tìm Node Nguồn chính
   let sourceNode = null;
   if (sourceEntity && isValidAABB(sourceEntity.aabb)) {
     const sCenter = getAABBCenter(sourceEntity.aabb);
@@ -478,7 +479,6 @@ function buildMultiBranchFlowGraph(sourceEntity, branchEntities, systemEntities)
   }
   if (!sourceNode) sourceNode = nodes[0];
 
-  // Map các điểm Nhánh (Waypoints) theo đúng thứ tự người dùng đã click
   const waypoints = [sourceNode];
   if (branchEntities && branchEntities.length > 0) {
     branchEntities.forEach(bEnt => {
@@ -495,11 +495,10 @@ function buildMultiBranchFlowGraph(sourceEntity, branchEntities, systemEntities)
     });
   }
 
-  const MAX_CONNECT_DIST = 6.5; // Khoảng cách nối linh hoạt
+  const MAX_CONNECT_DIST = 15.0; // Tăng khoảng cách nối giữa các đoạn ống dài
   const edges = [];
   const edgeSet = new Set();
 
-  // Hàm Dijkstra ngắn nhất giữa 2 điểm Waypoint
   function findPathBetween(startNode, targetNode) {
     const distMap = new Map();
     const prevMap = new Map();
@@ -549,7 +548,6 @@ function buildMultiBranchFlowGraph(sourceEntity, branchEntities, systemEntities)
     return pathEdges;
   }
 
-  // Nối chuỗi đường đi từ Nguồn -> Waypoint 1 -> Waypoint 2 ...
   for (let i = 0; i < waypoints.length - 1; i++) {
     const subEdges = findPathBetween(waypoints[i], waypoints[i + 1]);
     subEdges.forEach(e => {
@@ -569,9 +567,6 @@ function openSystemTraceToolbar() {
   bind3DPickListener();
 }
 
-/**
- * Thực thi Mô phỏng Dòng chảy
- */
 function executeSystemTraceSimulation() {
   const viewer = window.xeokitViewer || window.viewer;
   if (!viewer || !viewer.scene) return;
