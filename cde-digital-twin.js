@@ -1,5 +1,5 @@
 // =========================================================================
-// --- MODULE QUẢN LÝ TÀI SẢN DIGITAL TWIN & SYSTEM TRACE (AUTODESK TANDEM STYLE) ---
+// --- MODULE QUẢN LÝ TÀI SẢN DIGITAL TWIN, SYSTEM TRACE & GIS (CESIUMJS) ---
 // =========================================================================
 
 const DT_SUPABASE_URL = window.SUPABASE_URL || 'https://znzakqzdezxzqzfplmgv.supabase.co'; 
@@ -22,9 +22,12 @@ let currentTraceGraph = null;
 let isTraceActive = false;
 let traceDashOffset = 0;
 
-let selectedSourceEntity = null;        // 1 Nguồn phát (Máy thổi khí / Bơm)[cite: 20]
-let selectedBranchEntities = [];        // Danh sách chọn NHIỀU Nhánh[cite: 20]
-let currentPickMode = null;              // 'source' | 'branch' | null
+let selectedSourceEntity = null;        
+let selectedBranchEntities = [];        
+let currentPickMode = null;              
+
+// --- CESIUM GIS VIEWER INSTANCE ---
+let cesiumViewerInstance = null;
 
 function cleanId(val) {
   if (val === null || val === undefined) return '';
@@ -49,9 +52,6 @@ function getAABBCenter(aabb) {
   ];
 }
 
-/**
- * Chuyển đổi an toàn Tọa độ 3D World -> 2D Screen Canvas
- */
 function projectWorldToCanvas(viewer, worldPos) {
   if (!viewer || !viewer.scene) return null;
   const scene = viewer.scene;
@@ -334,7 +334,109 @@ window.focusAndOpenAssetFromDashboard = function(expressId, globalId, assetName)
 };
 
 // =========================================================================
-// --- SYSTEM TRACE CHUẨN TANDEM (MULTI-BRANCH TREE PATHING) ---
+// --- TÍCH HỢP BẢN ĐỒ GIS (CESIUMJS) ---
+// =========================================================================
+
+function loadCesiumScripts(callback) {
+  if (window.Cesium) {
+    callback();
+    return;
+  }
+
+  if (!document.getElementById('cesium-stylesheet')) {
+    const css = document.createElement('link');
+    css.id = 'cesium-stylesheet';
+    css.rel = 'stylesheet';
+    css.href = 'https://cesium.com/downloads/cesiumjs/releases/1.114/Build/Cesium/Widgets/widgets.css';
+    document.head.appendChild(css);
+  }
+
+  if (!document.getElementById('cesium-script')) {
+    const script = document.createElement('script');
+    script.id = 'cesium-script';
+    script.src = 'https://cesium.com/downloads/cesiumjs/releases/1.114/Build/Cesium/Cesium.js';
+    script.onload = () => { callback(); };
+    document.head.appendChild(script);
+  } else {
+    const checkCesium = setInterval(() => {
+      if (window.Cesium) {
+        clearInterval(checkCesium);
+        callback();
+      }
+    }, 100);
+  }
+}
+
+function openCesiumGisMap() {
+  let modal = document.getElementById('dt-cesium-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'dt-cesium-modal';
+    modal.style.cssText = 'position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(0,0,0,0.8); z-index:999999; display:flex; flex-direction:column; font-family:sans-serif;';
+    modal.innerHTML = `
+      <div style="background:#121826; color:#00f2ff; padding:12px 20px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #3b4c66;">
+        <h3 style="margin:0; font-size:16px;">🌍 Bản Đồ GIS 3D (Tích Hợp Digital Twin & Cesium)</h3>
+        <button type="button" onclick="closeCesiumGisMap()" style="background:#dc3545; color:#fff; border:none; padding:6px 12px; border-radius:4px; font-weight:bold; cursor:pointer;">✕ Đóng Bản Đồ</button>
+      </div>
+      <div id="cesiumContainer" style="flex:1; width:100%; height:100%;"></div>
+    `;
+    document.body.appendChild(modal);
+  } else {
+    modal.style.display = 'flex';
+  }
+
+  loadCesiumScripts(() => {
+    if (!cesiumViewerInstance) {
+      Cesium.Ion.defaultAccessToken = window.CESIUM_ION_TOKEN || ''; // Token mặc định hoặc dùng open source imagery
+      cesiumViewerInstance = new Cesium.Viewer('cesiumContainer', {
+        terrainProvider: Cesium.createWorldTerrain ? Cesium.createWorldTerrain() : undefined,
+        animation: false,
+        timeline: false,
+        geocoder: true
+      });
+
+      // Thêm Marker mẫu vị trí nhà máy / tài sản trên bản đồ GIS (Tọa độ giả định trung tâm Việt Nam / hoặc tùy chỉnh)
+      cesiumViewerInstance.entities.add({
+        name: 'Nhà Máy & Trạm Xử Lý Số (Digital Twin)',
+        position: Cesium.Cartesian3.fromDegrees(106.660172, 10.762622, 50), // Ví dụ tọa độ TP.HCM
+        point: {
+          pixelSize: 14,
+          color: Cesium.Color.CYAN,
+          outlineColor: Cesium.Color.WHITE,
+          outlineWidth: 2
+        },
+        label: {
+          text: 'Nhà Máy Xử Lý Nước Thải / Khí Thổi',
+          font: '14pt sans-serif',
+          style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+          fillColor: Cesium.Color.WHITE,
+          outlineColor: Cesium.Color.BLACK,
+          outlineWidth: 2,
+          pixelOffset: new Cesium.Cartesian2(0, -25)
+        },
+        description: '<h3>Hệ thống Digital Twin MEP</h3><p>Trạng thái: Đang hoạt động bình thường.</p>'
+      });
+
+      // Bay camera đến vị trí mẫu
+      cesiumViewerInstance.camera.flyTo({
+        destination: Cesium.Cartesian3.fromDegrees(106.660172, 10.762622, 2500),
+        orientation: {
+          heading: Cesium.Math.toRadians(0.0),
+          pitch: Cesium.Math.toRadians(-45.0),
+          roll: 0.0
+        }
+      });
+    }
+  });
+}
+
+function closeCesiumGisMap() {
+  const modal = document.getElementById('dt-cesium-modal');
+  if (modal) modal.style.display = 'none';
+}
+
+// =========================================================================
+// --- SYSTEM TRACE & UI PANELS ---
 // =========================================================================
 
 function discoverAllPipeSystems() {
@@ -456,9 +558,6 @@ function getEntitiesInSelectedSystems() {
   return matchedEntities;
 }
 
-/**
- * Thuật toán Spanning Tree (Cây Phân Nhánh): Cho phép tách nhiều nhánh từ nguồn/trục chính đồng thời
- */
 function buildMultiBranchFlowGraph(sourceEntity, branchEntities, systemEntities) {
   if (!systemEntities || systemEntities.length === 0) return null;
 
@@ -550,11 +649,9 @@ function buildMultiBranchFlowGraph(sourceEntity, branchEntities, systemEntities)
     return pathEdges;
   }
 
-  // Kết nối mỗi nhánh độc lập từ Nguồn hoặc điểm gần nhất trên cây nhánh đã tạo (Spanning Tree)
   const connectedSet = new Set([sourceNode]);
 
   branchNodes.forEach(bNode => {
-    // Tìm node trong tập connectedSet gần bNode nhất để rẽ nhánh ra
     let bestConnectFrom = sourceNode;
     let minDToTree = Infinity;
 
@@ -602,19 +699,19 @@ function executeSystemTraceSimulation() {
 
   matchedEntities.forEach(obj => {
     obj.opacity = 1.0;
-    obj.colorize = [0.0, 0.9, 0.8]; // Cyan
+    obj.colorize = [0.0, 0.9, 0.8]; 
     obj.colorized = true;
   });
 
   if (selectedSourceEntity) {
     selectedSourceEntity.opacity = 1.0;
-    selectedSourceEntity.colorize = [0.1, 0.8, 0.3]; // Green
+    selectedSourceEntity.colorize = [0.1, 0.8, 0.3]; 
     selectedSourceEntity.colorized = true;
   }
 
   selectedBranchEntities.forEach(bEnt => {
     bEnt.opacity = 1.0;
-    bEnt.colorize = [1.0, 0.75, 0.0]; // Orange
+    bEnt.colorize = [1.0, 0.75, 0.0]; 
     bEnt.colorized = true;
   });
 
@@ -879,7 +976,7 @@ function injectDigitalTwinPanel() {
         <button type="button" onclick="closeAssetPanel()" style="border:none; background:none; cursor:pointer; font-size:18px; font-weight:bold;">✕</button>
       </div>
 
-      <div style="margin-bottom:15px; display:flex; gap:6px;">
+      <div style="margin-bottom:15px; display:flex; gap:6px; flex-wrap:wrap;">
         <button type="button" id="dt-btn-toggle-color" onclick="toggleColorCodingMode(this)" 
                 style="flex:1; padding:8px 6px; background:#f0f4f9; color:#1a73e8; border:1px solid #b6d4fe; border-radius:6px; font-weight:bold; cursor:pointer; font-size:11px; display:flex; align-items:center; justify-content:center;">
           🎨 Trạng Thái 3D
@@ -890,7 +987,11 @@ function injectDigitalTwinPanel() {
         </button>
         <button type="button" id="dt-btn-system-trace" onclick="openSystemTraceToolbar()" 
                 style="flex:1.2; padding:8px 6px; background:#e8f0fe; color:#1a73e8; border:1px solid #b6d4fe; border-radius:6px; font-weight:bold; cursor:pointer; font-size:11px; display:flex; align-items:center; justify-content:center;">
-          🌊 System Trace 3D
+          🌊 System Trace
+        </button>
+        <button type="button" onclick="openCesiumGisMap()" 
+                style="flex:100%; padding:8px 6px; background:#10b981; color:#fff; border:none; border-radius:6px; font-weight:bold; cursor:pointer; font-size:11px; display:flex; align-items:center; justify-content:center; margin-top:4px;">
+          🌍 Mở Bản Đồ GIS (Cesium 3D)
         </button>
       </div>
 
@@ -1113,10 +1214,6 @@ function closeAssetPanel() {
   document.getElementById('dt-asset-panel').style.display = 'none'; 
 }
 
-// =========================================================================
-// --- TÍNH NĂNG NHẬT KÝ BẢO TRÌ NÂNG CAO (TIMELINE HISTORY) ---
-// =========================================================================
-
 async function loadMaintenanceHistory(globalId) {
   const container = document.getElementById('dt_log_history_list');
   if (!container) return;
@@ -1212,10 +1309,6 @@ async function addMaintenanceLogRecord() {
     alert('❌ Lỗi thêm nhật ký: ' + err.message);
   }
 }
-
-// =========================================================================
-// --- TÔ MÀU 3D & HIỂN THỊ MARKER 3D ---
-// =========================================================================
 
 async function applyAssetColorCoding() {
   const client = getDigitalTwinSupabaseClient();
@@ -1348,10 +1441,6 @@ function clear3DMarkers() {
   const container = document.getElementById('dt-marker-overlay-container');
   if (container) container.innerHTML = '';
 }
-
-// =========================================================================
-// --- DASHBOARD THỐNG KÊ VẬN HÀNH ---
-// =========================================================================
 
 function injectDigitalTwinDashboardModal() {
   if (document.getElementById('dt-dashboard-modal')) return;
