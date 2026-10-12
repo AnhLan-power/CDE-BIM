@@ -334,7 +334,7 @@ window.focusAndOpenAssetFromDashboard = function(expressId, globalId, assetName)
 };
 
 // =========================================================================
-// --- TÍCH HỢP BẢN ĐỒ GIS 3D (CESIUMJS + PROJ4 VN-2000 DROPDOWN) ---
+// --- TÍCH HỢP BẢN ĐỒ GIS 3D (CESIUMJS + PROJ4 VN-2000 CẬP NHẬT 34 TỈNH) ---
 // =========================================================================
 
 function loadCesiumScripts(callback) {
@@ -389,23 +389,49 @@ function createOrShowCesiumModal() {
     modal.style.cssText = 'position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(0,0,0,0.85); z-index:999999; display:flex; flex-direction:column; font-family:sans-serif;';
     modal.innerHTML = `
       <div style="background:#121826; color:#00f2ff; padding:12px 20px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #3b4c66;">
-        <h3 style="margin:0; font-size:15px;">🌍 Bản Đồ GIS 3D - Quy Đổi Tọa Độ VN-2000 & Kinh Tuyến Trục</h3>
+        <h3 style="margin:0; font-size:15px;">🌍 Bản Đồ GIS 3D - Quy Đổi Tọa Độ VN-2000 & Kinh Tuyến Trục (34 Tỉnh)</h3>
         <button type="button" onclick="closeCesiumGisMap()" style="background:#dc3545; color:#fff; border:none; padding:6px 12px; border-radius:4px; font-weight:bold; cursor:pointer;">✕ Đóng Bản Đồ</button>
       </div>
 
-      <!-- THANH CÔNG CỤ CẤU HÌNH VN-2000 & CHỌN TỈNH THÀNH -->
+      <!-- THANH CÔNG CỤ CẤU HÌNH VN-2000 & CHỌN 34 TỈNH THÀNH -->
       <div style="background:#1a2332; padding:10px 20px; display:flex; align-items:center; gap:15px; flex-wrap:wrap; border-bottom:1px solid #3b4c66; color:#fff; font-size:12px;">
         <div>
           <label style="font-weight:bold; color:#00f2ff;">📍 Tỉnh / Thành Phố (VN-2000):</label>
-          <select id="dt-province-select" style="padding:5px 8px; border-radius:4px; background:#222c3d; color:#fff; border:1px solid #3b4c66; margin-left:6px; cursor:pointer;">
-            <option value="105.75">TP. Hồ Chí Minh (KTTrực: 105°45')</option>
-            <option value="105.00">Hà Nội (KTTrực: 105°00')</option>
-            <option value="107.75">Đà Nẵng / Quảng Nam (KTTrực: 107°45')</option>
-            <option value="108.50">Gia Lai / Đắk Lắk (KTTrực: 108°30')</option>
-            <option value="105.75">Bình Dương (KTTrực: 105°45')</option>
-            <option value="107.75">Đồng Nai / Vũng Tàu (KTTrực: 107°45')</option>
-            <option value="105.00">Cần Thơ (KTTrực: 105°00')</option>
-            <option value="106.25">Hải Phòng / Quảng Ninh (KTTrực: 106°15')</option>
+          <select id="dt-province-select" style="padding:5px 8px; border-radius:4px; background:#222c3d; color:#fff; border:1px solid #3b4c66; margin-left:6px; cursor:pointer; max-width:260px;">
+            <option value="104.75">An Giang (KTTrực: 104°45')</option>
+            <option value="107">Bắc Ninh (KTTrực: 107°00')</option>
+            <option value="104.5">Cà Mau (KTTrực: 104°30')</option>
+            <option value="105.75">Cao Bằng (KTTrực: 105°45')</option>
+            <option value="108.5">Đắk Lắk (KTTrực: 108°30')</option>
+            <option value="103">Điện Biên (KTTrực: 103°00')</option>
+            <option value="107.75">Đồng Nai (KTTrực: 107°45')</option>
+            <option value="105">Đồng Tháp (KTTrực: 105°00')</option>
+            <option value="108.25">Gia Lai (KTTrực: 108°15')</option>
+            <option value="105.5">Hà Tĩnh (KTTrực: 105°30')</option>
+            <option value="105.5">Hưng Yên (KTTrực: 105°30')</option>
+            <option value="108.25">Khánh Hòa (KTTrực: 108°15')</option>
+            <option value="104.75">Lai Châu (KTTrực: 104°45')</option>
+            <option value="107.25">Lạng Sơn (KTTrực: 107°15')</option>
+            <option value="104.75">Lào Cai (KTTrực: 104°45')</option>
+            <option value="107.75">Lâm Đồng (KTTrực: 107°45')</option>
+            <option value="104.75">Nghệ An (KTTrực: 104°45')</option>
+            <option value="105">Ninh Bình (KTTrực: 105°00')</option>
+            <option value="104.75">Phú Thọ (KTTrực: 104°45')</option>
+            <option value="108">Quảng Ngãi (KTTrực: 108°00')</option>
+            <option value="107.75">Quảng Ninh (KTTrực: 107°45')</option>
+            <option value="106">Quảng Trị (KTTrực: 106°00')</option>
+            <option value="104">Sơn La (KTTrực: 104°00')</option>
+            <option value="105.75">Tây Ninh (KTTrực: 105°45')</option>
+            <option value="106.5">Thái Nguyên (KTTrực: 106°30')</option>
+            <option value="105">Thanh Hóa (KTTrực: 105°00')</option>
+            <option value="105">Thành phố Cần Thơ (KTTrực: 105°00')</option>
+            <option value="107.75">Thành phố Đà Nẵng (KTTrực: 107°45')</option>
+            <option value="105">Thành phố Hà Nội (KTTrực: 105°00')</option>
+            <option value="105.75">Thành phố Hải Phòng (KTTrực: 105°45')</option>
+            <option value="105.75" selected>Thành phố Hồ Chí Minh (KTTrực: 105°45')</option>
+            <option value="107">Thành phố Huế (KTTrực: 107°00')</option>
+            <option value="106">Tuyên Quang (KTTrực: 106°00')</option>
+            <option value="105.5">Vĩnh Long (KTTrực: 105°30')</option>
           </select>
         </div>
 
@@ -433,10 +459,17 @@ function createOrShowCesiumModal() {
 
   loadCesiumScripts(() => {
     if (!cesiumViewerInstance) {
+      // Cấu hình OpenStreetMap làm nền bản đồ miễn phí ổn định, tránh lỗi 404 ArcGIS
+      const osmImageryProvider = new Cesium.OpenStreetMapImageryProvider({
+        url: 'https://a.tile.openstreetmap.org/'
+      });
+
       cesiumViewerInstance = new Cesium.Viewer('cesiumContainer', {
-        geocoder: true,
+        imageryProvider: osmImageryProvider,
+        geocoder: false,
         animation: false,
-        timeline: false
+        timeline: false,
+        baseLayerPicker: false
       });
     }
     updateCesiumPositionFromVN2000();
@@ -487,22 +520,6 @@ function updateCesiumPositionFromVN2000() {
       pixelOffset: new Cesium.Cartesian2(0, -30)
     },
     description: `<h3>Thông Tin Định Vị</h3><p><b>Kinh tuyến trục:</b> ${lon0}°</p><p><b>Tọa độ X:</b> ${xVal} m</p><p><b>Tọa độ Y:</b> ${yVal} m</p>`
-  });
-
-  // --- NẠP MÔ HÌNH 3D CẦU ---
-  const bridgeModelUrl = 'https://cesium.com/public/CesiumAir/CesiumAir.gltf'; // Thay bằng file .glb của cậu nếu có
-  const hpr = new Cesium.HeadingPitchRoll(Cesium.Math.toRadians(45.0), 0, 0);
-  const transform = Cesium.Transforms.headingPitchRollToFixedFrame(targetPosition, hpr);
-
-  Cesium.Model.fromGltfAsync({
-    url: bridgeModelUrl,
-    modelMatrix: transform,
-    scale: 2.0
-  }).then(function(model) {
-    cesiumViewerInstance.scene.primitives.removeAll();
-    cesiumViewerInstance.scene.primitives.add(model);
-  }).catch(function(err){
-    console.warn('Lỗi nạp mô hình 3D:', err);
   });
 
   // Camera bay sát xuống vị trí tọa độ vừa quy đổi
