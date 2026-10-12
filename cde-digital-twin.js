@@ -28,7 +28,7 @@ let currentPickMode = null;
 
 // --- CESIUM GIS VIEWER INSTANCE ---
 let cesiumViewerInstance = null;
-let currentCesiumTileset = null; // Biến lưu trữ mô hình BIM/3D Tiles trên Cesium
+let currentCesiumTileset = null; // Biến lưu trữ mô hình BIM / 3D Tiles trên Cesium
 
 function cleanId(val) {
   if (val === null || val === undefined) return '';
@@ -394,60 +394,65 @@ function createOrShowCesiumModal() {
         <button type="button" onclick="closeCesiumGisMap()" style="background:#dc3545; color:#fff; border:none; padding:6px 12px; border-radius:4px; font-weight:bold; cursor:pointer;">✕ Đóng Bản Đồ</button>
       </div>
 
-      <!-- THANH CÔNG CỤ CẤU HÌNH VN-2000 & CHỌN 34 TỈNH THÀNH -->
-      <div style="background:#1a2332; padding:10px 20px; display:flex; align-items:center; gap:15px; flex-wrap:wrap; border-bottom:1px solid #3b4c66; color:#fff; font-size:12px;">
+      <!-- THANH CÔNG CỤ CẤU HÌNH VN-2000 & NHẬP LINK MÔ HÌNH 3D TILES -->
+      <div style="background:#1a2332; padding:10px 20px; display:flex; align-items:center; gap:12px; flex-wrap:wrap; border-bottom:1px solid #3b4c66; color:#fff; font-size:12px;">
         <div>
-          <label style="font-weight:bold; color:#00f2ff;">📍 Tỉnh / Thành Phố (VN-2000):</label>
-          <select id="dt-province-select" style="padding:5px 8px; border-radius:4px; background:#222c3d; color:#fff; border:1px solid #3b4c66; margin-left:6px; cursor:pointer; max-width:260px;">
-            <option value="104.75">An Giang (KTTrực: 104°45')</option>
-            <option value="107">Bắc Ninh (KTTrực: 107°00')</option>
-            <option value="104.5">Cà Mau (KTTrực: 104°30')</option>
-            <option value="105.75">Cao Bằng (KTTrực: 105°45')</option>
-            <option value="108.5">Đắk Lắk (KTTrực: 108°30')</option>
-            <option value="103">Điện Biên (KTTrực: 103°00')</option>
-            <option value="107.75">Đồng Nai (KTTrực: 107°45')</option>
-            <option value="105">Đồng Tháp (KTTrực: 105°00')</option>
+          <label style="font-weight:bold; color:#00f2ff;">📍 Tỉnh:</label>
+          <select id="dt-province-select" style="padding:4px 6px; border-radius:4px; background:#222c3d; color:#fff; border:1px solid #3b4c66; cursor:pointer;">
+            <option value="104.75">An Giang</option>
+            <option value="107">Bắc Ninh</option>
+            <option value="104.5">Cà Mau</option>
+            <option value="105.75">Cao Bằng</option>
+            <option value="108.5">Đắk Lắk</option>
+            <option value="103">Điện Biên</option>
+            <option value="107.75">Đồng Nai</option>
+            <option value="105">Đồng Tháp</option>
             <option value="108.25" selected>Gia Lai (KTTrực: 108°15')</option>
-            <option value="105.5">Hà Tĩnh (KTTrực: 105°30')</option>
-            <option value="105.5">Hưng Yên (KTTrực: 105°30')</option>
-            <option value="108.25">Khánh Hòa (KTTrực: 108°15')</option>
-            <option value="104.75">Lai Châu (KTTrực: 104°45')</option>
-            <option value="107.25">Lạng Sơn (KTTrực: 107°15')</option>
-            <option value="104.75">Lào Cai (KTTrực: 104°45')</option>
-            <option value="107.75">Lâm Đồng (KTTrực: 107°45')</option>
-            <option value="104.75">Nghệ An (KTTrực: 104°45')</option>
-            <option value="105">Ninh Bình (KTTrực: 105°00')</option>
-            <option value="104.75">Phú Thọ (KTTrực: 104°45')</option>
-            <option value="108">Quảng Ngãi (KTTrực: 108°00')</option>
-            <option value="107.75">Quảng Ninh (KTTrực: 107°45')</option>
-            <option value="106">Quảng Trị (KTTrực: 106°00')</option>
-            <option value="104">Sơn La (KTTrực: 104°00')</option>
-            <option value="105.75">Tây Ninh (KTTrực: 105°45')</option>
-            <option value="106.5">Thái Nguyên (KTTrực: 106°30')</option>
-            <option value="105">Thanh Hóa (KTTrực: 105°00')</option>
-            <option value="105">Thành phố Cần Thơ (KTTrực: 105°00')</option>
-            <option value="107.75">Thành phố Đà Nẵng (KTTrực: 107°45')</option>
-            <option value="105">Thành phố Hà Nội (KTTrực: 105°00')</option>
-            <option value="105.75">Thành phố Hải Phòng (KTTrực: 105°45')</option>
-            <option value="105.75">Thành phố Hồ Chí Minh (KTTrực: 105°45')</option>
-            <option value="107">Thành phố Huế (KTTrực: 107°00')</option>
-            <option value="106">Tuyên Quang (KTTrực: 106°00')</option>
-            <option value="105.5">Vĩnh Long (KTTrực: 105°30')</option>
+            <option value="105.5">Hà Tĩnh</option>
+            <option value="105.5">Hưng Yên</option>
+            <option value="108.25">Khánh Hòa</option>
+            <option value="104.75">Lai Châu</option>
+            <option value="107.25">Lạng Sơn</option>
+            <option value="104.75">Lào Cai</option>
+            <option value="107.75">Lâm Đồng</option>
+            <option value="104.75">Nghệ An</option>
+            <option value="105">Ninh Bình</option>
+            <option value="104.75">Phú Thọ</option>
+            <option value="108">Quảng Ngãi</option>
+            <option value="107.75">Quảng Ninh</option>
+            <option value="106">Quảng Trị</option>
+            <option value="104">Sơn La</option>
+            <option value="105.75">Tây Ninh</option>
+            <option value="106.5">Thái Nguyên</option>
+            <option value="105">Thanh Hóa</option>
+            <option value="105">Cần Thơ</option>
+            <option value="107.75">Đà Nẵng</option>
+            <option value="105">Hà Nội</option>
+            <option value="105.75">Hải Phòng</option>
+            <option value="105.75">Hồ Chí Minh</option>
+            <option value="107">Huế</option>
+            <option value="106">Tuyên Quang</option>
+            <option value="105.5">Vĩnh Long</option>
           </select>
         </div>
 
         <div>
-          <label style="font-weight:bold;">Tọa độ X (m):</label>
-          <input type="number" id="dt-vn2000-x" value="603067.56" style="width:95px; padding:4px; border-radius:4px; border:1px solid #3b4c66; background:#222c3d; color:#fff; text-align:center;" />
+          <label style="font-weight:bold;">X (m):</label>
+          <input type="number" id="dt-vn2000-x" value="603067.56" style="width:85px; padding:4px; border-radius:4px; border:1px solid #3b4c66; background:#222c3d; color:#fff; text-align:center;" />
         </div>
 
         <div>
-          <label style="font-weight:bold;">Tọa độ Y (m):</label>
-          <input type="number" id="dt-vn2000-y" value="1528469.13" style="width:95px; padding:4px; border-radius:4px; border:1px solid #3b4c66; background:#222c3d; color:#fff; text-align:center;" />
+          <label style="font-weight:bold;">Y (m):</label>
+          <input type="number" id="dt-vn2000-y" value="1528469.13" style="width:85px; padding:4px; border-radius:4px; border:1px solid #3b4c66; background:#222c3d; color:#fff; text-align:center;" />
         </div>
 
-        <button type="button" onclick="updateCesiumPositionFromVN2000()" style="background:#00f2ff; color:#121826; border:none; padding:6px 14px; border-radius:4px; font-weight:bold; cursor:pointer;">
-          🚀 Định Vị Lại Trên Bản Đồ
+        <div>
+          <label style="font-weight:bold; color:#00f2ff;">📦 Link 3D Tiles (.json):</label>
+          <input type="text" id="dt-model-url" placeholder="Nhập URL file tileset.json..." style="width:190px; padding:4px; border-radius:4px; border:1px solid #3b4c66; background:#222c3d; color:#fff;" />
+        </div>
+
+        <button type="button" onclick="updateCesiumPositionFromVN2000()" style="background:#00f2ff; color:#121826; border:none; padding:6px 12px; border-radius:4px; font-weight:bold; cursor:pointer;">
+          🚀 Định Vị & Tải Mô Hình
         </button>
       </div>
 
@@ -477,48 +482,44 @@ function createOrShowCesiumModal() {
 }
 
 /**
- * 🟢 HÀM TỰ ĐỘNG ĐỒNG BỘ VỊ TRÍ MÔ HÌNH LÊN KHUNG NHÌN CESIUM
- * @param {number} targetLng - Kinh độ WGS84
- * @param {number} targetLat - Vĩ độ WGS84
- * @param {string} tilesetUrl - Đường dẫn tới file 3D Tiles (.json) hoặc mô hình của dự án
- * @param {number} heightOffset - Độ cao so với mặt đất (mét)
+ * 🟢 HÀM ĐỒNG BỘ MÔ HÌNH 3D TILES VÀO TỌA ĐỘ TRÊN CESIUM
  */
 function syncBimModelToCesium(targetLng, targetLat, tilesetUrl = '', heightOffset = 0) {
   if (!cesiumViewerInstance) return;
 
-  // 1. Xóa mô hình cũ đang hiển thị trên Cesium nếu có
+  // 1. Xóa mô hình cũ nếu đã load trước đó
   if (currentCesiumTileset) {
     cesiumViewerInstance.scene.primitives.remove(currentCesiumTileset);
     currentCesiumTileset = null;
   }
 
-  // 2. Tính toán tâm vị trí địa lý theo tọa độ quy đổi
+  // 2. Định vị trí tâm công trình trên địa cầu
   const position = Cesium.Cartesian3.fromDegrees(targetLng, targetLat, heightOffset);
-  const heading = Cesium.Math.toRadians(0.0); // Góc xoay hướng Bắc
+  const heading = Cesium.Math.toRadians(0.0);
   const pitch = Cesium.Math.toRadians(0.0);
   const roll = Cesium.Math.toRadians(0.0);
   const hpr = new Cesium.HeadingPitchRoll(heading, pitch, roll);
-  
-  // Tạo ma trận biến đổi không gian
   const modelMatrix = Cesium.Transforms.headingPitchRollToFixedFrame(position, hpr);
 
-  // 3. Nếu có link 3D Tiles (.json của mô hình IFC đã export), tiến hành load lên Cesium
-  if (tilesetUrl) {
-    Cesium.Cesium3DTileset.fromUrl(tilesetUrl).then(tileset => {
+  // 3. Nếu người dùng nhập Link 3D Tiles (.json), tiến hành tải và hiển thị
+  if (tilesetUrl && tilesetUrl.trim() !== '') {
+    Cesium.Cesium3DTileset.fromUrl(tilesetUrl.trim()).then(tileset => {
       currentCesiumTileset = tileset;
       tileset.modelMatrix = modelMatrix;
       cesiumViewerInstance.scene.primitives.add(tileset);
+      console.log("✅ Đã đưa mô hình 3D Tiles lên Cesium thành công!");
     }).catch(err => {
-      console.warn("Không thể tải 3D Tiles từ URL, hiển thị marker định vị thay thế:", err);
+      alert("⚠️ Không thể tải file 3D Tiles từ URL này. Vui lòng kiểm tra lại đường dẫn!");
+      console.warn("Lỗi tải 3D Tiles:", err);
     });
   }
 
-  // 4. Camera bay tập trung vào khu vực công trình
+  // 4. Camera bay sát vào khu vực công trình
   cesiumViewerInstance.camera.flyTo({
-    destination: Cesium.Cartesian3.fromDegrees(targetLng, targetLat, 800),
+    destination: Cesium.Cartesian3.fromDegrees(targetLng, targetLat, 600),
     orientation: {
       heading: Cesium.Math.toRadians(0.0),
-      pitch: Cesium.Math.toRadians(-50.0),
+      pitch: Cesium.Math.toRadians(-45.0),
       roll: 0.0
     }
   });
@@ -530,20 +531,21 @@ function updateCesiumPositionFromVN2000() {
   const selectEl = document.getElementById('dt-province-select');
   const xInput = document.getElementById('dt-vn2000-x');
   const yInput = document.getElementById('dt-vn2000-y');
+  const modelUrlInput = document.getElementById('dt-model-url');
 
   const lon0 = parseFloat(selectEl ? selectEl.value : '108.25');
   const xVal = parseFloat(xInput ? xInput.value : '603067.56');
   const yVal = parseFloat(yInput ? yInput.value : '1528469.13');
+  const modelUrl = modelUrlInput ? modelUrlInput.value.trim() : '';
 
-  // Khai báo phép chiếu VN-2000 động theo kinh tuyến trục tỉnh thành được chọn
+  // Khai báo phép chiếu VN-2000 động theo kinh tuyến trục tỉnh thành
   proj4.defs("VN2000_CUSTOM", `+proj=tmerc +lat_0=0 +lon_0=${lon0} +k=0.9999 +x_0=500000 +y_0=0 +ellps=WGS84 +units=m +no_defs`);
 
-  // Chuyển đổi từ tọa độ phẳng VN-2000 (X, Y) sang kinh độ vĩ độ WGS84
   let latLon = proj4("VN2000_CUSTOM", "EPSG:4326", [xVal, yVal]);
   let targetLng = latLon[0];
   let targetLat = latLon[1];
 
-  // Xóa entity marker cũ
+  // Xóa các marker cũ
   cesiumViewerInstance.entities.removeAll();
 
   const targetPosition = Cesium.Cartesian3.fromDegrees(targetLng, targetLat, 0);
@@ -567,12 +569,11 @@ function updateCesiumPositionFromVN2000() {
       outlineWidth: 2,
       pixelOffset: new Cesium.Cartesian2(0, -30)
     },
-    description: `<h3>Thông Tin Định Vị</h3><p><b>Kinh tuyến trục:</b> ${lon0}°</p><p><b>Tọa độ X:</b> ${xVal} m</p><p><b>Tọa độ Y:</b> ${yVal} m</p><p><b>Kinh/Vĩ độ:</b> ${targetLng.toFixed(6)}, ${targetLat.toFixed(6)}</p>`
+    description: `<h3>Thông Tin Định Vị</h3><p><b>Kinh tuyến trục:</b> ${lon0}°</p><p><b>Tọa độ X:</b> ${xVal} m</p><p><b>Tọa độ Y:</b> ${yVal} m</p>`
   });
 
-  // 🚀 Gọi hàm tự động đồng bộ mô hình vào vị trí vừa định vị
-  // Cậu có thể truyền link file 3D Tiles (.json) vào tham số thứ 3 nếu có sẵn.
-  syncBimModelToCesium(targetLng, targetLat, '', 0);
+  // Gọi hàm đồng bộ mô hình BIM 3D Tiles lên Cesium
+  syncBimModelToCesium(targetLng, targetLat, modelUrl, 0);
 }
 
 function openCesiumGisMap() {
@@ -1611,7 +1612,7 @@ function injectDigitalTwinDashboardModal() {
               <div id="dt-dash-op" style="font-size:24px; font-weight:bold; color:#28a745; margin-top:5px;">0</div>
             </div>
             <div style="background:#fff; padding:15px; border-radius:8px; border-left:4px solid #f39c12;">
-              <div style="font-size:12px; color:#666; font-weight:bold;">🟡 ĐANG BẢO TRÌ</div>
+              <div style="font-size:12px; color:#666; font-weight:bold;">🟡 Đang BẢO TRÌ</div>
               <div id="dt-dash-maint" style="font-size:24px; font-weight:bold; color:#f39c12; margin-top:5px;">0</div>
             </div>
             <div style="background:#fff; padding:15px; border-radius:8px; border-left:4px solid #dc3545;">
