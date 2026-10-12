@@ -22,8 +22,8 @@ let currentTraceGraph = null;
 let isTraceActive = false;
 let traceDashOffset = 0;
 
-let selectedSourceEntity = null;        // 1 Nguồn phát (Máy thổi khí / Bơm)
-let selectedBranchEntities = [];        // Danh sách chọn NHIỀU Nhánh
+let selectedSourceEntity = null;        // 1 Nguồn phát (Máy thổi khí / Bơm)[cite: 20]
+let selectedBranchEntities = [];        // Danh sách chọn NHIỀU Nhánh[cite: 20]
 let currentPickMode = null;              // 'source' | 'branch' | null
 
 function cleanId(val) {
@@ -334,7 +334,7 @@ window.focusAndOpenAssetFromDashboard = function(expressId, globalId, assetName)
 };
 
 // =========================================================================
-// --- SYSTEM TRACE CHUẨN AUTODESK TANDEM (WAYPOINT PATHING CHUẨN ĐƯỜNG CHỌN) ---
+// --- SYSTEM TRACE CHUẨN TANDEM (MULTI-BRANCH TREE PATHING) ---
 // =========================================================================
 
 function discoverAllPipeSystems() {
@@ -457,7 +457,7 @@ function getEntitiesInSelectedSystems() {
 }
 
 /**
- * Thuật toán Waypoint-Guided Pathing với khoảng cách kết nối tối ưu (15 mét)
+ * Thuật toán Spanning Tree (Cây Phân Nhánh): Cho phép tách nhiều nhánh từ nguồn/trục chính đồng thời
  */
 function buildMultiBranchFlowGraph(sourceEntity, branchEntities, systemEntities) {
   if (!systemEntities || systemEntities.length === 0) return null;
@@ -479,7 +479,7 @@ function buildMultiBranchFlowGraph(sourceEntity, branchEntities, systemEntities)
   }
   if (!sourceNode) sourceNode = nodes[0];
 
-  const waypoints = [sourceNode];
+  const branchNodes = [];
   if (branchEntities && branchEntities.length > 0) {
     branchEntities.forEach(bEnt => {
       if (isValidAABB(bEnt.aabb)) {
@@ -490,12 +490,14 @@ function buildMultiBranchFlowGraph(sourceEntity, branchEntities, systemEntities)
           const d = Math.sqrt(Math.pow(node.center[0] - bCenter[0], 2) + Math.pow(node.center[1] - bCenter[1], 2) + Math.pow(node.center[2] - bCenter[2], 2));
           if (d < minDist) { minDist = d; matched = node; }
         });
-        if (matched && !waypoints.includes(matched)) waypoints.push(matched);
+        if (matched && !branchNodes.includes(matched) && matched !== sourceNode) {
+          branchNodes.push(matched);
+        }
       }
     });
   }
 
-  const MAX_CONNECT_DIST = 15.0; // Tăng khoảng cách nối giữa các đoạn ống dài
+  const MAX_CONNECT_DIST = 15.0;
   const edges = [];
   const edgeSet = new Set();
 
@@ -548,18 +550,38 @@ function buildMultiBranchFlowGraph(sourceEntity, branchEntities, systemEntities)
     return pathEdges;
   }
 
-  for (let i = 0; i < waypoints.length - 1; i++) {
-    const subEdges = findPathBetween(waypoints[i], waypoints[i + 1]);
+  // Kết nối mỗi nhánh độc lập từ Nguồn hoặc điểm gần nhất trên cây nhánh đã tạo (Spanning Tree)
+  const connectedSet = new Set([sourceNode]);
+
+  branchNodes.forEach(bNode => {
+    // Tìm node trong tập connectedSet gần bNode nhất để rẽ nhánh ra
+    let bestConnectFrom = sourceNode;
+    let minDToTree = Infinity;
+
+    connectedSet.forEach(cNode => {
+      const d = Math.sqrt(
+        Math.pow(cNode.center[0] - bNode.center[0], 2) +
+        Math.pow(cNode.center[1] - bNode.center[1], 2) +
+        Math.pow(cNode.center[2] - bNode.center[2], 2)
+      );
+      if (d < minDToTree) {
+        minDToTree = d;
+        bestConnectFrom = cNode;
+      }
+    });
+
+    const subEdges = findPathBetween(bestConnectFrom, bNode);
     subEdges.forEach(e => {
       const key = `${e.from.id}->${e.to.id}`;
       if (!edgeSet.has(key)) {
         edgeSet.add(key);
         edges.push(e);
       }
+      connectedSet.add(e.to);
     });
-  }
+  });
 
-  return { source: sourceNode, branches: waypoints.slice(1), edges };
+  return { source: sourceNode, branches: branchNodes, edges };
 }
 
 function openSystemTraceToolbar() {
@@ -637,7 +659,7 @@ function bind3DPickListener() {
             hit.entity.colorize = [1.0, 0.75, 0.0];
             hit.entity.colorized = true;
           }
-          alert(`🎯 ĐÃ THÊM NHÁNH (${selectedBranchEntities.length}): ${hit.entity.name || hit.entity.id}`);
+          alert(`🎯 ĐÃ THÊM NHÁNH RẼ (${selectedBranchEntities.length}): ${hit.entity.name || hit.entity.id}`);
         }
         updateToolbarStatusText();
         if (viewer.scene) {
@@ -654,7 +676,7 @@ function enablePickMode(mode) {
   if (mode === 'source') {
     alert('👉 Đang ở chế độ chọn NGUỒN: Hãy click chuột vào Máy thổi khí hoặc Bơm trên 3D!');
   } else if (mode === 'branch') {
-    alert('👉 Đang ở chế độ chọn NHÁNH: Hãy click lần lượt theo đúng tuyến đường cậu muốn chảy qua!');
+    alert('👉 Đang ở chế độ chọn NHÁNH RẼ: Hãy click vào các đầu nhánh xả muốn tỏa ra từ dòng chính!');
   }
 }
 
