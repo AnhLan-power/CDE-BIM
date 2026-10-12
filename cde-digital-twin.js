@@ -482,9 +482,9 @@ function createOrShowCesiumModal() {
 }
 
 /**
- * 🟢 HÀM ĐỒNG BỘ MÔ HÌNH 3D TILES VÀO TỌA ĐỘ TRÊN CESIUM
+ * 🟢 HÀM ĐỒNG BỘ MÔ HÌNH 3D TILES (HỖ TRỢ CESIUM ION ASSET ID HOẶC URL)
  */
-function syncBimModelToCesium(targetLng, targetLat, tilesetUrl = '', heightOffset = 0) {
+function syncBimModelToCesium(targetLng, targetLat, inputVal = '', heightOffset = 0) {
   if (!cesiumViewerInstance) return;
 
   // 1. Xóa mô hình cũ nếu đã load trước đó
@@ -501,18 +501,28 @@ function syncBimModelToCesium(targetLng, targetLat, tilesetUrl = '', heightOffse
   const hpr = new Cesium.HeadingPitchRoll(heading, pitch, roll);
   const modelMatrix = Cesium.Transforms.headingPitchRollToFixedFrame(position, hpr);
 
-  // 3. Nếu người dùng nhập Link 3D Tiles (.json), tiến hành tải và hiển thị
-  if (tilesetUrl && tilesetUrl.trim() !== '') {
-    Cesium.Cesium3DTileset.fromUrl(tilesetUrl.trim()).then(tileset => {
-      currentCesiumTileset = tileset;
-      tileset.modelMatrix = modelMatrix;
-      cesiumViewerInstance.scene.primitives.add(tileset);
-      console.log("✅ Đã đưa mô hình 3D Tiles lên Cesium thành công!");
-    }).catch(err => {
-      alert("⚠️ Không thể tải file 3D Tiles từ URL này. Vui lòng kiểm tra lại đường dẫn!");
-      console.warn("Lỗi tải 3D Tiles:", err);
-    });
+  inputVal = inputVal.trim();
+  if (!inputVal) return;
+
+  // 3. Kiểm tra xem người dùng nhập Asset ID (số) hay URL (.json)
+  let promiseTileset;
+  if (!isNaN(inputVal)) {
+    // Nếu là ID của Cesium ion (Ví dụ: 6018479)
+    promiseTileset = Cesium.Cesium3DTileset.fromIonAssetId(parseInt(inputVal));
+  } else {
+    // Nếu là đường dẫn URL tileset.json
+    promiseTileset = Cesium.Cesium3DTileset.fromUrl(inputVal);
   }
+
+  promiseTileset.then(tileset => {
+    currentCesiumTileset = tileset;
+    tileset.modelMatrix = modelMatrix;
+    cesiumViewerInstance.scene.primitives.add(tileset);
+    console.log("✅ Đã đưa mô hình 3D lên Cesium thành công!");
+  }).catch(err => {
+    alert("⚠️ Không thể tải mô hình. Vui lòng kiểm tra lại Asset ID hoặc URL!");
+    console.warn("Lỗi tải 3D Tiles:", err);
+  });
 
   // 4. Camera bay sát vào khu vực công trình
   cesiumViewerInstance.camera.flyTo({
