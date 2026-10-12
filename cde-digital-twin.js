@@ -522,7 +522,7 @@ async function syncBimModelToCesium(targetLng, targetLat, inputVal = '', heightO
     // Lật mô hình nằm phẳng (Pitch = 90 độ)
     const hpr = new Cesium.HeadingPitchRoll(
       Cesium.Math.toRadians(0.0),
-      Cesium.Math.toRadians(90.0),
+      Cesium.Math.toRadians(-90.0),
       Cesium.Math.toRadians(0.0)
     );
     
