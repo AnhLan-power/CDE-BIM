@@ -5,6 +5,9 @@
 const DT_SUPABASE_URL = window.SUPABASE_URL || 'https://znzakqzdezxzqzfplmgv.supabase.co'; 
 const DT_SUPABASE_KEY = window.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpuemFrcXpkZXp4enF6ZnBsbWd2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc4MTQyNzAsImV4cCI6MjEwMzM5NDI3MH0.aV5YaOLxTySiB26ror4CRzJvQsjANNI1DwbtbxcNe4A';
 
+// 🔑 THAY THẾ CHUỖI TOKEN BÊN DƯỚI BẰNG ACCESS TOKEN TỪ CESIUM ION CỦA CẬU
+const CESIUM_ION_TOKEN = window.CESIUM_ION_TOKEN || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...'; 
+
 const STATUS_COLORS = {
   OPERATIONAL: [0.1, 0.8, 0.3], // 🟢 Xanh lá
   MAINTENANCE: [1.0, 0.75, 0.0], // 🟡 Vàng
@@ -28,7 +31,7 @@ let currentPickMode = null;
 
 // --- CESIUM GIS VIEWER INSTANCE ---
 let cesiumViewerInstance = null;
-let currentCesiumTileset = null; // Biến lưu trữ mô hình BIM / 3D Tiles trên Cesium
+let currentCesiumTileset = null; 
 
 function cleanId(val) {
   if (val === null || val === undefined) return '';
@@ -135,7 +138,6 @@ function injectMarkerStyles() {
       animation: dt-pulse 1.5s infinite !important;
     }
 
-    /* SYSTEM TRACE FLOATING TOOLBAR */
     #dt-trace-toolbar {
       position: fixed !important;
       top: 25px !important;
@@ -172,7 +174,6 @@ function injectMarkerStyles() {
       opacity: 0.9;
       transform: translateY(-1px);
     }
-    /* MULTI-SYSTEM DROPDOWN POPUP */
     #dt-sys-dropdown-container {
       position: relative !important;
       display: inline-block !important;
@@ -394,7 +395,6 @@ function createOrShowCesiumModal() {
         <button type="button" onclick="closeCesiumGisMap()" style="background:#dc3545; color:#fff; border:none; padding:6px 12px; border-radius:4px; font-weight:bold; cursor:pointer;">✕ Đóng Bản Đồ</button>
       </div>
 
-      <!-- THANH CÔNG CỤ CẤU HÌNH VN-2000 & NHẬP LINK MÔ HÌNH 3D TILES -->
       <div style="background:#1a2332; padding:10px 20px; display:flex; align-items:center; gap:12px; flex-wrap:wrap; border-bottom:1px solid #3b4c66; color:#fff; font-size:12px;">
         <div>
           <label style="font-weight:bold; color:#00f2ff;">📍 Tỉnh:</label>
@@ -447,8 +447,8 @@ function createOrShowCesiumModal() {
         </div>
 
         <div>
-          <label style="font-weight:bold; color:#00f2ff;">📦 Link 3D Tiles (.json):</label>
-          <input type="text" id="dt-model-url" placeholder="Nhập URL file tileset.json..." style="width:190px; padding:4px; border-radius:4px; border:1px solid #3b4c66; background:#222c3d; color:#fff;" />
+          <label style="font-weight:bold; color:#00f2ff;">📦 Asset ID / Link 3D Tiles:</label>
+          <input type="text" id="dt-model-url" value="6018479" placeholder="Nhập ID 6018479 hoặc URL..." style="width:190px; padding:4px; border-radius:4px; border:1px solid #3b4c66; background:#222c3d; color:#fff;" />
         </div>
 
         <button type="button" onclick="updateCesiumPositionFromVN2000()" style="background:#00f2ff; color:#121826; border:none; padding:6px 12px; border-radius:4px; font-weight:bold; cursor:pointer;">
@@ -464,6 +464,11 @@ function createOrShowCesiumModal() {
   }
 
   loadCesiumScripts(() => {
+    if (window.Cesium && CESIUM_ION_TOKEN) {
+      // 🔑 Khai báo Token cấp quyền truy cập dữ liệu Cesium ion
+      Cesium.Ion.defaultAccessToken = CESIUM_ION_TOKEN;
+    }
+
     if (!cesiumViewerInstance) {
       const satelliteProvider = new Cesium.ArcGisMapServerImageryProvider({
         url: 'https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer'
@@ -481,19 +486,14 @@ function createOrShowCesiumModal() {
   });
 }
 
-/**
- * 🟢 HÀM ĐỒNG BỘ MÔ HÌNH 3D TILES (HỖ TRỢ CESIUM ION ASSET ID HOẶC URL)
- */
 function syncBimModelToCesium(targetLng, targetLat, inputVal = '', heightOffset = 0) {
   if (!cesiumViewerInstance) return;
 
-  // 1. Xóa mô hình cũ nếu đã load trước đó
   if (currentCesiumTileset) {
     cesiumViewerInstance.scene.primitives.remove(currentCesiumTileset);
     currentCesiumTileset = null;
   }
 
-  // 2. Định vị trí tâm công trình trên địa cầu
   const position = Cesium.Cartesian3.fromDegrees(targetLng, targetLat, heightOffset);
   const heading = Cesium.Math.toRadians(0.0);
   const pitch = Cesium.Math.toRadians(0.0);
@@ -504,13 +504,12 @@ function syncBimModelToCesium(targetLng, targetLat, inputVal = '', heightOffset 
   inputVal = inputVal.trim();
   if (!inputVal) return;
 
-  // 3. Kiểm tra xem người dùng nhập Asset ID (số) hay URL (.json)
   let promiseTileset;
   if (!isNaN(inputVal)) {
-    // Nếu là ID của Cesium ion (Ví dụ: 6018479)
+    // Tải thông qua Cesium ion Asset ID (Ví dụ: 6018479)
     promiseTileset = Cesium.Cesium3DTileset.fromIonAssetId(parseInt(inputVal));
   } else {
-    // Nếu là đường dẫn URL tileset.json
+    // Tải qua đường dẫn URL file tileset.json
     promiseTileset = Cesium.Cesium3DTileset.fromUrl(inputVal);
   }
 
@@ -520,11 +519,10 @@ function syncBimModelToCesium(targetLng, targetLat, inputVal = '', heightOffset 
     cesiumViewerInstance.scene.primitives.add(tileset);
     console.log("✅ Đã đưa mô hình 3D lên Cesium thành công!");
   }).catch(err => {
-    alert("⚠️ Không thể tải mô hình. Vui lòng kiểm tra lại Asset ID hoặc URL!");
+    alert("⚠️ Không thể tải mô hình. Vui lòng kiểm tra lại Cesium ion Token hoặc Asset ID!");
     console.warn("Lỗi tải 3D Tiles:", err);
   });
 
-  // 4. Camera bay sát vào khu vực công trình
   cesiumViewerInstance.camera.flyTo({
     destination: Cesium.Cartesian3.fromDegrees(targetLng, targetLat, 600),
     orientation: {
@@ -546,21 +544,18 @@ function updateCesiumPositionFromVN2000() {
   const lon0 = parseFloat(selectEl ? selectEl.value : '108.25');
   const xVal = parseFloat(xInput ? xInput.value : '603067.56');
   const yVal = parseFloat(yInput ? yInput.value : '1528469.13');
-  const modelUrl = modelUrlInput ? modelUrlInput.value.trim() : '';
+  const modelUrl = modelUrlInput ? modelUrlInput.value.trim() : '6018479';
 
-  // Khai báo phép chiếu VN-2000 động theo kinh tuyến trục tỉnh thành
   proj4.defs("VN2000_CUSTOM", `+proj=tmerc +lat_0=0 +lon_0=${lon0} +k=0.9999 +x_0=500000 +y_0=0 +ellps=WGS84 +units=m +no_defs`);
 
   let latLon = proj4("VN2000_CUSTOM", "EPSG:4326", [xVal, yVal]);
   let targetLng = latLon[0];
   let targetLat = latLon[1];
 
-  // Xóa các marker cũ
   cesiumViewerInstance.entities.removeAll();
 
   const targetPosition = Cesium.Cartesian3.fromDegrees(targetLng, targetLat, 0);
 
-  // Thêm Marker ghim vị trí công trình
   cesiumViewerInstance.entities.add({
     name: 'Vị Trí Công Trình (VN-2000)',
     position: targetPosition,
@@ -582,7 +577,6 @@ function updateCesiumPositionFromVN2000() {
     description: `<h3>Thông Tin Định Vị</h3><p><b>Kinh tuyến trục:</b> ${lon0}°</p><p><b>Tọa độ X:</b> ${xVal} m</p><p><b>Tọa độ Y:</b> ${yVal} m</p>`
   });
 
-  // Gọi hàm đồng bộ mô hình BIM 3D Tiles lên Cesium
   syncBimModelToCesium(targetLng, targetLat, modelUrl, 0);
 }
 
@@ -1622,7 +1616,7 @@ function injectDigitalTwinDashboardModal() {
               <div id="dt-dash-op" style="font-size:24px; font-weight:bold; color:#28a745; margin-top:5px;">0</div>
             </div>
             <div style="background:#fff; padding:15px; border-radius:8px; border-left:4px solid #f39c12;">
-              <div style="font-size:12px; color:#666; font-weight:bold;">🟡 Đang BẢO TRÌ</div>
+              <div style="font-size:12px; color:#666; font-weight:bold;">🟡 ĐANG BẢO TRÌ</div>
               <div id="dt-dash-maint" style="font-size:24px; font-weight:bold; color:#f39c12; margin-top:5px;">0</div>
             </div>
             <div style="background:#fff; padding:15px; border-radius:8px; border-left:4px solid #dc3545;">
