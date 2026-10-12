@@ -488,7 +488,7 @@ function createOrShowCesiumModal() {
 /**
  * 🟢 HÀM ĐỒNG BỘ MÔ HÌNH 3D TILES (SỬ DỤNG ASYNC/AWAIT CHUẨN CESIUMJS MỚI)
  */
-async function syncBimModelToCesium(targetLng, targetLat, inputVal = '', heightOffset = 10) {
+async function syncBimModelToCesium(targetLng, targetLat, inputVal = '', heightOffset = 0) {
   if (!cesiumViewerInstance) return;
 
   if (currentCesiumTileset) {
@@ -499,18 +499,6 @@ async function syncBimModelToCesium(targetLng, targetLat, inputVal = '', heightO
   inputVal = inputVal.trim();
   if (!inputVal) return;
 
-  // 1. Tạo vị trí tọa độ WGS84 chuẩn trên bản đồ
-  const position = Cesium.Cartesian3.fromDegrees(targetLng, targetLat, heightOffset);
-
-  // 🔄 2. CHỈNH GÓC XOAY ĐỂ LẬT MÔ HÌNH NẰM PHẲNG
-  // Do mô hình BIM gốc đang bị dựng đứng, ta dùng pitch = 90 độ (hoặc -90 độ) để lật ngang xuống mặt đất
-  const heading = Cesium.Math.toRadians(0.0);   // Xoay hướng Bắc-Nam-Đông-Tây
-  const pitch   = Cesium.Math.toRadians(90.0);   // Lật mặt mô hình (Thử thay đổi thành -90.0 nếu bị úp ngược)
-  const roll    = Cesium.Math.toRadians(0.0);    // Xoay nghiêng
-  
-  const hpr = new Cesium.HeadingPitchRoll(heading, pitch, roll);
-  let modelMatrix = Cesium.Transforms.headingPitchRollToFixedFrame(position, hpr);
-
   try {
     let tileset;
     if (!isNaN(inputVal)) {
@@ -520,21 +508,48 @@ async function syncBimModelToCesium(targetLng, targetLat, inputVal = '', heightO
     }
 
     currentCesiumTileset = tileset;
-    tileset.modelMatrix = modelMatrix;
     cesiumViewerInstance.scene.primitives.add(tileset);
 
-    // 🚀 Tự động zoom sát vào vị trí mô hình
-    if (cesiumViewerInstance.zoomTo) {
-      cesiumViewerInstance.zoomTo(tileset, new Cesium.HeadingPitchRange(
-        Cesium.Math.toRadians(0.0),
-        Cesium.Math.toRadians(-35.0),
-        250.0
-      ));
-    }
+    // Chờ tileset tải xong thông tin cấu trúc 3D
+    await tileset.readyPromise || tileset;
 
-    console.log("✅ Đã đồng bộ và lật mô hình 3D thành công!");
+    // 1. Tính toán tâm bề mặt WGS84 tại tọa độ VN-2000
+    const targetCartographic = Cesium.Cartographic.fromDegrees(targetLng, targetLat, heightOffset);
+    const targetCartesian = Cesium.Cartesian3.fromRadians(
+      targetCartographic.longitude,
+      targetCartographic.latitude,
+      targetCartographic.height
+    );
+
+    // 2. Lấy tâm hình học của mô hình (Bounding Sphere)
+    const center = tileset.boundingSphere.center;
+
+    // 3. Xoay lật mô hình nằm ngang và di chuyển gốc về đúng tọa độ mục tiêu
+    const hpr = new Cesium.HeadingPitchRoll(
+      Cesium.Math.toRadians(0.0),
+      Cesium.Math.toRadians(90.0), // Góc lật phẳng
+      Cesium.Math.toRadians(0.0)
+    );
+
+    // Tạo ma trận dịch chuyển tâm mô hình về tọa độ đất thực tế
+    const translation = Cesium.Cartesian3.subtract(targetCartesian, center, new Cesium.Cartesian3());
+    const modelMatrix = Cesium.Matrix4.fromRotationTranslation(
+      Cesium.Matrix3.fromHeadingPitchRoll(hpr),
+      translation
+    );
+
+    tileset.modelMatrix = modelMatrix;
+
+    // 🚀 Zoom camera sát vào mô hình trên mặt đất
+    cesiumViewerInstance.zoomTo(tileset, new Cesium.HeadingPitchRange(
+      Cesium.Math.toRadians(0.0),
+      Cesium.Math.toRadians(-45.0),
+      150.0
+    ));
+
+    console.log("✅ Đã kéo mô hình dán chặt xuống mặt đất!");
   } catch (err) {
-    alert("⚠️ Không thể tải mô hình. Vui lòng kiểm tra lại Cesium ion Token hoặc Asset ID!");
+    alert("⚠️ Không thể tải mô hình. Vui lòng kiểm tra lại Asset ID!");
     console.warn("Lỗi tải 3D Tiles:", err);
   }
 }
