@@ -337,6 +337,10 @@ window.focusAndOpenAssetFromDashboard = function(expressId, globalId, assetName)
 // --- TÍCH HỢP BẢN ĐỒ GIS 3D (CESIUMJS - KHẮC PHỤC LỖI NỀN & NẠP MODEL CẦU) ---
 // =========================================================================
 
+// =========================================================================
+// --- MODULE BẢN ĐỒ GIS 3D (CESIUMJS - CẬP NHẬT ZOOM SÁT MẶT ĐẤT & HIỆN MODEL) ---
+// =========================================================================
+
 function loadCesiumScripts(callback) {
   if (window.Cesium) {
     callback();
@@ -387,28 +391,21 @@ function openCesiumGisMap() {
 
   loadCesiumScripts(() => {
     if (!cesiumViewerInstance) {
-      // Sử dụng OpenStreetMap làm nền bản đồ mặc định để không bị lỗi màn hình đen vũ trụ
-      const osmProvider = new Cesium.UrlTemplateImageryProvider({
-        url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-        credit: 'OpenStreetMap contributors'
-      });
-
+      // Khởi tạo Cesium Viewer chuẩn không bị lỗi màn hình xanh đại dương
       cesiumViewerInstance = new Cesium.Viewer('cesiumContainer', {
-        imageryProvider: osmProvider,
-        baseLayerPicker: false,
         geocoder: true,
         animation: false,
         timeline: false
       });
 
-      // Vị trí tọa độ dự án cầu (Ví dụ: khu vực TP.HCM hoặc vị trí thực tế của cầu)
+      // Tọa độ thực tế mô phỏng khu vực đặt công trình cầu
       const bridgeLng = 106.660172;
       const bridgeLat = 10.762622;
       const bridgeHeight = 0;
 
       const bridgePosition = Cesium.Cartesian3.fromDegrees(bridgeLng, bridgeLat, bridgeHeight);
       
-      // Tạo điểm đánh dấu (Marker) cho cầu Nguyễn Văn Linh / công trình
+      // Tạo điểm nhãn định vị công trình
       cesiumViewerInstance.entities.add({
         name: 'Cầu Nguyễn Văn Linh & Hạ Tầng Giao Thông',
         position: bridgePosition,
@@ -427,12 +424,12 @@ function openCesiumGisMap() {
           outlineWidth: 2,
           pixelOffset: new Cesium.Cartesian2(0, -30)
         },
-        description: '<h3>Thông Tin Công Trình Cầu</h3><p>Loại kết cấu: Cầu bê tông cốt thép / Đường nhựa</p><p>Trạng thái: Đang hoạt động bình thường.</p>'
+        description: '<h3>Thông Tin Công Trình Cầu</h3><p>Loại kết cấu: Cầu bê tông cốt thép</p><p>Trạng thái: Hoạt động bình thường</p>'
       });
 
-      // --- PHẦN NẠP MÔ HÌNH 3D CẦU (glTF / 3D Tiles) ---
-      // Cậu có thể thay đường dẫn bên dưới bằng file .glb hoặc .gltf thực tế của cây cầu
-      const bridgeModelUrl = 'https://cesium.com/public/CesiumAir/CesiumAir.gltf'; // URL mẫu, thay bằng file của cậu
+      // --- NẠP MÔ HÌNH 3D CỦA CẦU ---
+      // (Cậu có thể thay URL bên dưới bằng đường dẫn file .glb/.gltf thực tế của cây cầu)
+      const bridgeModelUrl = 'https://cesium.com/public/CesiumAir/CesiumAir.gltf';
       
       const heading = Cesium.Math.toRadians(45.0);
       const pitch = Cesium.Math.toRadians(0.0);
@@ -447,15 +444,15 @@ function openCesiumGisMap() {
       }).then(function(model) {
         cesiumViewerInstance.scene.primitives.add(model);
       }).catch(function(err){
-        console.warn('Không thể nạp file mẫu 3D cầu, hãy thay bằng đường dẫn file .glb của cậu:', err);
+        console.warn('Lỗi nạp mô hình 3D:', err);
       });
 
-      // Bay camera góc nhìn trực quan tới vị trí cây cầu
+      // Lệnh điều hướng camera bay SÁT XUỐNG MẶT ĐẤT (Độ cao 300 mét) ngay khi mở bản đồ
       cesiumViewerInstance.camera.flyTo({
-        destination: Cesium.Cartesian3.fromDegrees(bridgeLng, bridgeLat, 600),
+        destination: Cesium.Cartesian3.fromDegrees(bridgeLng, bridgeLat, 300),
         orientation: {
           heading: Cesium.Math.toRadians(0.0),
-          pitch: Cesium.Math.toRadians(-35.0),
+          pitch: Cesium.Math.toRadians(-45.0),
           roll: 0.0
         }
       });
