@@ -5,7 +5,7 @@
 const DT_SUPABASE_URL = window.SUPABASE_URL || 'https://znzakqzdezxzqzfplmgv.supabase.co'; 
 const DT_SUPABASE_KEY = window.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpuemFrcXpkZXp4enF6ZnBsbWd2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc4MTQyNzAsImV4cCI6MjEwMzM5NDI3MH0.aV5YaOLxTySiB26ror4CRzJvQsjANNI1DwbtbxcNe4A';
 
-// 🔑 THAY THẾ CHUỖI TOKEN BÊN DƯỚI BẰNG ACCESS TOKEN TỪ CESIUM ION CỦA CẬU
+// 🔑 TOKEN CESIUM ION DỰ ÁN
 const CESIUM_ION_TOKEN = window.CESIUM_ION_TOKEN || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJub25jZSI6ImZLMTdQbWRPVkRpYTViUWYiLCJqdGkiOiJiY2FhNGU4Zi03YTA3LTQzMjYtOWNhZS04NzUxZDk4MDIzOTQiLCJpZCI6NTIxMzkwLCJpc3MiOiJodHRwczovL2FwaS5jZXNpdW0uY29tIiwiYXVkIjoidW5kZWZpbmVkX2RlZmF1bHQiLCJpYXQiOjE3OTE3OTA4NTF9.QisNEv7dqeOWD6duLTVxISgUHWWOp96tUWKEkd-CTys'; 
 
 const STATUS_COLORS = {
@@ -485,14 +485,22 @@ function createOrShowCesiumModal() {
   });
 }
 
-function syncBimModelToCesium(targetLng, targetLat, inputVal = '', heightOffset = 10) {
+/**
+ * 🟢 HÀM ĐỒNG BỘ MÔ HÌNH 3D TILES (SỬ DỤNG ASYNC/AWAIT CHUẨN CESIUMJS MỚI)
+ */
+async function syncBimModelToCesium(targetLng, targetLat, inputVal = '', heightOffset = 10) {
   if (!cesiumViewerInstance) return;
 
+  // 1. Xóa mô hình cũ
   if (currentCesiumTileset) {
     cesiumViewerInstance.scene.primitives.remove(currentCesiumTileset);
     currentCesiumTileset = null;
   }
 
+  inputVal = inputVal.trim();
+  if (!inputVal) return;
+
+  // 2. Tạo ma trận vị trí WGS84
   const position = Cesium.Cartesian3.fromDegrees(targetLng, targetLat, heightOffset);
   const heading = Cesium.Math.toRadians(0.0);
   const pitch = Cesium.Math.toRadians(0.0);
@@ -500,37 +508,34 @@ function syncBimModelToCesium(targetLng, targetLat, inputVal = '', heightOffset 
   const hpr = new Cesium.HeadingPitchRoll(heading, pitch, roll);
   const modelMatrix = Cesium.Transforms.headingPitchRollToFixedFrame(position, hpr);
 
-  inputVal = inputVal.trim();
-  if (!inputVal) return;
+  try {
+    let tileset;
+    if (!isNaN(inputVal)) {
+      // Tải từ Cesium ion Asset ID
+      tileset = await Cesium.Cesium3DTileset.fromIonAssetId(parseInt(inputVal));
+    } else {
+      // Tải từ URL
+      tileset = await Cesium.Cesium3DTileset.fromUrl(inputVal);
+    }
 
-  let promiseTileset;
-  if (!isNaN(inputVal)) {
-    promiseTileset = Cesium.Cesium3DTileset.fromIonAssetId(parseInt(inputVal));
-  } else {
-    promiseTileset = Cesium.Cesium3DTileset.fromUrl(inputVal);
-  }
-
-  promiseTileset.then(tileset => {
     currentCesiumTileset = tileset;
     tileset.modelMatrix = modelMatrix;
     cesiumViewerInstance.scene.primitives.add(tileset);
 
-    // 🚀 Tự động zoom camera vào sát mô hình khi tải thành công
-    tileset.readyPromise.then(() => {
+    // 🚀 Zoom camera sát vào mô hình
+    if (cesiumViewerInstance.zoomTo) {
       cesiumViewerInstance.zoomTo(tileset, new Cesium.HeadingPitchRange(
         Cesium.Math.toRadians(0.0),
         Cesium.Math.toRadians(-35.0),
-        250.0 // Khoảng cách quan sát
+        250.0
       ));
-    }).catch(() => {
-      cesiumViewerInstance.zoomTo(tileset);
-    });
+    }
 
     console.log("✅ Đã đưa mô hình 3D lên Cesium thành công!");
-  }).catch(err => {
+  } catch (err) {
     alert("⚠️ Không thể tải mô hình. Vui lòng kiểm tra lại Cesium ion Token hoặc Asset ID!");
     console.warn("Lỗi tải 3D Tiles:", err);
-  });
+  }
 }
 
 function updateCesiumPositionFromVN2000() {
