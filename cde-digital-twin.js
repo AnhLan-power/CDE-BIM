@@ -499,21 +499,17 @@ async function syncBimModelToCesium(targetLng, targetLat, inputVal = '', heightO
   inputVal = inputVal.trim();
   if (!inputVal) return;
 
-  // 1. Tạo vị trí WGS84 chuẩn theo VN-2000
+  // 1. Tạo vị trí tọa độ WGS84 chuẩn trên bản đồ
   const position = Cesium.Cartesian3.fromDegrees(targetLng, targetLat, heightOffset);
-  
-  const hpr = new Cesium.HeadingPitchRoll(
-    Cesium.Math.toRadians(0.0), 
-    Cesium.Math.toRadians(0.0), 
-    Cesium.Math.toRadians(0.0)
-  );
-  let modelMatrix = Cesium.Transforms.headingPitchRollToFixedFrame(position, hpr);
 
-  // 🔄 2. Bổ sung ma trận xoay phụ (Xoay 90 độ quanh trục X để lật mô hình nằm ngang mặt đất)
-  const rotationCorrection = Cesium.Matrix4.fromRotationTranslation(
-    Cesium.Matrix3.fromRotationX(Cesium.Math.toRadians(90)) // Có thể đổi thành từRotationY hoặc -90 tùy hướng mô hình gốc
-  );
-  modelMatrix = Cesium.Matrix4.multiply(modelMatrix, rotationCorrection, new Cesium.Matrix4());
+  // 🔄 2. CHỈNH GÓC XOAY ĐỂ LẬT MÔ HÌNH NẰM PHẲNG
+  // Do mô hình BIM gốc đang bị dựng đứng, ta dùng pitch = 90 độ (hoặc -90 độ) để lật ngang xuống mặt đất
+  const heading = Cesium.Math.toRadians(0.0);   // Xoay hướng Bắc-Nam-Đông-Tây
+  const pitch   = Cesium.Math.toRadians(90.0);   // Lật mặt mô hình (Thử thay đổi thành -90.0 nếu bị úp ngược)
+  const roll    = Cesium.Math.toRadians(0.0);    // Xoay nghiêng
+  
+  const hpr = new Cesium.HeadingPitchRoll(heading, pitch, roll);
+  let modelMatrix = Cesium.Transforms.headingPitchRollToFixedFrame(position, hpr);
 
   try {
     let tileset;
@@ -527,7 +523,7 @@ async function syncBimModelToCesium(targetLng, targetLat, inputVal = '', heightO
     tileset.modelMatrix = modelMatrix;
     cesiumViewerInstance.scene.primitives.add(tileset);
 
-    // 🚀 Tự động zoom sát vào mô hình
+    // 🚀 Tự động zoom sát vào vị trí mô hình
     if (cesiumViewerInstance.zoomTo) {
       cesiumViewerInstance.zoomTo(tileset, new Cesium.HeadingPitchRange(
         Cesium.Math.toRadians(0.0),
@@ -536,7 +532,7 @@ async function syncBimModelToCesium(targetLng, targetLat, inputVal = '', heightO
       ));
     }
 
-    console.log("✅ Đã đưa mô hình 3D lên Cesium thành công!");
+    console.log("✅ Đã đồng bộ và lật mô hình 3D thành công!");
   } catch (err) {
     alert("⚠️ Không thể tải mô hình. Vui lòng kiểm tra lại Cesium ion Token hoặc Asset ID!");
     console.warn("Lỗi tải 3D Tiles:", err);
