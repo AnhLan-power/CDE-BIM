@@ -465,7 +465,6 @@ function createOrShowCesiumModal() {
 
   loadCesiumScripts(() => {
     if (window.Cesium && CESIUM_ION_TOKEN) {
-      // 🔑 Khai báo Token cấp quyền truy cập dữ liệu Cesium ion
       Cesium.Ion.defaultAccessToken = CESIUM_ION_TOKEN;
     }
 
@@ -486,7 +485,7 @@ function createOrShowCesiumModal() {
   });
 }
 
-function syncBimModelToCesium(targetLng, targetLat, inputVal = '', heightOffset = 0) {
+function syncBimModelToCesium(targetLng, targetLat, inputVal = '', heightOffset = 10) {
   if (!cesiumViewerInstance) return;
 
   if (currentCesiumTileset) {
@@ -506,10 +505,8 @@ function syncBimModelToCesium(targetLng, targetLat, inputVal = '', heightOffset 
 
   let promiseTileset;
   if (!isNaN(inputVal)) {
-    // Tải thông qua Cesium ion Asset ID (Ví dụ: 6018479)
     promiseTileset = Cesium.Cesium3DTileset.fromIonAssetId(parseInt(inputVal));
   } else {
-    // Tải qua đường dẫn URL file tileset.json
     promiseTileset = Cesium.Cesium3DTileset.fromUrl(inputVal);
   }
 
@@ -517,19 +514,22 @@ function syncBimModelToCesium(targetLng, targetLat, inputVal = '', heightOffset 
     currentCesiumTileset = tileset;
     tileset.modelMatrix = modelMatrix;
     cesiumViewerInstance.scene.primitives.add(tileset);
+
+    // 🚀 Tự động zoom camera vào sát mô hình khi tải thành công
+    tileset.readyPromise.then(() => {
+      cesiumViewerInstance.zoomTo(tileset, new Cesium.HeadingPitchRange(
+        Cesium.Math.toRadians(0.0),
+        Cesium.Math.toRadians(-35.0),
+        250.0 // Khoảng cách quan sát
+      ));
+    }).catch(() => {
+      cesiumViewerInstance.zoomTo(tileset);
+    });
+
     console.log("✅ Đã đưa mô hình 3D lên Cesium thành công!");
   }).catch(err => {
     alert("⚠️ Không thể tải mô hình. Vui lòng kiểm tra lại Cesium ion Token hoặc Asset ID!");
     console.warn("Lỗi tải 3D Tiles:", err);
-  });
-
-  cesiumViewerInstance.camera.flyTo({
-    destination: Cesium.Cartesian3.fromDegrees(targetLng, targetLat, 600),
-    orientation: {
-      heading: Cesium.Math.toRadians(0.0),
-      pitch: Cesium.Math.toRadians(-45.0),
-      roll: 0.0
-    }
   });
 }
 
@@ -577,7 +577,7 @@ function updateCesiumPositionFromVN2000() {
     description: `<h3>Thông Tin Định Vị</h3><p><b>Kinh tuyến trục:</b> ${lon0}°</p><p><b>Tọa độ X:</b> ${xVal} m</p><p><b>Tọa độ Y:</b> ${yVal} m</p>`
   });
 
-  syncBimModelToCesium(targetLng, targetLat, modelUrl, 0);
+  syncBimModelToCesium(targetLng, targetLat, modelUrl, 10);
 }
 
 function openCesiumGisMap() {
