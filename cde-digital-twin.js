@@ -491,7 +491,6 @@ function createOrShowCesiumModal() {
 async function syncBimModelToCesium(targetLng, targetLat, inputVal = '', heightOffset = 10) {
   if (!cesiumViewerInstance) return;
 
-  // 1. Xóa mô hình cũ
   if (currentCesiumTileset) {
     cesiumViewerInstance.scene.primitives.remove(currentCesiumTileset);
     currentCesiumTileset = null;
@@ -500,21 +499,27 @@ async function syncBimModelToCesium(targetLng, targetLat, inputVal = '', heightO
   inputVal = inputVal.trim();
   if (!inputVal) return;
 
-  // 2. Tạo ma trận vị trí WGS84
+  // 1. Tạo vị trí WGS84 chuẩn theo VN-2000
   const position = Cesium.Cartesian3.fromDegrees(targetLng, targetLat, heightOffset);
-  const heading = Cesium.Math.toRadians(0.0);
-  const pitch = Cesium.Math.toRadians(0.0);
-  const roll = Cesium.Math.toRadians(0.0);
-  const hpr = new Cesium.HeadingPitchRoll(heading, pitch, roll);
-  const modelMatrix = Cesium.Transforms.headingPitchRollToFixedFrame(position, hpr);
+  
+  const hpr = new Cesium.HeadingPitchRoll(
+    Cesium.Math.toRadians(0.0), 
+    Cesium.Math.toRadians(0.0), 
+    Cesium.Math.toRadians(0.0)
+  );
+  let modelMatrix = Cesium.Transforms.headingPitchRollToFixedFrame(position, hpr);
+
+  // 🔄 2. Bổ sung ma trận xoay phụ (Xoay 90 độ quanh trục X để lật mô hình nằm ngang mặt đất)
+  const rotationCorrection = Cesium.Matrix4.fromRotationTranslation(
+    Cesium.Matrix3.fromRotationX(Cesium.Math.toRadians(90)) // Có thể đổi thành từRotationY hoặc -90 tùy hướng mô hình gốc
+  );
+  modelMatrix = Cesium.Matrix4.multiply(modelMatrix, rotationCorrection, new Cesium.Matrix4());
 
   try {
     let tileset;
     if (!isNaN(inputVal)) {
-      // Tải từ Cesium ion Asset ID
       tileset = await Cesium.Cesium3DTileset.fromIonAssetId(parseInt(inputVal));
     } else {
-      // Tải từ URL
       tileset = await Cesium.Cesium3DTileset.fromUrl(inputVal);
     }
 
@@ -522,7 +527,7 @@ async function syncBimModelToCesium(targetLng, targetLat, inputVal = '', heightO
     tileset.modelMatrix = modelMatrix;
     cesiumViewerInstance.scene.primitives.add(tileset);
 
-    // 🚀 Zoom camera sát vào mô hình
+    // 🚀 Tự động zoom sát vào mô hình
     if (cesiumViewerInstance.zoomTo) {
       cesiumViewerInstance.zoomTo(tileset, new Cesium.HeadingPitchRange(
         Cesium.Math.toRadians(0.0),
