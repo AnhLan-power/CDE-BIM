@@ -334,7 +334,7 @@ window.focusAndOpenAssetFromDashboard = function(expressId, globalId, assetName)
 };
 
 // =========================================================================
-// --- TÍCH HỢP BẢN ĐỒ GIS (CESIUMJS) ---
+// --- TÍCH HỢP BẢN ĐỒ GIS 3D (CESIUMJS - KHẮC PHỤC LỖI NỀN & NẠP MODEL CẦU) ---
 // =========================================================================
 
 function loadCesiumScripts(callback) {
@@ -375,7 +375,7 @@ function openCesiumGisMap() {
     modal.style.cssText = 'position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(0,0,0,0.8); z-index:999999; display:flex; flex-direction:column; font-family:sans-serif;';
     modal.innerHTML = `
       <div style="background:#121826; color:#00f2ff; padding:12px 20px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #3b4c66;">
-        <h3 style="margin:0; font-size:16px;">🌍 Bản Đồ GIS 3D (Tích Hợp Digital Twin & Cesium)</h3>
+        <h3 style="margin:0; font-size:16px;">🌍 Bản Đồ GIS 3D - Quản Lý Kết Cấu Cầu & Hạ Tầng</h3>
         <button type="button" onclick="closeCesiumGisMap()" style="background:#dc3545; color:#fff; border:none; padding:6px 12px; border-radius:4px; font-weight:bold; cursor:pointer;">✕ Đóng Bản Đồ</button>
       </div>
       <div id="cesiumContainer" style="flex:1; width:100%; height:100%;"></div>
@@ -387,42 +387,75 @@ function openCesiumGisMap() {
 
   loadCesiumScripts(() => {
     if (!cesiumViewerInstance) {
-      Cesium.Ion.defaultAccessToken = window.CESIUM_ION_TOKEN || ''; // Token mặc định hoặc dùng open source imagery
-      cesiumViewerInstance = new Cesium.Viewer('cesiumContainer', {
-        terrainProvider: Cesium.createWorldTerrain ? Cesium.createWorldTerrain() : undefined,
-        animation: false,
-        timeline: false,
-        geocoder: true
+      // Sử dụng OpenStreetMap làm nền bản đồ mặc định để không bị lỗi màn hình đen vũ trụ
+      const osmProvider = new Cesium.UrlTemplateImageryProvider({
+        url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+        credit: 'OpenStreetMap contributors'
       });
 
-      // Thêm Marker mẫu vị trí nhà máy / tài sản trên bản đồ GIS (Tọa độ giả định trung tâm Việt Nam / hoặc tùy chỉnh)
+      cesiumViewerInstance = new Cesium.Viewer('cesiumContainer', {
+        imageryProvider: osmProvider,
+        baseLayerPicker: false,
+        geocoder: true,
+        animation: false,
+        timeline: false
+      });
+
+      // Vị trí tọa độ dự án cầu (Ví dụ: khu vực TP.HCM hoặc vị trí thực tế của cầu)
+      const bridgeLng = 106.660172;
+      const bridgeLat = 10.762622;
+      const bridgeHeight = 0;
+
+      const bridgePosition = Cesium.Cartesian3.fromDegrees(bridgeLng, bridgeLat, bridgeHeight);
+      
+      // Tạo điểm đánh dấu (Marker) cho cầu Nguyễn Văn Linh / công trình
       cesiumViewerInstance.entities.add({
-        name: 'Nhà Máy & Trạm Xử Lý Số (Digital Twin)',
-        position: Cesium.Cartesian3.fromDegrees(106.660172, 10.762622, 50), // Ví dụ tọa độ TP.HCM
+        name: 'Cầu Nguyễn Văn Linh & Hạ Tầng Giao Thông',
+        position: bridgePosition,
         point: {
-          pixelSize: 14,
-          color: Cesium.Color.CYAN,
+          pixelSize: 16,
+          color: Cesium.Color.ORANGE,
           outlineColor: Cesium.Color.WHITE,
           outlineWidth: 2
         },
         label: {
-          text: 'Nhà Máy Xử Lý Nước Thải / Khí Thổi',
+          text: 'Cầu Nguyễn Văn Linh (Digital Twin)',
           font: '14pt sans-serif',
           style: Cesium.LabelStyle.FILL_AND_OUTLINE,
           fillColor: Cesium.Color.WHITE,
           outlineColor: Cesium.Color.BLACK,
           outlineWidth: 2,
-          pixelOffset: new Cesium.Cartesian2(0, -25)
+          pixelOffset: new Cesium.Cartesian2(0, -30)
         },
-        description: '<h3>Hệ thống Digital Twin MEP</h3><p>Trạng thái: Đang hoạt động bình thường.</p>'
+        description: '<h3>Thông Tin Công Trình Cầu</h3><p>Loại kết cấu: Cầu bê tông cốt thép / Đường nhựa</p><p>Trạng thái: Đang hoạt động bình thường.</p>'
       });
 
-      // Bay camera đến vị trí mẫu
+      // --- PHẦN NẠP MÔ HÌNH 3D CẦU (glTF / 3D Tiles) ---
+      // Cậu có thể thay đường dẫn bên dưới bằng file .glb hoặc .gltf thực tế của cây cầu
+      const bridgeModelUrl = 'https://cesium.com/public/CesiumAir/CesiumAir.gltf'; // URL mẫu, thay bằng file của cậu
+      
+      const heading = Cesium.Math.toRadians(45.0);
+      const pitch = Cesium.Math.toRadians(0.0);
+      const roll = Cesium.Math.toRadians(0.0);
+      const hpr = new Cesium.HeadingPitchRoll(heading, pitch, roll);
+      const transform = Cesium.Transforms.headingPitchRollToFixedFrame(bridgePosition, hpr);
+
+      Cesium.Model.fromGltfAsync({
+        url: bridgeModelUrl,
+        modelMatrix: transform,
+        scale: 2.0
+      }).then(function(model) {
+        cesiumViewerInstance.scene.primitives.add(model);
+      }).catch(function(err){
+        console.warn('Không thể nạp file mẫu 3D cầu, hãy thay bằng đường dẫn file .glb của cậu:', err);
+      });
+
+      // Bay camera góc nhìn trực quan tới vị trí cây cầu
       cesiumViewerInstance.camera.flyTo({
-        destination: Cesium.Cartesian3.fromDegrees(106.660172, 10.762622, 2500),
+        destination: Cesium.Cartesian3.fromDegrees(bridgeLng, bridgeLat, 600),
         orientation: {
           heading: Cesium.Math.toRadians(0.0),
-          pitch: Cesium.Math.toRadians(-45.0),
+          pitch: Cesium.Math.toRadians(-35.0),
           roll: 0.0
         }
       });
