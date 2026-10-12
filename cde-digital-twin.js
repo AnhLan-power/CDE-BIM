@@ -28,6 +28,7 @@ let currentPickMode = null;
 
 // --- CESIUM GIS VIEWER INSTANCE ---
 let cesiumViewerInstance = null;
+let currentCesiumTileset = null; // Biến lưu trữ mô hình BIM/3D Tiles trên Cesium
 
 function cleanId(val) {
   if (val === null || val === undefined) return '';
@@ -389,7 +390,7 @@ function createOrShowCesiumModal() {
     modal.style.cssText = 'position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(0,0,0,0.85); z-index:999999; display:flex; flex-direction:column; font-family:sans-serif;';
     modal.innerHTML = `
       <div style="background:#121826; color:#00f2ff; padding:12px 20px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #3b4c66;">
-        <h3 style="margin:0; font-size:15px;">🌍 Bản Đồ GIS 3D - Quy Đổi Tọa Độ VN-2000 & Kinh Tuyến Trục (34 Tỉnh)</h3>
+        <h3 style="margin:0; font-size:15px;">🌍 Bản Đồ GIS 3D - Quy Đổi Tọa Độ VN-2000 & Đồng Bộ Mô Hình BIM</h3>
         <button type="button" onclick="closeCesiumGisMap()" style="background:#dc3545; color:#fff; border:none; padding:6px 12px; border-radius:4px; font-weight:bold; cursor:pointer;">✕ Đóng Bản Đồ</button>
       </div>
 
@@ -406,7 +407,7 @@ function createOrShowCesiumModal() {
             <option value="103">Điện Biên (KTTrực: 103°00')</option>
             <option value="107.75">Đồng Nai (KTTrực: 107°45')</option>
             <option value="105">Đồng Tháp (KTTrực: 105°00')</option>
-            <option value="108.25">Gia Lai (KTTrực: 108°15')</option>
+            <option value="108.25" selected>Gia Lai (KTTrực: 108°15')</option>
             <option value="105.5">Hà Tĩnh (KTTrực: 105°30')</option>
             <option value="105.5">Hưng Yên (KTTrực: 105°30')</option>
             <option value="108.25">Khánh Hòa (KTTrực: 108°15')</option>
@@ -428,7 +429,7 @@ function createOrShowCesiumModal() {
             <option value="107.75">Thành phố Đà Nẵng (KTTrực: 107°45')</option>
             <option value="105">Thành phố Hà Nội (KTTrực: 105°00')</option>
             <option value="105.75">Thành phố Hải Phòng (KTTrực: 105°45')</option>
-            <option value="105.75" selected>Thành phố Hồ Chí Minh (KTTrực: 105°45')</option>
+            <option value="105.75">Thành phố Hồ Chí Minh (KTTrực: 105°45')</option>
             <option value="107">Thành phố Huế (KTTrực: 107°00')</option>
             <option value="106">Tuyên Quang (KTTrực: 106°00')</option>
             <option value="105.5">Vĩnh Long (KTTrực: 105°30')</option>
@@ -437,12 +438,12 @@ function createOrShowCesiumModal() {
 
         <div>
           <label style="font-weight:bold;">Tọa độ X (m):</label>
-          <input type="number" id="dt-vn2000-x" value="684123.45" style="width:95px; padding:4px; border-radius:4px; border:1px solid #3b4c66; background:#222c3d; color:#fff; text-align:center;" />
+          <input type="number" id="dt-vn2000-x" value="603067.56" style="width:95px; padding:4px; border-radius:4px; border:1px solid #3b4c66; background:#222c3d; color:#fff; text-align:center;" />
         </div>
 
         <div>
           <label style="font-weight:bold;">Tọa độ Y (m):</label>
-          <input type="number" id="dt-vn2000-y" value="1184567.89" style="width:95px; padding:4px; border-radius:4px; border:1px solid #3b4c66; background:#222c3d; color:#fff; text-align:center;" />
+          <input type="number" id="dt-vn2000-y" value="1528469.13" style="width:95px; padding:4px; border-radius:4px; border:1px solid #3b4c66; background:#222c3d; color:#fff; text-align:center;" />
         </div>
 
         <button type="button" onclick="updateCesiumPositionFromVN2000()" style="background:#00f2ff; color:#121826; border:none; padding:6px 14px; border-radius:4px; font-weight:bold; cursor:pointer;">
@@ -459,7 +460,6 @@ function createOrShowCesiumModal() {
 
   loadCesiumScripts(() => {
     if (!cesiumViewerInstance) {
-      // Sử dụng ảnh Vệ tinh ArcGIS mặc định
       const satelliteProvider = new Cesium.ArcGisMapServerImageryProvider({
         url: 'https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer'
       });
@@ -469,10 +469,58 @@ function createOrShowCesiumModal() {
         geocoder: true,
         animation: false,
         timeline: false,
-        baseLayerPicker: true // 🟢 Bật lại nút tùy chọn thay đổi các lớp bản đồ ở góc phải
+        baseLayerPicker: true
       });
     }
     updateCesiumPositionFromVN2000();
+  });
+}
+
+/**
+ * 🟢 HÀM TỰ ĐỘNG ĐỒNG BỘ VỊ TRÍ MÔ HÌNH LÊN KHUNG NHÌN CESIUM
+ * @param {number} targetLng - Kinh độ WGS84
+ * @param {number} targetLat - Vĩ độ WGS84
+ * @param {string} tilesetUrl - Đường dẫn tới file 3D Tiles (.json) hoặc mô hình của dự án
+ * @param {number} heightOffset - Độ cao so với mặt đất (mét)
+ */
+function syncBimModelToCesium(targetLng, targetLat, tilesetUrl = '', heightOffset = 0) {
+  if (!cesiumViewerInstance) return;
+
+  // 1. Xóa mô hình cũ đang hiển thị trên Cesium nếu có
+  if (currentCesiumTileset) {
+    cesiumViewerInstance.scene.primitives.remove(currentCesiumTileset);
+    currentCesiumTileset = null;
+  }
+
+  // 2. Tính toán tâm vị trí địa lý theo tọa độ quy đổi
+  const position = Cesium.Cartesian3.fromDegrees(targetLng, targetLat, heightOffset);
+  const heading = Cesium.Math.toRadians(0.0); // Góc xoay hướng Bắc
+  const pitch = Cesium.Math.toRadians(0.0);
+  const roll = Cesium.Math.toRadians(0.0);
+  const hpr = new Cesium.HeadingPitchRoll(heading, pitch, roll);
+  
+  // Tạo ma trận biến đổi không gian
+  const modelMatrix = Cesium.Transforms.headingPitchRollToFixedFrame(position, hpr);
+
+  // 3. Nếu có link 3D Tiles (.json của mô hình IFC đã export), tiến hành load lên Cesium
+  if (tilesetUrl) {
+    Cesium.Cesium3DTileset.fromUrl(tilesetUrl).then(tileset => {
+      currentCesiumTileset = tileset;
+      tileset.modelMatrix = modelMatrix;
+      cesiumViewerInstance.scene.primitives.add(tileset);
+    }).catch(err => {
+      console.warn("Không thể tải 3D Tiles từ URL, hiển thị marker định vị thay thế:", err);
+    });
+  }
+
+  // 4. Camera bay tập trung vào khu vực công trình
+  cesiumViewerInstance.camera.flyTo({
+    destination: Cesium.Cartesian3.fromDegrees(targetLng, targetLat, 800),
+    orientation: {
+      heading: Cesium.Math.toRadians(0.0),
+      pitch: Cesium.Math.toRadians(-50.0),
+      roll: 0.0
+    }
   });
 }
 
@@ -483,24 +531,24 @@ function updateCesiumPositionFromVN2000() {
   const xInput = document.getElementById('dt-vn2000-x');
   const yInput = document.getElementById('dt-vn2000-y');
 
-  const lon0 = parseFloat(selectEl ? selectEl.value : '105.75');
-  const xVal = parseFloat(xInput ? xInput.value : '684123.45');
-  const yVal = parseFloat(yInput ? yInput.value : '1184567.89');
+  const lon0 = parseFloat(selectEl ? selectEl.value : '108.25');
+  const xVal = parseFloat(xInput ? xInput.value : '603067.56');
+  const yVal = parseFloat(yInput ? yInput.value : '1528469.13');
 
-  // Khai báo phép chiếu VN-2000 động theo kinh tuyến trục được chọn
+  // Khai báo phép chiếu VN-2000 động theo kinh tuyến trục tỉnh thành được chọn
   proj4.defs("VN2000_CUSTOM", `+proj=tmerc +lat_0=0 +lon_0=${lon0} +k=0.9999 +x_0=500000 +y_0=0 +ellps=WGS84 +units=m +no_defs`);
 
-  // Chuyển đổi từ VN-2000 (X, Y) sang WGS84 (Kinh độ, Vĩ độ)
+  // Chuyển đổi từ tọa độ phẳng VN-2000 (X, Y) sang kinh độ vĩ độ WGS84
   let latLon = proj4("VN2000_CUSTOM", "EPSG:4326", [xVal, yVal]);
   let targetLng = latLon[0];
   let targetLat = latLon[1];
 
-  // Xóa entity cũ nếu có để cập nhật vị trí mới
+  // Xóa entity marker cũ
   cesiumViewerInstance.entities.removeAll();
 
   const targetPosition = Cesium.Cartesian3.fromDegrees(targetLng, targetLat, 0);
 
-  // Thêm Marker định vị công trình
+  // Thêm Marker ghim vị trí công trình
   cesiumViewerInstance.entities.add({
     name: 'Vị Trí Công Trình (VN-2000)',
     position: targetPosition,
@@ -519,18 +567,12 @@ function updateCesiumPositionFromVN2000() {
       outlineWidth: 2,
       pixelOffset: new Cesium.Cartesian2(0, -30)
     },
-    description: `<h3>Thông Tin Định Vị</h3><p><b>Kinh tuyến trục:</b> ${lon0}°</p><p><b>Tọa độ X:</b> ${xVal} m</p><p><b>Tọa độ Y:</b> ${yVal} m</p>`
+    description: `<h3>Thông Tin Định Vị</h3><p><b>Kinh tuyến trục:</b> ${lon0}°</p><p><b>Tọa độ X:</b> ${xVal} m</p><p><b>Tọa độ Y:</b> ${yVal} m</p><p><b>Kinh/Vĩ độ:</b> ${targetLng.toFixed(6)}, ${targetLat.toFixed(6)}</p>`
   });
 
-  // Camera bay sát xuống vị trí tọa độ vừa quy đổi
-  cesiumViewerInstance.camera.flyTo({
-    destination: Cesium.Cartesian3.fromDegrees(targetLng, targetLat, 400),
-    orientation: {
-      heading: Cesium.Math.toRadians(0.0),
-      pitch: Cesium.Math.toRadians(-45.0),
-      roll: 0.0
-    }
-  });
+  // 🚀 Gọi hàm tự động đồng bộ mô hình vào vị trí vừa định vị
+  // Cậu có thể truyền link file 3D Tiles (.json) vào tham số thứ 3 nếu có sẵn.
+  syncBimModelToCesium(targetLng, targetLat, '', 0);
 }
 
 function openCesiumGisMap() {
@@ -1709,3 +1751,4 @@ window.closeAssetPanel = closeAssetPanel;
 window.openCesiumGisMap = openCesiumGisMap;
 window.closeCesiumGisMap = closeCesiumGisMap;
 window.updateCesiumPositionFromVN2000 = updateCesiumPositionFromVN2000;
+window.syncBimModelToCesium = syncBimModelToCesium;
