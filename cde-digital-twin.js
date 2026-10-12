@@ -459,17 +459,17 @@ function createOrShowCesiumModal() {
 
   loadCesiumScripts(() => {
     if (!cesiumViewerInstance) {
-      // Cấu hình OpenStreetMap làm nền bản đồ miễn phí ổn định, tránh lỗi 404 ArcGIS
-      const osmImageryProvider = new Cesium.OpenStreetMapImageryProvider({
-        url: 'https://a.tile.openstreetmap.org/'
+      // Sử dụng ảnh Vệ tinh ArcGIS mặc định
+      const satelliteProvider = new Cesium.ArcGisMapServerImageryProvider({
+        url: 'https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer'
       });
 
       cesiumViewerInstance = new Cesium.Viewer('cesiumContainer', {
-        imageryProvider: osmImageryProvider,
-        geocoder: false,
+        imageryProvider: satelliteProvider,
+        geocoder: true,
         animation: false,
         timeline: false,
-        baseLayerPicker: false
+        baseLayerPicker: true // 🟢 Bật lại nút tùy chọn thay đổi các lớp bản đồ ở góc phải
       });
     }
     updateCesiumPositionFromVN2000();
