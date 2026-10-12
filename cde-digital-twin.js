@@ -2,99 +2,99 @@
 // --- MODULE QUẢN LÝ TÀI SẢN DIGITAL TWIN, SYSTEM TRACE & GIS (CESIUMJS) ---
 // =========================================================================
 
-const DT_SUPABASE_URL = window.SUPABASE_URL || 'https://znzakqzdezxzqzfplmgv.supabase.co';[cite: 14]
-const DT_SUPABASE_KEY = window.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInRefiI6InpuemFrcXpkZXp4enF6ZnBsbWd2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc4MTQyNzAsImV4cCI6ZB03Mzk0MjcwfQ.aV5YaOLxTySiB26ror4CRzJvQsjANNI1DwbtbxcNe4A';[cite: 14]
+const DT_SUPABASE_URL = window.SUPABASE_URL || 'https://znzakqzdezxzqzfplmgv.supabase.co'; 
+const DT_SUPABASE_KEY = window.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpuemFrcXpkZXp4enF6ZnBsbWd2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc4MTQyNzAsImV4cCI6MjEwMzM5NDI3MH0.aV5YaOLxTySiB26ror4CRzJvQsjANNI1DwbtbxcNe4A';
 
-const STATUS_COLORS = {[cite: 14]
-  OPERATIONAL: [0.1, 0.8, 0.3], // 🟢 Xanh lá[cite: 14]
-  MAINTENANCE: [1.0, 0.75, 0.0], // 🟡 Vàng[cite: 14]
-  FAULT:       [0.9, 0.1, 0.1]  // 🔴 Đỏ[cite: 14]
-};[cite: 14]
+const STATUS_COLORS = {
+  OPERATIONAL: [0.1, 0.8, 0.3], // 🟢 Xanh lá
+  MAINTENANCE: [1.0, 0.75, 0.0], // 🟡 Vàng
+  FAULT:       [0.9, 0.1, 0.1]  // 🔴 Đỏ
+};
 
-let isColorCodingActive = false;[cite: 14]
-let activeMarkerElements = [];  [cite: 14]
-let markerTickListener = null;  [cite: 14]
+let isColorCodingActive = false; 
+let activeMarkerElements = [];   
+let markerTickListener = null;   
 
 // --- SYSTEM TRACE MULTI-SELECTION VARIABLES ---
-let activeTraceCanvas = null;[cite: 14]
-let traceAnimFrameId = null;[cite: 14]
-let currentTraceGraph = null;[cite: 14]
-let isTraceActive = false;[cite: 14]
-let traceDashOffset = 0;[cite: 14]
+let activeTraceCanvas = null;
+let traceAnimFrameId = null;
+let currentTraceGraph = null; 
+let isTraceActive = false;
+let traceDashOffset = 0;
 
-let selectedSourceEntity = null;       [cite: 14]
-let selectedBranchEntities = [];       [cite: 14]
-let currentPickMode = null;             [cite: 14]
+let selectedSourceEntity = null;        
+let selectedBranchEntities = [];        
+let currentPickMode = null;              
 
 // --- CESIUM GIS VIEWER INSTANCE ---
-let cesiumViewerInstance = null;[cite: 14]
+let cesiumViewerInstance = null;
 
-function cleanId(val) {[cite: 14]
-  if (val === null || val === undefined) return '';[cite: 14]
-  const s = String(val).trim();[cite: 14]
-  if (s === 'null' || s === 'undefined' || s === '0') return '';[cite: 14]
-  return s;[cite: 14]
+function cleanId(val) {
+  if (val === null || val === undefined) return '';
+  const s = String(val).trim();
+  if (s === 'null' || s === 'undefined' || s === '0') return '';
+  return s;
 }
 
-function isValidAABB(aabb) {[cite: 14]
-  if (!aabb || (!Array.isArray(aabb) && !ArrayBuffer.isView(aabb)) || aabb.length !== 6) return false;[cite: 14]
-  if (!isFinite(aabb[0]) || !isFinite(aabb[1]) || !isFinite(aabb[2]) ||[cite: 14]
-      !isFinite(aabb[3]) || !isFinite(aabb[4]) || !isFinite(aabb[5])) return false;[cite: 14]
-  if (aabb[0] > aabb[3] || aabb[1] > aabb[4] || aabb[2] > aabb[5]) return false;[cite: 14]
-  return true;[cite: 14]
+function isValidAABB(aabb) {
+  if (!aabb || (!Array.isArray(aabb) && !ArrayBuffer.isView(aabb)) || aabb.length !== 6) return false;
+  if (!isFinite(aabb[0]) || !isFinite(aabb[1]) || !isFinite(aabb[2]) ||
+      !isFinite(aabb[3]) || !isFinite(aabb[4]) || !isFinite(aabb[5])) return false;
+  if (aabb[0] > aabb[3] || aabb[1] > aabb[4] || aabb[2] > aabb[5]) return false;
+  return true;
 }
 
-function getAABBCenter(aabb) {[cite: 14]
-  return [[cite: 14]
-    (aabb[0] + aabb[3]) / 2,[cite: 14]
-    (aabb[1] + aabb[4]) / 2,[cite: 14]
-    (aabb[2] + aabb[5]) / 2[cite: 14]
-  ];[cite: 14]
+function getAABBCenter(aabb) {
+  return [
+    (aabb[0] + aabb[3]) / 2,
+    (aabb[1] + aabb[4]) / 2,
+    (aabb[2] + aabb[5]) / 2
+  ];
 }
 
-function projectWorldToCanvas(viewer, worldPos) {[cite: 14]
-  if (!viewer || !viewer.scene) return null;[cite: 14]
-  const scene = viewer.scene;[cite: 14]
+function projectWorldToCanvas(viewer, worldPos) {
+  if (!viewer || !viewer.scene) return null;
+  const scene = viewer.scene;
 
-  if (scene.canvas && typeof scene.canvas.worldToCanvas === 'function') {[cite: 14]
-    const out = [0, 0];[cite: 14]
-    scene.canvas.worldToCanvas(worldPos, out);[cite: 14]
-    return out;[cite: 14]
+  if (scene.canvas && typeof scene.canvas.worldToCanvas === 'function') {
+    const out = [0, 0];
+    scene.canvas.worldToCanvas(worldPos, out);
+    return out;
   }
 
-  const camera = scene.camera;[cite: 14]
-  if (!camera || !camera.viewMatrix || !camera.projMatrix) return null;[cite: 14]
+  const camera = scene.camera;
+  if (!camera || !camera.viewMatrix || !camera.projMatrix) return null;
 
-  const canvasEl = scene.canvas.canvas;[cite: 14]
-  if (!canvasEl) return null;[cite: 14]
+  const canvasEl = scene.canvas.canvas;
+  if (!canvasEl) return null;
 
-  const viewMat = camera.viewMatrix;[cite: 14]
-  const projMat = camera.projMatrix;[cite: 14]
+  const viewMat = camera.viewMatrix;
+  const projMat = camera.projMatrix;
 
-  let vx = viewMat[0]*worldPos[0] + viewMat[4]*worldPos[1] + viewMat[8]*worldPos[2] + viewMat[12];[cite: 14]
-  let vy = viewMat[1]*worldPos[0] + viewMat[5]*worldPos[1] + viewMat[9]*worldPos[2] + viewMat[13];[cite: 14]
-  let vz = viewMat[2]*worldPos[0] + viewMat[6]*worldPos[1] + viewMat[10]*worldPos[2] + viewMat[14];[cite: 14]
+  let vx = viewMat[0]*worldPos[0] + viewMat[4]*worldPos[1] + viewMat[8]*worldPos[2] + viewMat[12];
+  let vy = viewMat[1]*worldPos[0] + viewMat[5]*worldPos[1] + viewMat[9]*worldPos[2] + viewMat[13];
+  let vz = viewMat[2]*worldPos[0] + viewMat[6]*worldPos[1] + viewMat[10]*worldPos[2] + viewMat[14];
 
-  let px = projMat[0]*vx + projMat[4]*vy + projMat[8]*vz + projMat[12];[cite: 14]
-  let py = projMat[1]*vx + projMat[5]*vy + projMat[9]*vz + projMat[13];[cite: 14]
-  let pw = projMat[3]*vx + projMat[7]*vy + projMat[11]*vz + projMat[15];[cite: 14]
+  let px = projMat[0]*vx + projMat[4]*vy + projMat[8]*vz + projMat[12];
+  let py = projMat[1]*vx + projMat[5]*vy + projMat[9]*vz + projMat[13];
+  let pw = projMat[3]*vx + projMat[7]*vy + projMat[11]*vz + projMat[15];
 
-  if (pw <= 0) return null;[cite: 14]
+  if (pw <= 0) return null;
 
-  let nx = px / pw;[cite: 14]
-  let ny = py / pw;[cite: 14]
+  let nx = px / pw;
+  let ny = py / pw;
 
-  const rect = canvasEl.getBoundingClientRect();[cite: 14]
-  let x = (nx + 1) * 0.5 * rect.width;[cite: 14]
-  let y = (1 - ny) * 0.5 * rect.height;[cite: 14]
+  const rect = canvasEl.getBoundingClientRect();
+  let x = (nx + 1) * 0.5 * rect.width;
+  let y = (1 - ny) * 0.5 * rect.height;
 
-  return [x, y];[cite: 14]
+  return [x, y];
 }
 
-function injectMarkerStyles() {[cite: 14]
-  if (document.getElementById('dt-marker-styles')) return;[cite: 14]
-  const style = document.createElement('style');[cite: 14]
-  style.id = 'dt-marker-styles';[cite: 14]
+function injectMarkerStyles() {
+  if (document.getElementById('dt-marker-styles')) return;
+  const style = document.createElement('style');
+  style.id = 'dt-marker-styles';
   style.innerHTML = `
     #dt-marker-overlay-container {
       position: fixed !important;
@@ -216,121 +216,121 @@ function injectMarkerStyles() {[cite: 14]
     #dt-sys-dropdown-menu label:hover {
       color: #00f2ff !important;
     }
-  `;[cite: 14]
-  document.head.appendChild(style);[cite: 14]
+  `;
+  document.head.appendChild(style);
 }
 
-function getDigitalTwinSupabaseClient() {[cite: 14]
-  if (window.sb && typeof window.sb.from === 'function') return window.sb;[cite: 14]
-  if (window.supabaseClient && typeof window.supabaseClient.from === 'function') return window.supabaseClient;[cite: 14]
-  if (window.supabase && typeof window.supabase.from === 'function') return window.supabase;[cite: 14]
-  if (window.supabase && typeof window.supabase.createClient === 'function') {[cite: 14]
-    if (!window._dtSupabaseInstance) {[cite: 14]
-      window._dtSupabaseInstance = window.supabase.createClient(DT_SUPABASE_URL, DT_SUPABASE_KEY);[cite: 14]
+function getDigitalTwinSupabaseClient() {
+  if (window.sb && typeof window.sb.from === 'function') return window.sb;
+  if (window.supabaseClient && typeof window.supabaseClient.from === 'function') return window.supabaseClient;
+  if (window.supabase && typeof window.supabase.from === 'function') return window.supabase;
+  if (window.supabase && typeof window.supabase.createClient === 'function') {
+    if (!window._dtSupabaseInstance) {
+      window._dtSupabaseInstance = window.supabase.createClient(DT_SUPABASE_URL, DT_SUPABASE_KEY);
     }
-    return window._dtSupabaseInstance;[cite: 14]
+    return window._dtSupabaseInstance;
   }
-  return null;[cite: 14]
+  return null;
 }
 
-function findEntityByAsset(viewer, asset) {[cite: 14]
-  if (!viewer || !viewer.scene || !viewer.scene.objects) return null;[cite: 14]
-  const objects = viewer.scene.objects;[cite: 14]
+function findEntityByAsset(viewer, asset) {
+  if (!viewer || !viewer.scene || !viewer.scene.objects) return null;
+  const objects = viewer.scene.objects;
   
-  let targetGId = cleanId(asset.global_id || asset.globalID || asset.globalId);[cite: 14]
-  let targetEId = cleanId(asset.express_id || asset.expressID || asset.expressId);[cite: 14]
+  let targetGId = cleanId(asset.global_id || asset.globalID || asset.globalId);
+  let targetEId = cleanId(asset.express_id || asset.expressID || asset.expressId);
 
-  if (!targetEId && asset.asset_name) {[cite: 14]
-    const text = (asset.asset_name || '') + ' ' + (asset.asset_code || '');[cite: 14]
-    const match = text.match(/[:#\s-](\d{4,})/);[cite: 14]
-    if (match) targetEId = match[1];[cite: 14]
+  if (!targetEId && asset.asset_name) {
+    const text = (asset.asset_name || '') + ' ' + (asset.asset_code || '');
+    const match = text.match(/[:#\s-](\d{4,})/);
+    if (match) targetEId = match[1];
   }
 
-  if (targetGId && objects[targetGId]) return objects[targetGId];[cite: 14]
-  if (targetEId && objects[targetEId]) return objects[targetEId];[cite: 14]
-  if (targetEId && objects['#' + targetEId]) return objects['#' + targetEId];[cite: 14]
-  if (targetEId && objects['0#' + targetEId]) return objects['0#' + targetEId];[cite: 14]
+  if (targetGId && objects[targetGId]) return objects[targetGId];
+  if (targetEId && objects[targetEId]) return objects[targetEId];
+  if (targetEId && objects['#' + targetEId]) return objects['#' + targetEId];
+  if (targetEId && objects['0#' + targetEId]) return objects['0#' + targetEId];
 
-  for (const id in objects) {[cite: 14]
-    const obj = objects[id];[cite: 14]
-    if (!obj) continue;[cite: 14]
+  for (const id in objects) {
+    const obj = objects[id];
+    if (!obj) continue;
     
-    const objId = String(obj.id || id || '');[cite: 14]
-    const objGId = String(obj.globalId || obj.originalSystemId || '');[cite: 14]
+    const objId = String(obj.id || id || '');
+    const objGId = String(obj.globalId || obj.originalSystemId || '');
 
-    if (targetGId) {[cite: 14]
-      if ([cite: 14]
-        objId === targetGId ||[cite: 14]
-        objGId === targetGId ||[cite: 14]
-        objId.endsWith('#' + targetGId) ||[cite: 14]
-        objId.endsWith(':' + targetGId) ||[cite: 14]
-        objId.includes(targetGId) ||[cite: 14]
-        objGId.includes(targetGId)[cite: 14]
+    if (targetGId) {
+      if (
+        objId === targetGId ||
+        objGId === targetGId ||
+        objId.endsWith('#' + targetGId) ||
+        objId.endsWith(':' + targetGId) ||
+        objId.includes(targetGId) ||
+        objGId.includes(targetGId)
       ) {
-        return obj;[cite: 14]
+        return obj;
       }
     }
 
-    if (targetEId) {[cite: 14]
-      const parts = objId.split(/[:#]/);[cite: 14]
-      if ([cite: 14]
-        parts.includes(targetEId) ||[cite: 14]
-        objId === targetEId ||[cite: 14]
-        objId.endsWith('#' + targetEId) ||[cite: 14]
-        objId.endsWith(':' + targetEId)[cite: 14]
+    if (targetEId) {
+      const parts = objId.split(/[:#]/);
+      if (
+        parts.includes(targetEId) ||
+        objId === targetEId ||
+        objId.endsWith('#' + targetEId) ||
+        objId.endsWith(':' + targetEId)
       ) {
-        return obj;[cite: 14]
+        return obj;
       }
     }
   }
 
-  const targetName = (asset.asset_name || asset.assetName || '').trim().toLowerCase();[cite: 14]
-  if (targetName) {[cite: 14]
-    for (const id in objects) {[cite: 14]
-      const obj = objects[id];[cite: 14]
-      if (!obj) continue;[cite: 14]
-      const name = String(obj.name || '').toLowerCase();[cite: 14]
-      if (name && (name === targetName || name.includes(targetName))) {[cite: 14]
-        return obj;[cite: 14]
+  const targetName = (asset.asset_name || asset.assetName || '').trim().toLowerCase();
+  if (targetName) {
+    for (const id in objects) {
+      const obj = objects[id];
+      if (!obj) continue;
+      const name = String(obj.name || '').toLowerCase();
+      if (name && (name === targetName || name.includes(targetName))) {
+        return obj;
       }
     }
   }
 
-  return null;[cite: 14]
+  return null;
 }
 
-function focusCameraOnEntity(globalId, expressId, assetName = '') {[cite: 14]
-  const viewer = window.xeokitViewer || window.viewer;[cite: 14]
-  if (!viewer || !viewer.scene) return;[cite: 14]
+function focusCameraOnEntity(globalId, expressId, assetName = '') {
+  const viewer = window.xeokitViewer || window.viewer;
+  if (!viewer || !viewer.scene) return;
 
-  const pseudoAsset = { global_id: globalId, express_id: expressId, asset_name: assetName };[cite: 14]
-  const entity = findEntityByAsset(viewer, pseudoAsset);[cite: 14]
-  if (!entity) return;[cite: 14]
+  const pseudoAsset = { global_id: globalId, express_id: expressId, asset_name: assetName };
+  const entity = findEntityByAsset(viewer, pseudoAsset);
+  if (!entity) return;
 
-  entity.visible = true; [cite: 14]
-  if (typeof entity.culled !== 'undefined') entity.culled = false;[cite: 14]
+  entity.visible = true; 
+  if (typeof entity.culled !== 'undefined') entity.culled = false;
 
-  window.selectedEntity = entity;[cite: 14]
-  entity.highlighted = true; [cite: 14]
-  setTimeout(() => { if (entity) entity.highlighted = false; }, 3500);[cite: 14]
+  window.selectedEntity = entity;
+  entity.highlighted = true; 
+  setTimeout(() => { if (entity) entity.highlighted = false; }, 3500);
 
-  const aabb = entity.aabb;[cite: 14]
-  if (!isValidAABB(aabb)) return;[cite: 14]
-  const center = getAABBCenter(aabb);[cite: 14]
+  const aabb = entity.aabb;
+  if (!isValidAABB(aabb)) return;
+  const center = getAABBCenter(aabb);
 
-  if (viewer.cameraControl) viewer.cameraControl.pivotPos = center;[cite: 14]
+  if (viewer.cameraControl) viewer.cameraControl.pivotPos = center;
 
-  if (viewer.cameraFlight && typeof viewer.cameraFlight.flyTo === 'function') {[cite: 14]
-    try {[cite: 14]
-      viewer.cameraFlight.flyTo({ aabb: aabb, fitFOV: 20, duration: 0.8 });[cite: 14]
-      return;[cite: 14]
-    } catch (e) {}[cite: 14]
+  if (viewer.cameraFlight && typeof viewer.cameraFlight.flyTo === 'function') {
+    try {
+      viewer.cameraFlight.flyTo({ aabb: aabb, fitFOV: 20, duration: 0.8 });
+      return;
+    } catch (e) {}
   }
 }
 
-window.focusAndOpenAssetFromDashboard = function(expressId, globalId, assetName) {[cite: 14]
-  closeDigitalTwinDashboard();[cite: 14]
-  setTimeout(() => { openDigitalTwinPanel(expressId, globalId, assetName); }, 120);[cite: 14]
+window.focusAndOpenAssetFromDashboard = function(expressId, globalId, assetName) {
+  closeDigitalTwinDashboard();
+  setTimeout(() => { openDigitalTwinPanel(expressId, globalId, assetName); }, 120);
 };
 
 // =========================================================================
@@ -529,24 +529,24 @@ function closeCesiumGisMap() {
 // --- SYSTEM TRACE & UI PANELS ---
 // =========================================================================
 
-function discoverAllPipeSystems() {[cite: 14]
-  const viewer = window.xeokitViewer || window.viewer;[cite: 14]
-  if (!viewer) return ['Tất cả hệ thống (All)'];[cite: 14]
+function discoverAllPipeSystems() {
+  const viewer = window.xeokitViewer || window.viewer;
+  if (!viewer) return ['Tất cả hệ thống (All)'];
 
-  const systems = new Set();[cite: 14]
-  systems.add('Tất cả hệ thống (All)');[cite: 14]
+  const systems = new Set();
+  systems.add('Tất cả hệ thống (All)');
 
-  if (viewer.metaScene && viewer.metaScene.metaObjects) {[cite: 14]
-    Object.values(viewer.metaScene.metaObjects).forEach(metaObj => {[cite: 14]
-      if (metaObj.propertySets) {[cite: 14]
-        const psets = Array.isArray(metaObj.propertySets) ? metaObj.propertySets : Object.values(metaObj.propertySets);[cite: 14]
-        psets.forEach(pset => {[cite: 14]
-          if (pset && pset.properties) {[cite: 14]
-            const props = Array.isArray(pset.properties) ? pset.properties : Object.values(pset.properties);[cite: 14]
-            props.forEach(p => {[cite: 14]
-              if (p && (p.name === 'Reference' || p.name === 'SystemName' || p.name === 'System Type') && p.value) {[cite: 14]
-                const val = String(p.value).trim();[cite: 14]
-                if (val) systems.add(val);[cite: 14]
+  if (viewer.metaScene && viewer.metaScene.metaObjects) {
+    Object.values(viewer.metaScene.metaObjects).forEach(metaObj => {
+      if (metaObj.propertySets) {
+        const psets = Array.isArray(metaObj.propertySets) ? metaObj.propertySets : Object.values(metaObj.propertySets);
+        psets.forEach(pset => {
+          if (pset && pset.properties) {
+            const props = Array.isArray(pset.properties) ? pset.properties : Object.values(pset.properties);
+            props.forEach(p => {
+              if (p && (p.name === 'Reference' || p.name === 'SystemName' || p.name === 'System Type') && p.value) {
+                const val = String(p.value).trim();
+                if (val) systems.add(val);
               }
             });
           }
@@ -555,66 +555,66 @@ function discoverAllPipeSystems() {[cite: 14]
     });
   }
 
-  if (viewer.scene && viewer.scene.objects) {[cite: 14]
-    Object.values(viewer.scene.objects).forEach(entity => {[cite: 14]
-      const name = String(entity.name || '');[cite: 14]
-      const pipeMatch = name.match(/(?:Pipe|Duct)\s*Types?[:\s]+([^#:\n]+)/i);[cite: 14]
-      if (pipeMatch && pipeMatch[1].trim()) {[cite: 14]
-        systems.add(pipeMatch[1].trim());[cite: 14]
-      } else if (name.includes('AP.') || name.includes('SUS304')) {[cite: 14]
-        systems.add('AP, SUS304');[cite: 14]
-      } else if (name.includes('HDPE')) {[cite: 14]
-        systems.add('AP, HDPE');[cite: 14]
-      } else if (name.includes('WP')) {[cite: 14]
-        systems.add('WP');[cite: 14]
+  if (viewer.scene && viewer.scene.objects) {
+    Object.values(viewer.scene.objects).forEach(entity => {
+      const name = String(entity.name || '');
+      const pipeMatch = name.match(/(?:Pipe|Duct)\s*Types?[:\s]+([^#:\n]+)/i);
+      if (pipeMatch && pipeMatch[1].trim()) {
+        systems.add(pipeMatch[1].trim());
+      } else if (name.includes('AP.') || name.includes('SUS304')) {
+        systems.add('AP, SUS304');
+      } else if (name.includes('HDPE')) {
+        systems.add('AP, HDPE');
+      } else if (name.includes('WP')) {
+        systems.add('WP');
       }
     });
   }
 
-  return Array.from(systems);[cite: 14]
+  return Array.from(systems);
 }
 
-function getSelectedSystemKeys() {[cite: 14]
-  const checkboxes = document.querySelectorAll('.dt-sys-checkbox');[cite: 14]
-  const selected = [];[cite: 14]
-  checkboxes.forEach(cb => {[cite: 14]
-    if (cb.checked) selected.push(cb.value);[cite: 14]
+function getSelectedSystemKeys() {
+  const checkboxes = document.querySelectorAll('.dt-sys-checkbox');
+  const selected = [];
+  checkboxes.forEach(cb => {
+    if (cb.checked) selected.push(cb.value);
   });
-  if (selected.length === 0 || selected.includes('Tất cả hệ thống (All)')) {[cite: 14]
-    return ['all'];[cite: 14]
+  if (selected.length === 0 || selected.includes('Tất cả hệ thống (All)')) {
+    return ['all'];
   }
-  return selected;[cite: 14]
+  return selected;
 }
 
-function getEntitiesInSelectedSystems() {[cite: 14]
-  const viewer = window.xeokitViewer || window.viewer;[cite: 14]
-  if (!viewer || !viewer.scene) return [];[cite: 14]
+function getEntitiesInSelectedSystems() {
+  const viewer = window.xeokitViewer || window.viewer;
+  if (!viewer || !viewer.scene) return [];
 
-  const selectedKeys = getSelectedSystemKeys();[cite: 14]
-  const matchedEntities = [];[cite: 14]
+  const selectedKeys = getSelectedSystemKeys();
+  const matchedEntities = [];
 
-  Object.values(viewer.scene.objects).forEach(entity => {[cite: 14]
-    if (!isValidAABB(entity.aabb)) return;[cite: 14]
+  Object.values(viewer.scene.objects).forEach(entity => {
+    if (!isValidAABB(entity.aabb)) return;
 
-    if (selectedKeys.includes('all')) {[cite: 14]
-      matchedEntities.push(entity);[cite: 14]
-      return;[cite: 14]
+    if (selectedKeys.includes('all')) {
+      matchedEntities.push(entity);
+      return;
     }
 
-    const name = String(entity.name || '').toLowerCase();[cite: 14]
-    const id = String(entity.id || '').toLowerCase();[cite: 14]
+    const name = String(entity.name || '').toLowerCase();
+    const id = String(entity.id || '').toLowerCase();
 
-    let metaRef = '';[cite: 14]
-    if (viewer.metaScene && viewer.metaScene.metaObjects) {[cite: 14]
-      const metaObj = viewer.metaScene.metaObjects[entity.id] || viewer.metaScene.metaObjects[entity.originalSystemId];[cite: 14]
-      if (metaObj && metaObj.propertySets) {[cite: 14]
-        const psets = Array.isArray(metaObj.propertySets) ? metaObj.propertySets : Object.values(metaObj.propertySets);[cite: 14]
-        psets.forEach(pset => {[cite: 14]
-          if (pset && pset.properties) {[cite: 14]
-            const props = Array.isArray(pset.properties) ? pset.properties : Object.values(pset.properties);[cite: 14]
-            props.forEach(p => {[cite: 14]
-              if (p && p.name === 'Reference' && p.value) {[cite: 14]
-                metaRef += ' ' + String(p.value).toLowerCase();[cite: 14]
+    let metaRef = '';
+    if (viewer.metaScene && viewer.metaScene.metaObjects) {
+      const metaObj = viewer.metaScene.metaObjects[entity.id] || viewer.metaScene.metaObjects[entity.originalSystemId];
+      if (metaObj && metaObj.propertySets) {
+        const psets = Array.isArray(metaObj.propertySets) ? metaObj.propertySets : Object.values(metaObj.propertySets);
+        psets.forEach(pset => {
+          if (pset && pset.properties) {
+            const props = Array.isArray(pset.properties) ? pset.properties : Object.values(pset.properties);
+            props.forEach(p => {
+              if (p && p.name === 'Reference' && p.value) {
+                metaRef += ' ' + String(p.value).toLowerCase();
               }
             });
           }
@@ -622,393 +622,393 @@ function getEntitiesInSelectedSystems() {[cite: 14]
       }
     }
 
-    const matchFound = selectedKeys.some(sysKey => {[cite: 14]
-      const k = sysKey.toLowerCase();[cite: 14]
-      return name.includes(k) || id.includes(k) || metaRef.includes(k);[cite: 14]
+    const matchFound = selectedKeys.some(sysKey => {
+      const k = sysKey.toLowerCase();
+      return name.includes(k) || id.includes(k) || metaRef.includes(k);
     });
 
-    if (matchFound) {[cite: 14]
-      matchedEntities.push(entity);[cite: 14]
+    if (matchFound) {
+      matchedEntities.push(entity);
     }
   });
 
-  if (matchedEntities.length === 0) {[cite: 14]
-    Object.values(viewer.scene.objects).forEach(entity => {[cite: 14]
-      if (isValidAABB(entity.aabb)) matchedEntities.push(entity);[cite: 14]
+  if (matchedEntities.length === 0) {
+    Object.values(viewer.scene.objects).forEach(entity => {
+      if (isValidAABB(entity.aabb)) matchedEntities.push(entity);
     });
   }
 
-  if (selectedSourceEntity && !matchedEntities.includes(selectedSourceEntity)) {[cite: 14]
-    matchedEntities.push(selectedSourceEntity);[cite: 14]
+  if (selectedSourceEntity && !matchedEntities.includes(selectedSourceEntity)) {
+    matchedEntities.push(selectedSourceEntity);
   }
-  selectedBranchEntities.forEach(bEnt => {[cite: 14]
-    if (!matchedEntities.includes(bEnt)) matchedEntities.push(bEnt);[cite: 14]
+  selectedBranchEntities.forEach(bEnt => {
+    if (!matchedEntities.includes(bEnt)) matchedEntities.push(bEnt);
   });
 
-  return matchedEntities;[cite: 14]
+  return matchedEntities;
 }
 
-function buildMultiBranchFlowGraph(sourceEntity, branchEntities, systemEntities) {[cite: 14]
-  if (!systemEntities || systemEntities.length === 0) return null;[cite: 14]
+function buildMultiBranchFlowGraph(sourceEntity, branchEntities, systemEntities) {
+  if (!systemEntities || systemEntities.length === 0) return null;
 
-  const nodes = systemEntities.map(entity => ({[cite: 14]
-    id: entity.id,[cite: 14]
-    entity: entity,[cite: 14]
-    center: getAABBCenter(entity.aabb)[cite: 14]
-  }));[cite: 14]
+  const nodes = systemEntities.map(entity => ({
+    id: entity.id,
+    entity: entity,
+    center: getAABBCenter(entity.aabb)
+  }));
 
-  let sourceNode = null;[cite: 14]
-  if (sourceEntity && isValidAABB(sourceEntity.aabb)) {[cite: 14]
-    const sCenter = getAABBCenter(sourceEntity.aabb);[cite: 14]
-    let minDist = Infinity;[cite: 14]
-    nodes.forEach(node => {[cite: 14]
-      const d = Math.sqrt(Math.pow(node.center[0] - sCenter[0], 2) + Math.pow(node.center[1] - sCenter[1], 2) + Math.pow(node.center[2] - sCenter[2], 2));[cite: 14]
-      if (d < minDist) { minDist = d; sourceNode = node; }[cite: 14]
+  let sourceNode = null;
+  if (sourceEntity && isValidAABB(sourceEntity.aabb)) {
+    const sCenter = getAABBCenter(sourceEntity.aabb);
+    let minDist = Infinity;
+    nodes.forEach(node => {
+      const d = Math.sqrt(Math.pow(node.center[0] - sCenter[0], 2) + Math.pow(node.center[1] - sCenter[1], 2) + Math.pow(node.center[2] - sCenter[2], 2));
+      if (d < minDist) { minDist = d; sourceNode = node; }
     });
   }
-  if (!sourceNode) sourceNode = nodes[0];[cite: 14]
+  if (!sourceNode) sourceNode = nodes[0];
 
-  const branchNodes = [];[cite: 14]
-  if (branchEntities && branchEntities.length > 0) {[cite: 14]
-    branchEntities.forEach(bEnt => {[cite: 14]
-      if (isValidAABB(bEnt.aabb)) {[cite: 14]
-        const bCenter = getAABBCenter(bEnt.aabb);[cite: 14]
-        let minDist = Infinity;[cite: 14]
-        let matched = null;[cite: 14]
-        nodes.forEach(node => {[cite: 14]
-          const d = Math.sqrt(Math.pow(node.center[0] - bCenter[0], 2) + Math.pow(node.center[1] - bCenter[1], 2) + Math.pow(node.center[2] - bCenter[2], 2));[cite: 14]
-          if (d < minDist) { minDist = d; matched = node; }[cite: 14]
+  const branchNodes = [];
+  if (branchEntities && branchEntities.length > 0) {
+    branchEntities.forEach(bEnt => {
+      if (isValidAABB(bEnt.aabb)) {
+        const bCenter = getAABBCenter(bEnt.aabb);
+        let minDist = Infinity;
+        let matched = null;
+        nodes.forEach(node => {
+          const d = Math.sqrt(Math.pow(node.center[0] - bCenter[0], 2) + Math.pow(node.center[1] - bCenter[1], 2) + Math.pow(node.center[2] - bCenter[2], 2));
+          if (d < minDist) { minDist = d; matched = node; }
         });
-        if (matched && !branchNodes.includes(matched) && matched !== sourceNode) {[cite: 14]
-          branchNodes.push(matched);[cite: 14]
+        if (matched && !branchNodes.includes(matched) && matched !== sourceNode) {
+          branchNodes.push(matched);
         }
       }
     });
   }
 
-  const MAX_CONNECT_DIST = 15.0;[cite: 14]
-  const edges = [];[cite: 14]
-  const edgeSet = new Set();[cite: 14]
+  const MAX_CONNECT_DIST = 15.0;
+  const edges = [];
+  const edgeSet = new Set();
 
-  function findPathBetween(startNode, targetNode) {[cite: 14]
-    const distMap = new Map();[cite: 14]
-    const prevMap = new Map();[cite: 14]
-    const unvisited = new Set(nodes);[cite: 14]
+  function findPathBetween(startNode, targetNode) {
+    const distMap = new Map();
+    const prevMap = new Map();
+    const unvisited = new Set(nodes);
 
-    nodes.forEach(n => distMap.set(n, Infinity));[cite: 14]
-    distMap.set(startNode, 0);[cite: 14]
+    nodes.forEach(n => distMap.set(n, Infinity));
+    distMap.set(startNode, 0);
 
-    while (unvisited.size > 0) {[cite: 14]
-      let current = null;[cite: 14]
-      let minD = Infinity;[cite: 14]
-      unvisited.forEach(n => {[cite: 14]
-        if (distMap.get(n) < minD) {[cite: 14]
-          minD = distMap.get(n);[cite: 14]
-          current = n;[cite: 14]
+    while (unvisited.size > 0) {
+      let current = null;
+      let minD = Infinity;
+      unvisited.forEach(n => {
+        if (distMap.get(n) < minD) {
+          minD = distMap.get(n);
+          current = n;
         }
       });
 
-      if (!current || current === targetNode || minD === Infinity) break;[cite: 14]
-      unvisited.delete(current);[cite: 14]
+      if (!current || current === targetNode || minD === Infinity) break;
+      unvisited.delete(current);
 
-      nodes.forEach(neighbor => {[cite: 14]
-        if (unvisited.has(neighbor)) {[cite: 14]
-          const d = Math.sqrt([cite: 14]
-            Math.pow(current.center[0] - neighbor.center[0], 2) +[cite: 14]
-            Math.pow(current.center[1] - neighbor.center[1], 2) +[cite: 14]
-            Math.pow(current.center[2] - neighbor.center[2], 2)[cite: 14]
-          );[cite: 14]
-          if (d <= MAX_CONNECT_DIST) {[cite: 14]
-            const alt = distMap.get(current) + d;[cite: 14]
-            if (alt < distMap.get(neighbor)) {[cite: 14]
-              distMap.set(neighbor, alt);[cite: 14]
-              prevMap.set(neighbor, current);[cite: 14]
+      nodes.forEach(neighbor => {
+        if (unvisited.has(neighbor)) {
+          const d = Math.sqrt(
+            Math.pow(current.center[0] - neighbor.center[0], 2) +
+            Math.pow(current.center[1] - neighbor.center[1], 2) +
+            Math.pow(current.center[2] - neighbor.center[2], 2)
+          );
+          if (d <= MAX_CONNECT_DIST) {
+            const alt = distMap.get(current) + d;
+            if (alt < distMap.get(neighbor)) {
+              distMap.set(neighbor, alt);
+              prevMap.set(neighbor, current);
             }
           }
         }
       });
     }
 
-    const pathEdges = [];[cite: 14]
-    let curr = targetNode;[cite: 14]
-    while (prevMap.has(curr)) {[cite: 14]
-      const p = prevMap.get(curr);[cite: 14]
-      pathEdges.unshift({ from: p, to: curr });[cite: 14]
-      curr = p;[cite: 14]
+    const pathEdges = [];
+    let curr = targetNode;
+    while (prevMap.has(curr)) {
+      const p = prevMap.get(curr);
+      pathEdges.unshift({ from: p, to: curr });
+      curr = p;
     }
-    return pathEdges;[cite: 14]
+    return pathEdges;
   }
 
-  const connectedSet = new Set([sourceNode]);[cite: 14]
+  const connectedSet = new Set([sourceNode]);
 
-  branchNodes.forEach(bNode => {[cite: 14]
-    let bestConnectFrom = sourceNode;[cite: 14]
-    let minDToTree = Infinity;[cite: 14]
+  branchNodes.forEach(bNode => {
+    let bestConnectFrom = sourceNode;
+    let minDToTree = Infinity;
 
-    connectedSet.forEach(cNode => {[cite: 14]
-      const d = Math.sqrt([cite: 14]
-        Math.pow(cNode.center[0] - bNode.center[0], 2) +[cite: 14]
-        Math.pow(cNode.center[1] - bNode.center[1], 2) +[cite: 14]
-        Math.pow(cNode.center[2] - bNode.center[2], 2)[cite: 14]
-      );[cite: 14]
-      if (d < minDToTree) {[cite: 14]
-        minDToTree = d;[cite: 14]
-        bestConnectFrom = cNode;[cite: 14]
+    connectedSet.forEach(cNode => {
+      const d = Math.sqrt(
+        Math.pow(cNode.center[0] - bNode.center[0], 2) +
+        Math.pow(cNode.center[1] - bNode.center[1], 2) +
+        Math.pow(cNode.center[2] - bNode.center[2], 2)
+      );
+      if (d < minDToTree) {
+        minDToTree = d;
+        bestConnectFrom = cNode;
       }
     });
 
-    const subEdges = findPathBetween(bestConnectFrom, bNode);[cite: 14]
-    subEdges.forEach(e => {[cite: 14]
-      const key = `${e.from.id}->${e.to.id}`;[cite: 14]
-      if (!edgeSet.has(key)) {[cite: 14]
-        edgeSet.add(key);[cite: 14]
-        edges.push(e);[cite: 14]
+    const subEdges = findPathBetween(bestConnectFrom, bNode);
+    subEdges.forEach(e => {
+      const key = `${e.from.id}->${e.to.id}`;
+      if (!edgeSet.has(key)) {
+        edgeSet.add(key);
+        edges.push(e);
       }
-      connectedSet.add(e.to);[cite: 14]
+      connectedSet.add(e.to);
     });
   });
 
-  return { source: sourceNode, branches: branchNodes, edges };[cite: 14]
+  return { source: sourceNode, branches: branchNodes, edges };
 }
 
-function openSystemTraceToolbar() {[cite: 14]
-  injectSystemTraceToolbar();[cite: 14]
-  bind3DPickListener();[cite: 14]
+function openSystemTraceToolbar() {
+  injectSystemTraceToolbar();
+  bind3DPickListener();
 }
 
-function executeSystemTraceSimulation() {[cite: 14]
-  const viewer = window.xeokitViewer || window.viewer;[cite: 14]
-  if (!viewer || !viewer.scene) return;[cite: 14]
+function executeSystemTraceSimulation() {
+  const viewer = window.xeokitViewer || window.viewer;
+  if (!viewer || !viewer.scene) return;
 
-  const matchedEntities = getEntitiesInSelectedSystems();[cite: 14]
+  const matchedEntities = getEntitiesInSelectedSystems();
 
-  Object.values(viewer.scene.objects).forEach(obj => {[cite: 14]
-    obj.opacity = 0.08;[cite: 14]
-    obj.colorized = false;[cite: 14]
+  Object.values(viewer.scene.objects).forEach(obj => {
+    obj.opacity = 0.08;
+    obj.colorized = false;
   });
 
-  matchedEntities.forEach(obj => {[cite: 14]
-    obj.opacity = 1.0;[cite: 14]
-    obj.colorize = [0.0, 0.9, 0.8]; [cite: 14]
-    obj.colorized = true;[cite: 14]
+  matchedEntities.forEach(obj => {
+    obj.opacity = 1.0;
+    obj.colorize = [0.0, 0.9, 0.8]; 
+    obj.colorized = true;
   });
 
-  if (selectedSourceEntity) {[cite: 14]
-    selectedSourceEntity.opacity = 1.0;[cite: 14]
-    selectedSourceEntity.colorize = [0.1, 0.8, 0.3];  [cite: 14]
-    selectedSourceEntity.colorized = true;[cite: 14]
+  if (selectedSourceEntity) {
+    selectedSourceEntity.opacity = 1.0;
+    selectedSourceEntity.colorize = [0.1, 0.8, 0.3]; 
+    selectedSourceEntity.colorized = true;
   }
 
-  selectedBranchEntities.forEach(bEnt => {[cite: 14]
-    bEnt.opacity = 1.0;[cite: 14]
-    bEnt.colorize = [1.0, 0.75, 0.0]; [cite: 14]
-    bEnt.colorized = true;[cite: 14]
+  selectedBranchEntities.forEach(bEnt => {
+    bEnt.opacity = 1.0;
+    bEnt.colorize = [1.0, 0.75, 0.0]; 
+    bEnt.colorized = true;
   });
 
-  currentTraceGraph = buildMultiBranchFlowGraph(selectedSourceEntity, selectedBranchEntities, matchedEntities);[cite: 14]
+  currentTraceGraph = buildMultiBranchFlowGraph(selectedSourceEntity, selectedBranchEntities, matchedEntities);
 
-  let canvas = document.getElementById('dt-trace-canvas');[cite: 14]
-  if (!canvas) {[cite: 14]
-    canvas = document.createElement('canvas');[cite: 14]
-    canvas.id = 'dt-trace-canvas';[cite: 14]
-    canvas.style.cssText = 'position:fixed !important; top:0 !important; left:0 !important; width:100vw !important; height:100vh !important; pointer-events:none !important; z-index:450 !important;';[cite: 14]
-    document.body.appendChild(canvas);[cite: 14]
+  let canvas = document.getElementById('dt-trace-canvas');
+  if (!canvas) {
+    canvas = document.createElement('canvas');
+    canvas.id = 'dt-trace-canvas';
+    canvas.style.cssText = 'position:fixed !important; top:0 !important; left:0 !important; width:100vw !important; height:100vh !important; pointer-events:none !important; z-index:450 !important;';
+    document.body.appendChild(canvas);
   }
-  activeTraceCanvas = canvas;[cite: 14]
+  activeTraceCanvas = canvas;
 
-  if (traceAnimFrameId) cancelAnimationFrame(traceAnimFrameId);[cite: 14]
-  isTraceActive = true;[cite: 14]
-  animateTraceLoop();[cite: 14]
+  if (traceAnimFrameId) cancelAnimationFrame(traceAnimFrameId);
+  isTraceActive = true;
+  animateTraceLoop();
   
-  viewer.scene._needUpdate = 1;[cite: 14]
-  if (typeof viewer.scene.render === 'function') viewer.scene.render();[cite: 14]
+  viewer.scene._needUpdate = 1;
+  if (typeof viewer.scene.render === 'function') viewer.scene.render();
 }
 
-function bind3DPickListener() {[cite: 14]
-  const viewer = window.xeokitViewer || window.viewer;[cite: 14]
-  if (!viewer || !viewer.scene || !viewer.scene.input) return;[cite: 14]
+function bind3DPickListener() {
+  const viewer = window.xeokitViewer || window.viewer;
+  if (!viewer || !viewer.scene || !viewer.scene.input) return;
 
-  if (!viewer.scene.input._dtMultiBranchBound) {[cite: 14]
-    viewer.scene.input._dtMultiBranchBound = true;[cite: 14]
-    viewer.scene.input.on("mouseclicked", (coords) => {[cite: 14]
-      if (!currentPickMode) return;[cite: 14]
-      const hit = viewer.scene.pick({ canvasPos: coords });[cite: 14]
-      if (hit && hit.entity) {[cite: 14]
-        if (currentPickMode === 'source') {[cite: 14]
-          selectedSourceEntity = hit.entity;[cite: 14]
-          hit.entity.colorize = [0.1, 0.8, 0.3];[cite: 14]
-          hit.entity.colorized = true;[cite: 14]
-          alert(`🟢 ĐÃ NHẬN NGUỒN: ${hit.entity.name || hit.entity.id}`);[cite: 14]
-          currentPickMode = null;[cite: 14]
-        } else if (currentPickMode === 'branch') {[cite: 14]
-          if (!selectedBranchEntities.includes(hit.entity)) {[cite: 14]
-            selectedBranchEntities.push(hit.entity);[cite: 14]
-            hit.entity.colorize = [1.0, 0.75, 0.0];[cite: 14]
-            hit.entity.colorized = true;[cite: 14]
-          }[cite: 14]
-          alert(`🎯 ĐÃ THÊM NHÁNH RẼ (${selectedBranchEntities.length}): ${hit.entity.name || hit.entity.id}`);[cite: 14]
+  if (!viewer.scene.input._dtMultiBranchBound) {
+    viewer.scene.input._dtMultiBranchBound = true;
+    viewer.scene.input.on("mouseclicked", (coords) => {
+      if (!currentPickMode) return;
+      const hit = viewer.scene.pick({ canvasPos: coords });
+      if (hit && hit.entity) {
+        if (currentPickMode === 'source') {
+          selectedSourceEntity = hit.entity;
+          hit.entity.colorize = [0.1, 0.8, 0.3];
+          hit.entity.colorized = true;
+          alert(`🟢 ĐÃ NHẬN NGUỒN: ${hit.entity.name || hit.entity.id}`);
+          currentPickMode = null;
+        } else if (currentPickMode === 'branch') {
+          if (!selectedBranchEntities.includes(hit.entity)) {
+            selectedBranchEntities.push(hit.entity);
+            hit.entity.colorize = [1.0, 0.75, 0.0];
+            hit.entity.colorized = true;
+          }
+          alert(`🎯 ĐÃ THÊM NHÁNH RẼ (${selectedBranchEntities.length}): ${hit.entity.name || hit.entity.id}`);
         }
-        updateToolbarStatusText();[cite: 14]
-        if (viewer.scene) {[cite: 14]
-          viewer.scene._needUpdate = 1;[cite: 14]
-          if (typeof viewer.scene.render === 'function') viewer.scene.render();[cite: 14]
+        updateToolbarStatusText();
+        if (viewer.scene) {
+          viewer.scene._needUpdate = 1;
+          if (typeof viewer.scene.render === 'function') viewer.scene.render();
         }
       }
     });
   }
 }
 
-function enablePickMode(mode) {[cite: 14]
-  currentPickMode = mode;[cite: 14]
-  if (mode === 'source') {[cite: 14]
-    alert('👉 Đang ở chế độ chọn NGUỒN: Hãy click chuột vào Máy thổi khí hoặc Bơm trên 3D!');[cite: 14]
-  } else if (mode === 'branch') {[cite: 14]
-    alert('👉 Đang ở chế độ chọn NHÁNH RẼ: Hãy click vào các đầu nhánh xả muốn tỏa ra từ dòng chính!');[cite: 14]
+function enablePickMode(mode) {
+  currentPickMode = mode;
+  if (mode === 'source') {
+    alert('👉 Đang ở chế độ chọn NGUỒN: Hãy click chuột vào Máy thổi khí hoặc Bơm trên 3D!');
+  } else if (mode === 'branch') {
+    alert('👉 Đang ở chế độ chọn NHÁNH RẼ: Hãy click vào các đầu nhánh xả muốn tỏa ra từ dòng chính!');
   }
 }
 
-function resetTraceSelections() {[cite: 14]
-  selectedSourceEntity = null;[cite: 14]
-  selectedBranchEntities = [];[cite: 14]
-  currentPickMode = null;[cite: 14]
-  stopTandemSystemTrace();[cite: 14]
-  openSystemTraceToolbar();[cite: 14]
+function resetTraceSelections() {
+  selectedSourceEntity = null;
+  selectedBranchEntities = [];
+  currentPickMode = null;
+  stopTandemSystemTrace();
+  openSystemTraceToolbar();
 }
 
-function updateToolbarStatusText() {[cite: 14]
-  const btn = document.getElementById('dt-sys-dropdown-btn');[cite: 14]
-  if (btn) {[cite: 14]
-    const checkedBoxes = document.querySelectorAll('.dt-sys-checkbox:checked');[cite: 14]
-    let text = 'Chọn hệ thống...';[cite: 14]
-    if (checkedBoxes.length > 0) {[cite: 14]
-      const names = Array.from(checkedBoxes).map(cb => cb.value);[cite: 14]
-      text = names.join(', ');[cite: 14]
-      if (text.length > 25) text = names.length + ' hệ thống đã chọn';[cite: 14]
+function updateToolbarStatusText() {
+  const btn = document.getElementById('dt-sys-dropdown-btn');
+  if (btn) {
+    const checkedBoxes = document.querySelectorAll('.dt-sys-checkbox:checked');
+    let text = 'Chọn hệ thống...';
+    if (checkedBoxes.length > 0) {
+      const names = Array.from(checkedBoxes).map(cb => cb.value);
+      text = names.join(', ');
+      if (text.length > 25) text = names.length + ' hệ thống đã chọn';
     }
-    const labelSpan = btn.querySelector('span');[cite: 14]
-    if (labelSpan) labelSpan.innerText = text;[cite: 14]
+    const labelSpan = btn.querySelector('span');
+    if (labelSpan) labelSpan.innerText = text;
   }
 }
 
-function animateTraceLoop() {[cite: 14]
-  if (!isTraceActive) return;[cite: 14]
-  renderTraceFlowLines();[cite: 14]
-  traceAnimFrameId = requestAnimationFrame(animateTraceLoop);[cite: 14]
+function animateTraceLoop() {
+  if (!isTraceActive) return;
+  renderTraceFlowLines();
+  traceAnimFrameId = requestAnimationFrame(animateTraceLoop);
 }
 
-function renderTraceFlowLines() {[cite: 14]
-  if (!isTraceActive || !currentTraceGraph || !activeTraceCanvas) return;[cite: 14]
+function renderTraceFlowLines() {
+  if (!isTraceActive || !currentTraceGraph || !activeTraceCanvas) return;
 
-  const viewer = window.xeokitViewer || window.viewer;[cite: 14]
-  if (!viewer || !viewer.scene) return;[cite: 14]
+  const viewer = window.xeokitViewer || window.viewer;
+  if (!viewer || !viewer.scene) return;
 
-  const canvas = activeTraceCanvas;[cite: 14]
-  const ctx = canvas.getContext('2d');[cite: 14]
+  const canvas = activeTraceCanvas;
+  const ctx = canvas.getContext('2d');
   
-  canvas.width = window.innerWidth;[cite: 14]
-  canvas.height = window.innerHeight;[cite: 14]
-  ctx.clearRect(0, 0, canvas.width, canvas.height);[cite: 14]
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  traceDashOffset -= 0.8;[cite: 14]
+  traceDashOffset -= 0.8;
 
-  ctx.lineWidth = 4;[cite: 14]
-  ctx.strokeStyle = '#00f2ff';[cite: 14]
-  ctx.setLineDash([10, 8]);[cite: 14]
-  ctx.lineDashOffset = traceDashOffset;[cite: 14]
-  ctx.shadowColor = '#00f2ff';[cite: 14]
-  ctx.shadowBlur = 10;[cite: 14]
+  ctx.lineWidth = 4;
+  ctx.strokeStyle = '#00f2ff';
+  ctx.setLineDash([10, 8]);
+  ctx.lineDashOffset = traceDashOffset;
+  ctx.shadowColor = '#00f2ff';
+  ctx.shadowBlur = 10;
 
-  if (currentTraceGraph.edges) {[cite: 14]
-    currentTraceGraph.edges.forEach(edge => {[cite: 14]
-      const p1 = projectWorldToCanvas(viewer, edge.from.center);[cite: 14]
-      const p2 = projectWorldToCanvas(viewer, edge.to.center);[cite: 14]
+  if (currentTraceGraph.edges) {
+    currentTraceGraph.edges.forEach(edge => {
+      const p1 = projectWorldToCanvas(viewer, edge.from.center);
+      const p2 = projectWorldToCanvas(viewer, edge.to.center);
 
-      if (p1 && p2) {[cite: 14]
-        ctx.beginPath();[cite: 14]
-        ctx.moveTo(p1[0], p1[1]);[cite: 14]
-        ctx.lineTo(p2[0], p2[1]);[cite: 14]
-        ctx.stroke();[cite: 14]
+      if (p1 && p2) {
+        ctx.beginPath();
+        ctx.moveTo(p1[0], p1[1]);
+        ctx.lineTo(p2[0], p2[1]);
+        ctx.stroke();
       }
     });
   }
 
-  if (currentTraceGraph.source) {[cite: 14]
-    const sp = projectWorldToCanvas(viewer, currentTraceGraph.source.center);[cite: 14]
-    if (sp) {[cite: 14]
-      ctx.fillStyle = '#28a745';[cite: 14]
-      ctx.beginPath();[cite: 14]
-      ctx.arc(sp[0], sp[1], 8, 0, Math.PI * 2);[cite: 14]
-      ctx.fill();[cite: 14]
-      ctx.strokeStyle = '#ffffff';[cite: 14]
-      ctx.lineWidth = 2;[cite: 14]
-      ctx.stroke();[cite: 14]
+  if (currentTraceGraph.source) {
+    const sp = projectWorldToCanvas(viewer, currentTraceGraph.source.center);
+    if (sp) {
+      ctx.fillStyle = '#28a745';
+      ctx.beginPath();
+      ctx.arc(sp[0], sp[1], 8, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 2;
+      ctx.stroke();
     }
   }
 
-  if (currentTraceGraph.branches && currentTraceGraph.branches.length > 0) {[cite: 14]
-    currentTraceGraph.branches.forEach(bNode => {[cite: 14]
-      const bp = projectWorldToCanvas(viewer, bNode.center);[cite: 14]
-      if (bp) {[cite: 14]
-        ctx.fillStyle = '#f39c12';[cite: 14]
-        ctx.beginPath();[cite: 14]
-        ctx.arc(bp[0], bp[1], 7, 0, Math.PI * 2);[cite: 14]
-        ctx.fill();[cite: 14]
-        ctx.strokeStyle = '#ffffff';[cite: 14]
-        ctx.lineWidth = 2;[cite: 14]
-        ctx.stroke();[cite: 14]
+  if (currentTraceGraph.branches && currentTraceGraph.branches.length > 0) {
+    currentTraceGraph.branches.forEach(bNode => {
+      const bp = projectWorldToCanvas(viewer, bNode.center);
+      if (bp) {
+        ctx.fillStyle = '#f39c12';
+        ctx.beginPath();
+        ctx.arc(bp[0], bp[1], 7, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 2;
+        ctx.stroke();
       }
     });
   }
 }
 
-function stopTandemSystemTrace() {[cite: 14]
-  isTraceActive = false;[cite: 14]
-  currentPickMode = null;[cite: 14]
+function stopTandemSystemTrace() {
+  isTraceActive = false;
+  currentPickMode = null;
 
-  if (traceAnimFrameId) {[cite: 14]
-    cancelAnimationFrame(traceAnimFrameId);[cite: 14]
-    traceAnimFrameId = null;[cite: 14]
+  if (traceAnimFrameId) {
+    cancelAnimationFrame(traceAnimFrameId);
+    traceAnimFrameId = null;
   }
 
-  if (activeTraceCanvas && activeTraceCanvas.parentElement) {[cite: 14]
-    activeTraceCanvas.parentElement.removeChild(activeTraceCanvas);[cite: 14]
-    activeTraceCanvas = null;[cite: 14]
+  if (activeTraceCanvas && activeTraceCanvas.parentElement) {
+    activeTraceCanvas.parentElement.removeChild(activeTraceCanvas);
+    activeTraceCanvas = null;
   }
 
-  const toolbar = document.getElementById('dt-trace-toolbar');[cite: 14]
-  if (toolbar) toolbar.parentElement.removeChild(toolbar);[cite: 14]
+  const toolbar = document.getElementById('dt-trace-toolbar');
+  if (toolbar) toolbar.parentElement.removeChild(toolbar);
 
-  const viewer = window.xeokitViewer || window.viewer;[cite: 14]
-  if (viewer && viewer.scene) {[cite: 14]
-    Object.values(viewer.scene.objects).forEach(obj => {[cite: 14]
-      obj.opacity = 1.0;[cite: 14]
-      obj.colorize = null;[cite: 14]
-      obj.colorized = false;[cite: 14]
+  const viewer = window.xeokitViewer || window.viewer;
+  if (viewer && viewer.scene) {
+    Object.values(viewer.scene.objects).forEach(obj => {
+      obj.opacity = 1.0;
+      obj.colorize = null;
+      obj.colorized = false;
     });
-    viewer.scene._needUpdate = 1;[cite: 14]
-    if (typeof viewer.scene.render === 'function') viewer.scene.render();[cite: 14]
+    viewer.scene._needUpdate = 1;
+    if (typeof viewer.scene.render === 'function') viewer.scene.render();
   }
 }
 
-function injectSystemTraceToolbar() {[cite: 14]
-  injectMarkerStyles();[cite: 14]
-  let toolbar = document.getElementById('dt-trace-toolbar');[cite: 14]
-  if (!toolbar) {[cite: 14]
-    toolbar = document.createElement('div');[cite: 14]
-    toolbar.id = 'dt-trace-toolbar';[cite: 14]
-    document.body.appendChild(toolbar);[cite: 14]
+function injectSystemTraceToolbar() {
+  injectMarkerStyles();
+  let toolbar = document.getElementById('dt-trace-toolbar');
+  if (!toolbar) {
+    toolbar = document.createElement('div');
+    toolbar.id = 'dt-trace-toolbar';
+    document.body.appendChild(toolbar);
   }
 
-  const detectedSystems = discoverAllPipeSystems();[cite: 14]
-  let checkboxesHtml = '';[cite: 14]
-  detectedSystems.forEach((sys, idx) => {[cite: 14]
-    const checked = (idx === 0) ? 'checked' : '';[cite: 14]
+  const detectedSystems = discoverAllPipeSystems();
+  let checkboxesHtml = '';
+  detectedSystems.forEach((sys, idx) => {
+    const checked = (idx === 0) ? 'checked' : '';
     checkboxesHtml += `
       <label>
         <input type="checkbox" class="dt-sys-checkbox" value="${sys}" ${checked} onchange="updateToolbarStatusText()" />
         ${sys}
       </label>
-    `;[cite: 14]
+    `;
   });
 
   toolbar.innerHTML = `
@@ -1026,37 +1026,37 @@ function injectSystemTraceToolbar() {[cite: 14]
     <button style="background:#0d6efd; color:#fff; font-size:12px;" onclick="executeSystemTraceSimulation()">▶ Chạy Mô Phỏng</button>
     <button style="background:#6c757d; color:#fff;" onclick="resetTraceSelections()">🔄 Xóa Chọn</button>
     <button style="background:#dc3545; color:#fff;" onclick="stopTandemSystemTrace()">✕ Đóng</button>
-  `;[cite: 14]
+  `;
 
-  setTimeout(updateToolbarStatusText, 50);[cite: 14]
+  setTimeout(updateToolbarStatusText, 50);
 }
 
-function toggleSysDropdown() {[cite: 14]
-  const menu = document.getElementById('dt-sys-dropdown-menu');[cite: 14]
-  if (menu) {[cite: 14]
-    menu.style.display = (menu.style.display === 'block') ? 'none' : 'block';[cite: 14]
+function toggleSysDropdown() {
+  const menu = document.getElementById('dt-sys-dropdown-menu');
+  if (menu) {
+    menu.style.display = (menu.style.display === 'block') ? 'none' : 'block';
   }
 }
 
-window.addEventListener('click', function(e) {[cite: 14]
-  const container = document.getElementById('dt-sys-dropdown-container');[cite: 14]
-  const menu = document.getElementById('dt-sys-dropdown-menu');[cite: 14]
-  if (container && menu && !container.contains(e.target)) {[cite: 14]
-    menu.style.display = 'none';[cite: 14]
+window.addEventListener('click', function(e) {
+  const container = document.getElementById('dt-sys-dropdown-container');
+  const menu = document.getElementById('dt-sys-dropdown-menu');
+  if (container && menu && !container.contains(e.target)) {
+    menu.style.display = 'none';
   }
 });
 
-function startTandemSystemTrace() {[cite: 14]
-  openSystemTraceToolbar();[cite: 14]
+function startTandemSystemTrace() {
+  openSystemTraceToolbar();
 }
 
 // =========================================================================
 // --- UI PANELS ---
 // =========================================================================
 
-function injectDigitalTwinPanel() {[cite: 14]
-  injectMarkerStyles();[cite: 14]
-  if (document.getElementById('dt-asset-panel')) return;[cite: 14]
+function injectDigitalTwinPanel() {
+  injectMarkerStyles();
+  if (document.getElementById('dt-asset-panel')) return;
 
   const panelHtml = `
     <div id="dt-asset-panel" style="display:none; position:fixed; left:20px; top:80px; width:390px; max-height:88vh; overflow-y:auto; background:#fff; border-radius:10px; box-shadow: 0 4px 20px rgba(0,0,0,0.2); z-index:9999; padding:20px; font-family:sans-serif; user-select:none;">
@@ -1172,176 +1172,176 @@ function injectDigitalTwinPanel() {[cite: 14]
         <button type="button" onclick="saveAssetToDatabase()" style="width:100%; padding:10px; background:#1a73e8; color:#fff; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">💾 Lưu Hồ Sơ Thiết Bị</button>
       </form>
     </div>
-  `;[cite: 14]
-  document.body.insertAdjacentHTML('beforeend', panelHtml);[cite: 14]
-  makePanelDraggable();[cite: 14]
+  `;
+  document.body.insertAdjacentHTML('beforeend', panelHtml);
+  makePanelDraggable();
 }
 
-function makePanelDraggable() {[cite: 14]
-  const panel = document.getElementById('dt-asset-panel');[cite: 14]
-  const header = document.getElementById('dt-panel-header');[cite: 14]
-  if (!panel || !header || panel.dataset.draggable === 'true') return;[cite: 14]
-  panel.dataset.draggable = 'true';[cite: 14]
+function makePanelDraggable() {
+  const panel = document.getElementById('dt-asset-panel');
+  const header = document.getElementById('dt-panel-header');
+  if (!panel || !header || panel.dataset.draggable === 'true') return;
+  panel.dataset.draggable = 'true';
 
-  let posX = 0, posY = 0, mouseX = 0, mouseY = 0;[cite: 14]
-  header.onmousedown = (e) => {[cite: 14]
-    e.preventDefault();[cite: 14]
-    mouseX = e.clientX; mouseY = e.clientY;[cite: 14]
-    document.onmouseup = () => { document.onmouseup = null; document.onmousemove = null; };[cite: 14]
-    document.onmousemove = (ev) => {[cite: 14]
-      ev.preventDefault();[cite: 14]
-      posX = mouseX - ev.clientX; posY = mouseY - ev.clientY;[cite: 14]
-      mouseX = ev.clientX; mouseY = ev.clientY;[cite: 14]
-      panel.style.top = (panel.offsetTop - posY) + 'px';[cite: 14]
-      panel.style.left = (panel.offsetLeft - posX) + 'px';[cite: 14]
-    };[cite: 14]
-  };[cite: 14]
+  let posX = 0, posY = 0, mouseX = 0, mouseY = 0;
+  header.onmousedown = (e) => {
+    e.preventDefault();
+    mouseX = e.clientX; mouseY = e.clientY;
+    document.onmouseup = () => { document.onmouseup = null; document.onmousemove = null; };
+    document.onmousemove = (ev) => {
+      ev.preventDefault();
+      posX = mouseX - ev.clientX; posY = mouseY - ev.clientY;
+      mouseX = ev.clientX; mouseY = ev.clientY;
+      panel.style.top = (panel.offsetTop - posY) + 'px';
+      panel.style.left = (panel.offsetLeft - posX) + 'px';
+    };
+  };
 }
 
-function toggleDigitalTwinPanelFromMenu() {[cite: 14]
-  injectDigitalTwinPanel();[cite: 14]
-  const panel = document.getElementById('dt-asset-panel');[cite: 14]
-  if (panel.style.display === 'none' || panel.style.display === '') {[cite: 14]
-    const entity = window.selectedEntity;[cite: 14]
-    const metaObject = window.selectedMetaObject;[cite: 14]
-    let expressID = entity ? entity.id : '';[cite: 14]
-    let globalID = '';[cite: 14]
-    let assetName = (metaObject && metaObject.name) ? metaObject.name : '';[cite: 14]
+function toggleDigitalTwinPanelFromMenu() {
+  injectDigitalTwinPanel();
+  const panel = document.getElementById('dt-asset-panel');
+  if (panel.style.display === 'none' || panel.style.display === '') {
+    const entity = window.selectedEntity;
+    const metaObject = window.selectedMetaObject;
+    let expressID = entity ? entity.id : '';
+    let globalID = '';
+    let assetName = (metaObject && metaObject.name) ? metaObject.name : '';
 
-    if (metaObject) {[cite: 14]
-      if (metaObject.originalSystemId) globalID = metaObject.originalSystemId;[cite: 14]
-      else if (metaObject.globalId) globalID = metaObject.globalId;[cite: 14]
-      else if (metaObject.id && String(metaObject.id).includes('-')) globalID = metaObject.id;[cite: 14]
+    if (metaObject) {
+      if (metaObject.originalSystemId) globalID = metaObject.originalSystemId;
+      else if (metaObject.globalId) globalID = metaObject.globalId;
+      else if (metaObject.id && String(metaObject.id).includes('-')) globalID = metaObject.id;
     }
-    if (!globalID && entity && entity.globalId) globalID = entity.globalId;[cite: 14]
+    if (!globalID && entity && entity.globalId) globalID = entity.globalId;
 
-    openDigitalTwinPanel(expressID, globalID, assetName);[cite: 14]
+    openDigitalTwinPanel(expressID, globalID, assetName);
   } else {
-    panel.style.display = 'none';[cite: 14]
+    panel.style.display = 'none';
   }
 }
 
-async function openDigitalTwinPanel(expressID, globalID, assetName = '') {[cite: 14]
-  injectDigitalTwinPanel();[cite: 14]
-  const panel = document.getElementById('dt-asset-panel');[cite: 14]
-  panel.style.display = 'block';[cite: 14]
+async function openDigitalTwinPanel(expressID, globalID, assetName = '') {
+  injectDigitalTwinPanel();
+  const panel = document.getElementById('dt-asset-panel');
+  panel.style.display = 'block';
 
-  document.getElementById('dt-asset-form').reset();[cite: 14]
-  document.getElementById('dt_doc_list').innerHTML = '';[cite: 14]
+  document.getElementById('dt-asset-form').reset();
+  document.getElementById('dt_doc_list').innerHTML = '';
   
-  if (document.getElementById('dt_new_log_date')) {[cite: 14]
-    document.getElementById('dt_new_log_date').value = new Date().toISOString().split('T')[0];[cite: 14]
+  if (document.getElementById('dt_new_log_date')) {
+    document.getElementById('dt_new_log_date').value = new Date().toISOString().split('T')[0];
   }
 
-  let finalExpressID = cleanId(expressID);[cite: 14]
-  let finalGlobalID = cleanId(globalID);[cite: 14]
+  let finalExpressID = cleanId(expressID);
+  let finalGlobalID = cleanId(globalID);
 
-  function getIfcGlobalIdFromDOM() {[cite: 14]
-    const elements = Array.from(document.querySelectorAll('tr, div, td, span'));[cite: 14]
-    for (const el of elements) {[cite: 14]
-      if (el.innerText && el.innerText.trim() === 'ID Cấu Kiện') {[cite: 14]
-        const parentRow = el.closest('tr') || el.parentElement;[cite: 14]
-        if (parentRow) {[cite: 14]
-          const cells = parentRow.querySelectorAll('td, span, div');[cite: 14]
-          if (cells.length > 1) return cells[1].innerText.trim();[cite: 14]
+  function getIfcGlobalIdFromDOM() {
+    const elements = Array.from(document.querySelectorAll('tr, div, td, span'));
+    for (const el of elements) {
+      if (el.innerText && el.innerText.trim() === 'ID Cấu Kiện') {
+        const parentRow = el.closest('tr') || el.parentElement;
+        if (parentRow) {
+          const cells = parentRow.querySelectorAll('td, span, div');
+          if (cells.length > 1) return cells[1].innerText.trim();
         }
       }
     }
-    return '';[cite: 14]
+    return '';
   }
 
-  if (!finalGlobalID) {[cite: 14]
-    const domId = getIfcGlobalIdFromDOM();[cite: 14]
-    if (domId && domId !== 'ID Cấu Kiện') finalGlobalID = domId;[cite: 14]
+  if (!finalGlobalID) {
+    const domId = getIfcGlobalIdFromDOM();
+    if (domId && domId !== 'ID Cấu Kiện') finalGlobalID = domId;
   }
 
-  const applyValues = (gId, eId, aName) => {[cite: 14]
-    document.getElementById('dt_global_id').value = gId || eId || '';[cite: 14]
-    document.getElementById('dt_express_id').value = eId || '';[cite: 14]
-    document.getElementById('dt_display_global_id').value = gId || eId || '';[cite: 14]
-    if (aName) document.getElementById('dt_asset_name').value = aName;[cite: 14]
+  const applyValues = (gId, eId, aName) => {
+    document.getElementById('dt_global_id').value = gId || eId || '';
+    document.getElementById('dt_express_id').value = eId || '';
+    document.getElementById('dt_display_global_id').value = gId || eId || '';
+    if (aName) document.getElementById('dt_asset_name').value = aName;
   };
 
-  applyValues(finalGlobalID, finalExpressID, assetName);[cite: 14]
-  focusCameraOnEntity(finalGlobalID, finalExpressID, assetName);[cite: 14]
+  applyValues(finalGlobalID, finalExpressID, assetName);
+  focusCameraOnEntity(finalGlobalID, finalExpressID, assetName);
 
-  const activeGlobalId = finalGlobalID || finalExpressID;[cite: 14]
-  if (activeGlobalId) loadMaintenanceHistory(activeGlobalId);[cite: 14]
+  const activeGlobalId = finalGlobalID || finalExpressID;
+  if (activeGlobalId) loadMaintenanceHistory(activeGlobalId);
 
-  const client = getDigitalTwinSupabaseClient();[cite: 14]
-  if (client && (finalGlobalID || finalExpressID)) {[cite: 14]
-    try {[cite: 14]
-      let query = client.from('project_assets').select('*, asset_documents(*)');[cite: 14]
-      if (finalGlobalID) query = query.eq('global_id', finalGlobalID);[cite: 14]
-      else if (finalExpressID && !isNaN(parseInt(finalExpressID))) query = query.eq('express_id', parseInt(finalExpressID));[cite: 14]
+  const client = getDigitalTwinSupabaseClient();
+  if (client && (finalGlobalID || finalExpressID)) {
+    try {
+      let query = client.from('project_assets').select('*, asset_documents(*)');
+      if (finalGlobalID) query = query.eq('global_id', finalGlobalID);
+      else if (finalExpressID && !isNaN(parseInt(finalExpressID))) query = query.eq('express_id', parseInt(finalExpressID));
 
-      const { data: existingAsset } = await query.maybeSingle();[cite: 14]
-      if (existingAsset) {[cite: 14]
-        document.getElementById('dt_asset_code').value = existingAsset.asset_code || '';[cite: 14]
-        document.getElementById('dt_asset_name').value = existingAsset.asset_name || assetName;[cite: 14]
-        document.getElementById('dt_status').value = existingAsset.status || 'OPERATIONAL';[cite: 14]
-        document.getElementById('dt_install_date').value = existingAsset.installation_date || '';[cite: 14]
-        document.getElementById('dt_warranty_date').value = existingAsset.warranty_expiry || '';[cite: 14]
-        document.getElementById('dt_last_maint_date').value = existingAsset.last_maintenance_date || '';[cite: 14]
-        document.getElementById('dt_next_maint_date').value = existingAsset.next_maintenance_date || '';[cite: 14]
+      const { data: existingAsset } = await query.maybeSingle();
+      if (existingAsset) {
+        document.getElementById('dt_asset_code').value = existingAsset.asset_code || '';
+        document.getElementById('dt_asset_name').value = existingAsset.asset_name || assetName;
+        document.getElementById('dt_status').value = existingAsset.status || 'OPERATIONAL';
+        document.getElementById('dt_install_date').value = existingAsset.installation_date || '';
+        document.getElementById('dt_warranty_date').value = existingAsset.warranty_expiry || '';
+        document.getElementById('dt_last_maint_date').value = existingAsset.last_maintenance_date || '';
+        document.getElementById('dt_next_maint_date').value = existingAsset.next_maintenance_date || '';
 
-        if (existingAsset.asset_documents?.length > 0) {[cite: 14]
-          let docsHtml = '<b>Tài liệu đã đính kèm:</b><br>';[cite: 14]
-          existingAsset.asset_documents.forEach(doc => {[cite: 14]
-            docsHtml += `📄 <a href="${doc.file_url}" target="_blank" style="color:#1a73e8;">${doc.file_name}</a><br>`;[cite: 14]
-          });[cite: 14]
-          document.getElementById('dt_doc_list').innerHTML = docsHtml;[cite: 14]
+        if (existingAsset.asset_documents?.length > 0) {
+          let docsHtml = '<b>Tài liệu đã đính kèm:</b><br>';
+          existingAsset.asset_documents.forEach(doc => {
+            docsHtml += `📄 <a href="${doc.file_url}" target="_blank" style="color:#1a73e8;">${doc.file_name}</a><br>`;
+          });
+          document.getElementById('dt_doc_list').innerHTML = docsHtml;
         }
       }
-    } catch (e) {[cite: 14]
-      console.warn('Lỗi đọc thông tin tài sản từ CSDL:', e);[cite: 14]
+    } catch (e) {
+      console.warn('Lỗi đọc thông tin tài sản từ CSDL:', e);
     }
   }
 }
 
-function closeAssetPanel() {[cite: 14] 
-  stopTandemSystemTrace();[cite: 14] 
-  document.getElementById('dt-asset-panel').style.display = 'none';[cite: 14] 
+function closeAssetPanel() { 
+  stopTandemSystemTrace(); 
+  document.getElementById('dt-asset-panel').style.display = 'none'; 
 }
 
-async function loadMaintenanceHistory(globalId) {[cite: 14]
-  const container = document.getElementById('dt_log_history_list');[cite: 14]
-  if (!container) return;[cite: 14]
+async function loadMaintenanceHistory(globalId) {
+  const container = document.getElementById('dt_log_history_list');
+  if (!container) return;
 
-  if (!globalId) {[cite: 14]
-    container.innerHTML = '<div style="font-size:11px; color:#888; font-style:italic; text-align:center;">Chưa chọn thiết bị.</div>';[cite: 14]
-    return;[cite: 14]
+  if (!globalId) {
+    container.innerHTML = '<div style="font-size:11px; color:#888; font-style:italic; text-align:center;">Chưa chọn thiết bị.</div>';
+    return;
   }
 
-  container.innerHTML = '<div style="font-size:11px; color:#888; text-align:center; padding:8px;">⏳ Đang tải lịch sử...</div>';[cite: 14]
+  container.innerHTML = '<div style="font-size:11px; color:#888; text-align:center; padding:8px;">⏳ Đang tải lịch sử...</div>';
 
-  const client = getDigitalTwinSupabaseClient();[cite: 14]
-  if (!client) {[cite: 14]
-    container.innerHTML = '<div style="font-size:11px; color:red; text-align:center;">Chưa kết nối CSDL.</div>';[cite: 14]
-    return;[cite: 14]
+  const client = getDigitalTwinSupabaseClient();
+  if (!client) {
+    container.innerHTML = '<div style="font-size:11px; color:red; text-align:center;">Chưa kết nối CSDL.</div>';
+    return;
   }
 
   try {
-    const { data: logs, error } = await client[cite: 14]
-      .from('asset_maintenance_logs')[cite: 14]
-      .select('*')[cite: 14]
-      .eq('global_id', globalId)[cite: 14]
-      .order('log_date', { ascending: false })[cite: 14]
-      .order('id', { ascending: false });[cite: 14]
+    const { data: logs, error } = await client
+      .from('asset_maintenance_logs')
+      .select('*')
+      .eq('global_id', globalId)
+      .order('log_date', { ascending: false })
+      .order('id', { ascending: false });
 
-    if (error) throw error;[cite: 14]
+    if (error) throw error;
 
-    if (!logs || logs.length === 0) {[cite: 14]
-      container.innerHTML = '<div style="font-size:11px; color:#888; font-style:italic; text-align:center; padding:8px;">Chưa có nhật ký bảo trì nào.</div>';[cite: 14]
-      return;[cite: 14]
+    if (!logs || logs.length === 0) {
+      container.innerHTML = '<div style="font-size:11px; color:#888; font-style:italic; text-align:center; padding:8px;">Chưa có nhật ký bảo trì nào.</div>';
+      return;
     }
 
-    let html = '';[cite: 14]
-    logs.forEach(log => {[cite: 14]
-      let badgeBg = '#1a73e8';[cite: 14]
-      if (log.action_type === 'Sửa chữa') badgeBg = '#dc3545';[cite: 14]
-      if (log.action_type === 'Thay thế') badgeBg = '#e67e22';[cite: 14]
-      if (log.action_type === 'Kiểm tra') badgeBg = '#17a2b8';[cite: 14]
+    let html = '';
+    logs.forEach(log => {
+      let badgeBg = '#1a73e8';
+      if (log.action_type === 'Sửa chữa') badgeBg = '#dc3545';
+      if (log.action_type === 'Thay thế') badgeBg = '#e67e22';
+      if (log.action_type === 'Kiểm tra') badgeBg = '#17a2b8';
 
       html += `
         <div style="border-left: 3px solid ${badgeBg}; padding: 6px 8px; margin-bottom: 6px; background: #ffffff; border-radius: 0 4px 4px 0; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
@@ -1352,188 +1352,188 @@ async function loadMaintenanceHistory(globalId) {[cite: 14]
           <div style="font-size:11px; color:#333; word-break:break-word; white-space:pre-wrap;">${log.description}</div>
           ${log.performer ? `<div style="font-size:10px; color:#777; margin-top:3px;">👤 Người thực hiện: <i>${log.performer}</i></div>` : ''}
         </div>
-      `;[cite: 14]
+      `;
     });
 
-    container.innerHTML = html;[cite: 14]
-  } catch (err) {[cite: 14]
-    console.error('Lỗi tải lịch sử bảo trì:', err);[cite: 14]
-    container.innerHTML = '<div style="font-size:11px; color:red; text-align:center;">Lỗi tải dữ liệu nhật ký.</div>';[cite: 14]
+    container.innerHTML = html;
+  } catch (err) {
+    console.error('Lỗi tải lịch sử bảo trì:', err);
+    container.innerHTML = '<div style="font-size:11px; color:red; text-align:center;">Lỗi tải dữ liệu nhật ký.</div>';
   }
 }
 
-async function addMaintenanceLogRecord() {[cite: 14]
-  const globalId = document.getElementById('dt_global_id').value;[cite: 14]
-  const actionType = document.getElementById('dt_new_log_type').value;[cite: 14]
-  const description = document.getElementById('dt_new_log_desc').value;[cite: 14]
-  const performer = document.getElementById('dt_new_log_performer').value;[cite: 14]
-  const logDate = document.getElementById('dt_new_log_date').value;[cite: 14]
+async function addMaintenanceLogRecord() {
+  const globalId = document.getElementById('dt_global_id').value;
+  const actionType = document.getElementById('dt_new_log_type').value;
+  const description = document.getElementById('dt_new_log_desc').value;
+  const performer = document.getElementById('dt_new_log_performer').value;
+  const logDate = document.getElementById('dt_new_log_date').value;
 
-  if (!globalId) return alert('⚠️ Chưa chọn thiết bị!');[cite: 14]
-  if (!description.trim()) return alert('⚠️ Vui lòng nhập nội dung công việc!');[cite: 14]
+  if (!globalId) return alert('⚠️ Chưa chọn thiết bị!');
+  if (!description.trim()) return alert('⚠️ Vui lòng nhập nội dung công việc!');
 
-  const client = getDigitalTwinSupabaseClient();[cite: 14]
-  if (!client) return alert('⚠️ Chưa kết nối CSDL Supabase!');[cite: 14]
+  const client = getDigitalTwinSupabaseClient();
+  if (!client) return alert('⚠️ Chưa kết nối CSDL Supabase!');
 
   try {
-    const payload = {[cite: 14]
-      global_id: globalId,[cite: 14]
-      action_type: actionType,[cite: 14]
-      description: description.trim(),[cite: 14]
-      performer: performer.trim(),[cite: 14]
-      log_date: logDate || new Date().toISOString().split('T')[0][cite: 14]
+    const payload = {
+      global_id: globalId,
+      action_type: actionType,
+      description: description.trim(),
+      performer: performer.trim(),
+      log_date: logDate || new Date().toISOString().split('T')[0]
     };
 
-    const { error } = await client.from('asset_maintenance_logs').insert([payload]);[cite: 14]
-    if (error) throw error;[cite: 14]
+    const { error } = await client.from('asset_maintenance_logs').insert([payload]);
+    if (error) throw error;
 
-    if (logDate && (actionType === 'Bảo trì' || actionType === 'Sửa chữa')) {[cite: 14]
-      document.getElementById('dt_last_maint_date').value = logDate;[cite: 14]
+    if (logDate && (actionType === 'Bảo trì' || actionType === 'Sửa chữa')) {
+      document.getElementById('dt_last_maint_date').value = logDate;
     }
 
-    document.getElementById('dt_new_log_desc').value = '';[cite: 14]
-    document.getElementById('dt_new_log_performer').value = '';[cite: 14]
-    loadMaintenanceHistory(globalId);[cite: 14]
+    document.getElementById('dt_new_log_desc').value = '';
+    document.getElementById('dt_new_log_performer').value = '';
+    loadMaintenanceHistory(globalId);
 
-  } catch (err) {[cite: 14]
-    alert('❌ Lỗi thêm nhật ký: ' + err.message);[cite: 14]
+  } catch (err) {
+    alert('❌ Lỗi thêm nhật ký: ' + err.message);
   }
 }
 
-async function applyAssetColorCoding() {[cite: 14]
-  const client = getDigitalTwinSupabaseClient();[cite: 14]
-  if (!client) return alert('Chưa kết nối CSDL Supabase!');[cite: 14]
+async function applyAssetColorCoding() {
+  const client = getDigitalTwinSupabaseClient();
+  if (!client) return alert('Chưa kết nối CSDL Supabase!');
 
   try {
-    const { data: assets } = await client.from('project_assets').select('*');[cite: 14]
-    if (!assets || assets.length === 0) return;[cite: 14]
+    const { data: assets } = await client.from('project_assets').select('*');
+    if (!assets || assets.length === 0) return;
 
-    const viewer = window.xeokitViewer || window.viewer;[cite: 14]
-    if (!viewer || !viewer.scene) return;[cite: 14]
+    const viewer = window.xeokitViewer || window.viewer;
+    if (!viewer || !viewer.scene) return;
 
-    assets.forEach(asset => {[cite: 14]
-      const rgbColor = STATUS_COLORS[asset.status] || STATUS_COLORS.OPERATIONAL;[cite: 14]
-      const entity = findEntityByAsset(viewer, asset);[cite: 14]
-      if (entity) {[cite: 14]
-        entity.colorize = rgbColor;[cite: 14]
-        entity.colorized = true;[cite: 14]
-        entity.opacity = 1.0;[cite: 14]
+    assets.forEach(asset => {
+      const rgbColor = STATUS_COLORS[asset.status] || STATUS_COLORS.OPERATIONAL;
+      const entity = findEntityByAsset(viewer, asset);
+      if (entity) {
+        entity.colorize = rgbColor;
+        entity.colorized = true;
+        entity.opacity = 1.0;
       }
     });
 
-    viewer.scene._needUpdate = 1;[cite: 14]
-    if (typeof viewer.scene.render === 'function') viewer.scene.render();[cite: 14]
+    viewer.scene._needUpdate = 1;
+    if (typeof viewer.scene.render === 'function') viewer.scene.render();
 
-    isColorCodingActive = true;[cite: 14]
-    render3DMarkers(assets);[cite: 14]
-  } catch (err) {[cite: 14]
-    console.error('Lỗi áp dụng màu 3D:', err);[cite: 14]
+    isColorCodingActive = true;
+    render3DMarkers(assets);
+  } catch (err) {
+    console.error('Lỗi áp dụng màu 3D:', err);
   }
 }
 
-function resetModelColors() {[cite: 14]
-  const viewer = window.xeokitViewer || window.viewer;[cite: 14]
-  if (viewer && viewer.scene) {[cite: 14]
-    Object.values(viewer.scene.objects).forEach(entity => {[cite: 14]
-      entity.colorize = null;[cite: 14]
-      entity.colorized = false;[cite: 14]
+function resetModelColors() {
+  const viewer = window.xeokitViewer || window.viewer;
+  if (viewer && viewer.scene) {
+    Object.values(viewer.scene.objects).forEach(entity => {
+      entity.colorize = null;
+      entity.colorized = false;
     });
-    viewer.scene._needUpdate = 1;[cite: 14]
-    if (typeof viewer.scene.render === 'function') viewer.scene.render();[cite: 14]
+    viewer.scene._needUpdate = 1;
+    if (typeof viewer.scene.render === 'function') viewer.scene.render();
   }
-  clear3DMarkers();[cite: 14]
-  isColorCodingActive = false;[cite: 14]
+  clear3DMarkers();
+  isColorCodingActive = false;
 }
 
-function toggleColorCodingMode(btn) {[cite: 14]
-  if (!isColorCodingActive) {[cite: 14]
-    applyAssetColorCoding();[cite: 14]
-    if (btn) { btn.innerText = '🔄 Khôi Phục Màu Mặc Định'; btn.style.backgroundColor = '#28a745'; btn.style.color = '#fff'; btn.style.borderColor = '#28a745'; }[cite: 14]
+function toggleColorCodingMode(btn) {
+  if (!isColorCodingActive) {
+    applyAssetColorCoding();
+    if (btn) { btn.innerText = '🔄 Khôi Phục Màu Mặc Định'; btn.style.backgroundColor = '#28a745'; btn.style.color = '#fff'; btn.style.borderColor = '#28a745'; }
   } else {
-    resetModelColors();[cite: 14]
-    if (btn) { btn.innerText = '🎨 Trạng Thái 3D'; btn.style.backgroundColor = '#f0f4f9'; btn.style.color = '#1a73e8'; btn.style.borderColor = '#b6d4fe'; }[cite: 14]
+    resetModelColors();
+    if (btn) { btn.innerText = '🎨 Trạng Thái 3D'; btn.style.backgroundColor = '#f0f4f9'; btn.style.color = '#1a73e8'; btn.style.borderColor = '#b6d4fe'; }
   }
 }
 
-function getOrCreateMarkerContainer() {[cite: 14]
-  injectMarkerStyles();[cite: 14]
-  let container = document.getElementById('dt-marker-overlay-container');[cite: 14]
-  if (!container) {[cite: 14]
-    container = document.createElement('div');[cite: 14]
-    container.id = 'dt-marker-overlay-container';[cite: 14]
-    document.body.appendChild(container);[cite: 14]
+function getOrCreateMarkerContainer() {
+  injectMarkerStyles();
+  let container = document.getElementById('dt-marker-overlay-container');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'dt-marker-overlay-container';
+    document.body.appendChild(container);
   }
-  return container;[cite: 14]
+  return container;
 }
 
-function render3DMarkers(assets) {[cite: 14]
-  clear3DMarkers();[cite: 14]
-  const viewer = window.xeokitViewer || window.viewer;[cite: 14]
-  if (!viewer || !viewer.scene || !viewer.scene.canvas) return;[cite: 14]
+function render3DMarkers(assets) {
+  clear3DMarkers();
+  const viewer = window.xeokitViewer || window.viewer;
+  if (!viewer || !viewer.scene || !viewer.scene.canvas) return;
 
-  const container = getOrCreateMarkerContainer();[cite: 14]
-  const trackedItems = [];[cite: 14]
+  const container = getOrCreateMarkerContainer();
+  const trackedItems = [];
 
-  assets.forEach(asset => {[cite: 14]
-    const entity = findEntityByAsset(viewer, asset);[cite: 14]
-    if (entity && isValidAABB(entity.aabb)) {[cite: 14]
-      const centerWorldPos = getAABBCenter(entity.aabb);[cite: 14]
+  assets.forEach(asset => {
+    const entity = findEntityByAsset(viewer, asset);
+    if (entity && isValidAABB(entity.aabb)) {
+      const centerWorldPos = getAABBCenter(entity.aabb);
 
-      let markerIcon = '🟢', markerClass = 'operational';[cite: 14]
-      if (asset.status === 'FAULT') { markerIcon = '🛑'; markerClass = 'fault'; } [cite: 14]
-      else if (asset.status === 'MAINTENANCE') { markerIcon = '⚠️'; markerClass = 'maintenance'; }[cite: 14]
+      let markerIcon = '🟢', markerClass = 'operational';
+      if (asset.status === 'FAULT') { markerIcon = '🛑'; markerClass = 'fault'; } 
+      else if (asset.status === 'MAINTENANCE') { markerIcon = '⚠️'; markerClass = 'maintenance'; }
 
-      const markerDiv = document.createElement('div');[cite: 14]
-      markerDiv.className = `dt-3d-marker ${markerClass}`;[cite: 14]
-      markerDiv.style.display = 'none';[cite: 14]
-      markerDiv.innerHTML = `<span>${markerIcon}</span><span>${asset.asset_code || asset.asset_name}</span>`;[cite: 14]
+      const markerDiv = document.createElement('div');
+      markerDiv.className = `dt-3d-marker ${markerClass}`;
+      markerDiv.style.display = 'none';
+      markerDiv.innerHTML = `<span>${markerIcon}</span><span>${asset.asset_code || asset.asset_name}</span>`;
 
-      markerDiv.onclick = (e) => {[cite: 14]
-        e.stopPropagation();[cite: 14]
-        openDigitalTwinPanel(cleanId(asset.express_id), cleanId(asset.global_id), asset.asset_name);[cite: 14]
-      };[cite: 14]
+      markerDiv.onclick = (e) => {
+        e.stopPropagation();
+        openDigitalTwinPanel(cleanId(asset.express_id), cleanId(asset.global_id), asset.asset_name);
+      };
 
-      container.appendChild(markerDiv);[cite: 14]
-      activeMarkerElements.push(markerDiv);[cite: 14]
-      trackedItems.push({ element: markerDiv, worldPos: centerWorldPos });[cite: 14]
+      container.appendChild(markerDiv);
+      activeMarkerElements.push(markerDiv);
+      trackedItems.push({ element: markerDiv, worldPos: centerWorldPos });
     }
   });
 
-  function updateMarkerPositions() {[cite: 14]
-    if (!isColorCodingActive || trackedItems.length === 0) return;[cite: 14]
-    const currentViewer = window.xeokitViewer || window.viewer;[cite: 14]
-    if (!currentViewer || !currentViewer.scene || !currentViewer.scene.camera) return;[cite: 14]
+  function updateMarkerPositions() {
+    if (!isColorCodingActive || trackedItems.length === 0) return;
+    const currentViewer = window.xeokitViewer || window.viewer;
+    if (!currentViewer || !currentViewer.scene || !currentViewer.scene.camera) return;
 
-    trackedItems.forEach(item => {[cite: 14]
-      const sp = projectWorldToCanvas(currentViewer, item.worldPos);[cite: 14]
-      if (sp) {[cite: 14]
-        item.element.style.display = 'flex';[cite: 14]
-        item.element.style.left = Math.round(sp[0]) + 'px';[cite: 14]
-        item.element.style.top = Math.round(sp[1]) + 'px';[cite: 14]
+    trackedItems.forEach(item => {
+      const sp = projectWorldToCanvas(currentViewer, item.worldPos);
+      if (sp) {
+        item.element.style.display = 'flex';
+        item.element.style.left = Math.round(sp[0]) + 'px';
+        item.element.style.top = Math.round(sp[1]) + 'px';
       } else {
-        item.element.style.display = 'none';[cite: 14]
+        item.element.style.display = 'none';
       }
     });
   }
 
-  markerTickListener = viewer.scene.on("tick", updateMarkerPositions);[cite: 14]
-  setTimeout(updateMarkerPositions, 50);[cite: 14]
+  markerTickListener = viewer.scene.on("tick", updateMarkerPositions);
+  setTimeout(updateMarkerPositions, 50);
 }
 
-function clear3DMarkers() {[cite: 14]
-  const viewer = window.xeokitViewer || window.viewer;[cite: 14]
-  if (viewer && viewer.scene && markerTickListener) {[cite: 14]
-    try { viewer.scene.off(markerTickListener); } catch (e) {}[cite: 14]
-    markerTickListener = null;[cite: 14]
+function clear3DMarkers() {
+  const viewer = window.xeokitViewer || window.viewer;
+  if (viewer && viewer.scene && markerTickListener) {
+    try { viewer.scene.off(markerTickListener); } catch (e) {}
+    markerTickListener = null;
   }
-  activeMarkerElements.forEach(el => { if (el && el.parentElement) el.parentElement.removeChild(el); });[cite: 14]
-  activeMarkerElements = [];[cite: 14]
-  const container = document.getElementById('dt-marker-overlay-container');[cite: 14]
-  if (container) container.innerHTML = '';[cite: 14]
+  activeMarkerElements.forEach(el => { if (el && el.parentElement) el.parentElement.removeChild(el); });
+  activeMarkerElements = [];
+  const container = document.getElementById('dt-marker-overlay-container');
+  if (container) container.innerHTML = '';
 }
 
-function injectDigitalTwinDashboardModal() {[cite: 14]
-  if (document.getElementById('dt-dashboard-modal')) return;[cite: 14]
+function injectDigitalTwinDashboardModal() {
+  if (document.getElementById('dt-dashboard-modal')) return;
   const modalHtml = `
     <div id="dt-dashboard-modal" style="display:none; position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(0,0,0,0.5); z-index:10000; align-items:center; justify-content:center; font-family:sans-serif;">
       <div style="background:#fff; width:85%; max-width:900px; max-height:90vh; border-radius:12px; overflow:hidden; display:flex; flex-direction:column; box-shadow:0 10px 30px rgba(0,0,0,0.3);">
@@ -1581,42 +1581,42 @@ function injectDigitalTwinDashboardModal() {[cite: 14]
         </div>
       </div>
     </div>
-  `;[cite: 14]
-  document.body.insertAdjacentHTML('beforeend', modalHtml);[cite: 14]
+  `;
+  document.body.insertAdjacentHTML('beforeend', modalHtml);
 
-  const tbody = document.getElementById('dt-dash-table-body');[cite: 14]
-  if (tbody && !tbody.dataset.eventBound) {[cite: 14]
-    tbody.dataset.eventBound = 'true';[cite: 14]
-    tbody.addEventListener('click', function(e) {[cite: 14]
-      const btn = e.target.closest('.dt-btn-view-detail');[cite: 14]
-      if (btn) {[cite: 14]
-        window.focusAndOpenAssetFromDashboard(btn.getAttribute('data-express-id'), btn.getAttribute('data-global-id'), decodeURIComponent(btn.getAttribute('data-asset-name')));[cite: 14]
+  const tbody = document.getElementById('dt-dash-table-body');
+  if (tbody && !tbody.dataset.eventBound) {
+    tbody.dataset.eventBound = 'true';
+    tbody.addEventListener('click', function(e) {
+      const btn = e.target.closest('.dt-btn-view-detail');
+      if (btn) {
+        window.focusAndOpenAssetFromDashboard(btn.getAttribute('data-express-id'), btn.getAttribute('data-global-id'), decodeURIComponent(btn.getAttribute('data-asset-name')));
       }
     });
   }
 }
 
-async function openDigitalTwinDashboard() {[cite: 14]
-  injectDigitalTwinDashboardModal();[cite: 14]
-  document.getElementById('dt-dashboard-modal').style.display = 'flex';[cite: 14]
+async function openDigitalTwinDashboard() {
+  injectDigitalTwinDashboardModal();
+  document.getElementById('dt-dashboard-modal').style.display = 'flex';
 
-  const client = getDigitalTwinSupabaseClient();[cite: 14]
-  if (!client) return;[cite: 14]
+  const client = getDigitalTwinSupabaseClient();
+  if (!client) return;
 
   try {
-    const { data: assets } = await client.from('project_assets').select('*');[cite: 14]
-    let total = assets ? assets.length : 0;[cite: 14]
-    let op = 0, maint = 0, fault = 0;[cite: 14]
-    let alertRowsHtml = '';[cite: 14]
+    const { data: assets } = await client.from('project_assets').select('*');
+    let total = assets ? assets.length : 0;
+    let op = 0, maint = 0, fault = 0;
+    let alertRowsHtml = '';
 
     if (assets) {
-      assets.forEach(asset => {[cite: 14]
-        if (asset.status === 'OPERATIONAL') op++;[cite: 14]
-        else if (asset.status === 'MAINTENANCE') maint++;[cite: 14]
-        else if (asset.status === 'FAULT') fault++;[cite: 14]
+      assets.forEach(asset => {
+        if (asset.status === 'OPERATIONAL') op++;
+        else if (asset.status === 'MAINTENANCE') maint++;
+        else if (asset.status === 'FAULT') fault++;
 
-        if (asset.status !== 'OPERATIONAL') {[cite: 14]
-          const badge = asset.status === 'FAULT' ? '<span style="color:#dc3545; font-weight:bold;">🔴 Sự cố</span>' : '<span style="color:#f39c12; font-weight:bold;">🟡 Bảo trì</span>';[cite: 14]
+        if (asset.status !== 'OPERATIONAL') {
+          const badge = asset.status === 'FAULT' ? '<span style="color:#dc3545; font-weight:bold;">🔴 Sự cố</span>' : '<span style="color:#f39c12; font-weight:bold;">🟡 Bảo trì</span>';
           alertRowsHtml += `
             <tr style="border-bottom:1px solid #eee;">
               <td style="padding:8px; font-weight:bold;">${asset.asset_code || '-'}</td>
@@ -1627,58 +1627,68 @@ async function openDigitalTwinDashboard() {[cite: 14]
                 <button type="button" class="dt-btn-view-detail" data-express-id="${cleanId(asset.express_id)}" data-global-id="${cleanId(asset.global_id)}" data-asset-name="${encodeURIComponent(asset.asset_name || '')}" style="padding:4px 8px; background:#1a73e8; color:#fff; border:none; border-radius:4px; font-size:11px; cursor:pointer;">🔎 Xem Chi Tiết</button>
               </td>
             </tr>
-          `;[cite: 14]
+          `;
         }
       });
     }
 
-    document.getElementById('dt-dash-total').innerText = total;[cite: 14]
-    document.getElementById('dt-dash-op').innerText = op;[cite: 14]
-    document.getElementById('dt-dash-maint').innerText = maint;[cite: 14]
-    document.getElementById('dt-dash-fault').innerText = fault;[cite: 14]
-    document.getElementById('dt-dash-table-body').innerHTML = alertRowsHtml || '<tr><td colspan="5" style="text-align:center; padding:15px; color:#28a745;">🎉 Tất cả thiết bị bình thường!</td></tr>';[cite: 14]
-  } catch (err) {[cite: 14]
-    console.error('Lỗi khi mở Dashboard:', err);[cite: 14]
+    document.getElementById('dt-dash-total').innerText = total;
+    document.getElementById('dt-dash-op').innerText = op;
+    document.getElementById('dt-dash-maint').innerText = maint;
+    document.getElementById('dt-dash-fault').innerText = fault;
+    document.getElementById('dt-dash-table-body').innerHTML = alertRowsHtml || '<tr><td colspan="5" style="text-align:center; padding:15px; color:#28a745;">🎉 Tất cả thiết bị bình thường!</td></tr>';
+  } catch (err) {
+    console.error('Lỗi khi mở Dashboard:', err);
   }
 }
 
-function closeDigitalTwinDashboard() {[cite: 14]
-  const modal = document.getElementById('dt-dashboard-modal');[cite: 14]
-  if (modal) modal.style.display = 'none';[cite: 14]
+function closeDigitalTwinDashboard() {
+  const modal = document.getElementById('dt-dashboard-modal');
+  if (modal) modal.style.display = 'none';
 }
 
-async function saveAssetToDatabase() {[cite: 14]
-  const globalId = document.getElementById('dt_global_id').value;[cite: 14]
-  const expressId = document.getElementById('dt_express_id').value;[cite: 14]
-  const assetCode = document.getElementById('dt_asset_code').value;[cite: 14]
-  const assetName = document.getElementById('dt_asset_name').value;[cite: 14]
-  const status = document.getElementById('dt_status').value;[cite: 14]
+async function saveAssetToDatabase() {
+  const globalId = document.getElementById('dt_global_id').value;
+  const expressId = document.getElementById('dt_express_id').value;
+  const assetCode = document.getElementById('dt_asset_code').value;
+  const assetName = document.getElementById('dt_asset_name').value;
+  const status = document.getElementById('dt_status').value;
 
-  if (!assetCode || !assetName) return alert('Vui lòng nhập Mã Tài Sản và Tên Thiết Bị!');[cite: 14]
+  if (!assetCode || !assetName) return alert('Vui lòng nhập Mã Tài Sản và Tên Thiết Bị!');
 
-  const client = getDigitalTwinSupabaseClient();[cite: 14]
-  if (!client) return alert('Chưa kết nối CSDL Supabase!');[cite: 14]
+  const client = getDigitalTwinSupabaseClient();
+  if (!client) return alert('Chưa kết nối CSDL Supabase!');
 
   try {
-    const { error } = await client.from('project_assets').upsert({[cite: 14]
-      project_id: window.currentProjectId || 'DEFAULT_PROJ',[cite: 14]
-      global_id: globalId,[cite: 14]
-      express_id: parseInt(expressId) || 0,[cite: 14]
-      asset_code: assetCode,[cite: 14]
-      asset_name: assetName,[cite: 14]
-      status: status,[cite: 14]
-      installation_date: document.getElementById('dt_install_date').value || null,[cite: 14]
-      warranty_expiry: document.getElementById('dt_warranty_date').value || null,[cite: 14]
-      last_maintenance_date: document.getElementById('dt_last_maint_date').value || null,[cite: 14]
-      next_maintenance_date: document.getElementById('dt_next_maint_date').value || null,[cite: 14]
-      updated_at: new Date()[cite: 14]
-    }, { onConflict: 'global_id' });[cite: 14]
+    const { error } = await client.from('project_assets').upsert({
+      project_id: window.currentProjectId || 'DEFAULT_PROJ',
+      global_id: globalId,
+      express_id: parseInt(expressId) || 0,
+      asset_code: assetCode,
+      asset_name: assetName,
+      status: status,
+      installation_date: document.getElementById('dt_install_date').value || null,
+      warranty_expiry: document.getElementById('dt_warranty_date').value || null,
+      last_maintenance_date: document.getElementById('dt_last_maint_date').value || null,
+      next_maintenance_date: document.getElementById('dt_next_maint_date').value || null,
+      updated_at: new Date()
+    }, { onConflict: 'global_id' });
 
-    if (error) throw error;[cite: 14]
-    if (isColorCodingActive) applyAssetColorCoding();[cite: 14]
-    alert('✅ Lưu hồ sơ thiết bị thành công!');[cite: 14]
-    closeAssetPanel();[cite: 14]
-  } catch (err) {[cite: 14]
-    alert('Lỗi: ' + err.message);[cite: 14]
+    if (error) throw error;
+    if (isColorCodingActive) applyAssetColorCoding();
+    alert('✅ Lưu hồ sơ thiết bị thành công!');
+    closeAssetPanel();
+  } catch (err) {
+    alert('Lỗi: ' + err.message);
   }
 }
+
+// =========================================================================
+// --- ĐĂNG KÝ HÀM TOÀN CỤC CHO GIAO DIỆN HTML (ONCLICK) ---
+// =========================================================================
+window.toggleDigitalTwinPanelFromMenu = toggleDigitalTwinPanelFromMenu;
+window.openDigitalTwinPanel = openDigitalTwinPanel;
+window.closeAssetPanel = closeAssetPanel;
+window.openCesiumGisMap = openCesiumGisMap;
+window.closeCesiumGisMap = closeCesiumGisMap;
+window.updateCesiumPositionFromVN2000 = updateCesiumPositionFromVN2000;
