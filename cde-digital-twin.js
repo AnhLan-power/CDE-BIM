@@ -480,7 +480,7 @@ function createOrShowCesiumModal() {
           <input type="number" id="dt-adj-heading" value="0" step="1" style="width:55px; padding:3px; background:#1a2332; color:#fff; border:1px solid #3b4c66; text-align:center;" />
         </div>
         <button type="button" onclick="applyTransformToActiveModel()" style="background:#28a745; color:#fff; border:none; padding:5px 12px; border-radius:4px; font-weight:bold; cursor:pointer;">
-          💾 Cập Nhật Model Này
+          💾 Cập Nhật & Zoom Tới Model
         </button>
       </div>
 
@@ -514,17 +514,13 @@ function createOrShowCesiumModal() {
 }
 
 /**
- * 🟢 TÍNH TOÁN VÀ CẬP NHẬT MA TRẬN BIẾN ĐỔI CHO MỘT MODEL CỤ THỂ
+ * 🟢 TÍNH TOÁN VÀ CẬP NHẬT MA TRẬN BIẾN ĐỔI AN TOÀN CHO TỪNG MODEL
  */
 function updateModelMatrix(modelObj) {
   if (!cesiumViewerInstance || !modelObj || !modelObj.tileset) return;
 
   const tileset = modelObj.tileset;
-  const targetLng = modelObj.lng;
-  const targetLat = modelObj.lat;
-  
-  // Áp dụng dịch chuyển dx, dy tương đối từ gốc VN-2000
-  const finalLngLat = offsetLatLng(targetLng, targetLat, modelObj.dx, modelObj.dy);
+  const finalLngLat = offsetLatLng(modelObj.lng, modelObj.lat, modelObj.dx, modelObj.dy);
   const surfacePosition = Cesium.Cartesian3.fromDegrees(finalLngLat.lng, finalLngLat.lat, modelObj.dz);
 
   const hpr = new Cesium.HeadingPitchRoll(
@@ -532,17 +528,22 @@ function updateModelMatrix(modelObj) {
     Cesium.Math.toRadians(0.0),
     Cesium.Math.toRadians(0.0)
   );
+  
   const targetMatrix = Cesium.Transforms.headingPitchRollToFixedFrame(surfacePosition, hpr);
 
-  const center = tileset.boundingSphere.center;
-  const inverseModelMatrix = Cesium.Matrix4.inverse(
-    Cesium.Transforms.eastNorthUpToFixedFrame(center),
-    new Cesium.Matrix4()
-  );
-
-  const finalMatrix = new Cesium.Matrix4();
-  Cesium.Matrix4.multiply(targetMatrix, inverseModelMatrix, finalMatrix);
-  tileset.modelMatrix = finalMatrix;
+  // Kiểm tra an toàn boundingSphere để tránh mất mô hình khi đổi góc xoay
+  if (tileset.boundingSphere) {
+    const center = tileset.boundingSphere.center;
+    const inverseModelMatrix = Cesium.Matrix4.inverse(
+      Cesium.Transforms.eastNorthUpToFixedFrame(center),
+      new Cesium.Matrix4()
+    );
+    const finalMatrix = new Cesium.Matrix4();
+    Cesium.Matrix4.multiply(targetMatrix, inverseModelMatrix, finalMatrix);
+    tileset.modelMatrix = finalMatrix;
+  } else {
+    tileset.modelMatrix = targetMatrix;
+  }
 }
 
 /**
@@ -699,7 +700,17 @@ function applyTransformToActiveModel() {
   found.heading = parseFloat(document.getElementById('dt-adj-heading').value) || 0;
 
   updateModelMatrix(found);
-  alert(`✅ Đã cập nhật tọa độ & góc xoay cho Model [${found.id}] thành công!`);
+
+  // 🎯 Tự động zoom camera ngay tới model vừa cập nhật để dễ quan sát
+  if (cesiumViewerInstance && found.tileset) {
+    cesiumViewerInstance.zoomTo(found.tileset, new Cesium.HeadingPitchRange(
+      Cesium.Math.toRadians(0.0),
+      Cesium.Math.toRadians(-45.0),
+      250.0
+    ));
+  }
+
+  alert(`✅ Đã cập nhật & zoom tới Model [${found.id}] thành công!`);
 }
 
 function updateCesiumPositionFromVN2000() {
@@ -1742,7 +1753,7 @@ function injectDigitalTwinDashboardModal() {
               <div id="dt-dash-op" style="font-size:24px; font-weight:bold; color:#28a745; margin-top:5px;">0</div>
             </div>
             <div style="background:#fff; padding:15px; border-radius:8px; border-left:4px solid #f39c12;">
-              <div style="font-size:12px; color:#666; font-weight:bold;">🟡 ĐANG BẢO TRÌ</div>
+              <div style="font-size:12px; color:#666; font-weight:bold;">🟡 Đang BẢO TRÌ</div>
               <div id="dt-dash-maint" style="font-size:24px; font-weight:bold; color:#f39c12; margin-top:5px;">0</div>
             </div>
             <div style="background:#fff; padding:15px; border-radius:8px; border-left:4px solid #dc3545;">
