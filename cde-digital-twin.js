@@ -29,9 +29,9 @@ let selectedSourceEntity = null;
 let selectedBranchEntities = [];        
 let currentPickMode = null;              
 
-// --- CESIUM GIS VIEWER & MULTI-MODEL INSTANCES ---
+// --- CESIUM GIS VIEWER & MULTI-MODEL MANAGER ---
 let cesiumViewerInstance = null;
-let activeCesiumTilesets = []; // 📦 Mảng quản lý danh sách nhiều mô hình 3D Tiles hiển thị cùng lúc
+let managedCesiumModels = []; // 📦 Mảng quản lý cấu hình chi tiết & hiệu chỉnh độc lập từng mô hình[cite: 19]
 
 function cleanId(val) {
   if (val === null || val === undefined) return '';
@@ -336,7 +336,7 @@ window.focusAndOpenAssetFromDashboard = function(expressId, globalId, assetName)
 };
 
 // =========================================================================
-// --- TÍCH HỢP BẢN ĐỒ GIS 3D & QUẢN LÝ ĐA MÔ HÌNH HẠ TẦNG (CESIUMJS) ---
+// --- TÍCH HỢP BẢN ĐỒ GIS 3D & CÔNG CỤ HIỆU CHỈNH ĐỘC LẬP TỪNG MÔ HÌNH ---
 // =========================================================================
 
 function loadCesiumScripts(callback) {
@@ -391,7 +391,7 @@ function createOrShowCesiumModal() {
     modal.style.cssText = 'position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(0,0,0,0.85); z-index:999999; display:flex; flex-direction:column; font-family:sans-serif;';
     modal.innerHTML = `
       <div style="background:#121826; color:#00f2ff; padding:12px 20px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #3b4c66;">
-        <h3 style="margin:0; font-size:15px;">🌍 Bản Đồ GIS 3D - Quản Lý Đa Mô Hình Hạ Tầng BIM</h3>
+        <h3 style="margin:0; font-size:15px;">🌍 Bản Đồ GIS 3D - Cấu Hình & Hiệu Chỉnh Độc Lập Đa Mô Hình</h3>
         <button type="button" onclick="closeCesiumGisMap()" style="background:#dc3545; color:#fff; border:none; padding:6px 12px; border-radius:4px; font-weight:bold; cursor:pointer;">✕ Đóng Bản Đồ</button>
       </div>
 
@@ -437,22 +437,50 @@ function createOrShowCesiumModal() {
         </div>
 
         <div>
-          <label style="font-weight:bold;">X (m):</label>
+          <label style="font-weight:bold;">Gốc X (m):</label>
           <input type="number" id="dt-vn2000-x" value="604083.56" style="width:85px; padding:4px; border-radius:4px; border:1px solid #3b4c66; background:#222c3d; color:#fff; text-align:center;" />
         </div>
 
         <div>
-          <label style="font-weight:bold;">Y (m):</label>
+          <label style="font-weight:bold;">Gốc Y (m):</label>
           <input type="number" id="dt-vn2000-y" value="1528409.13" style="width:85px; padding:4px; border-radius:4px; border:1px solid #3b4c66; background:#222c3d; color:#fff; text-align:center;" />
         </div>
 
-        <div style="flex: 1; min-width: 260px;">
-          <label style="font-weight:bold; color:#00f2ff;">📦 Asset IDs (Cách nhau dấu phẩy):</label>
-          <input type="text" id="dt-model-url" value="6018479" placeholder="VD: 6018479, 6018480, ..." style="width:100%; padding:4px; border-radius:4px; border:1px solid #3b4c66; background:#222c3d; color:#fff; box-sizing:border-box;" />
+        <div style="flex: 1; min-width: 220px;">
+          <label style="font-weight:bold; color:#00f2ff;">📦 Asset IDs (Cách dấu phẩy):</label>
+          <input type="text" id="dt-model-url" value="6018479, 5028939" placeholder="VD: 6018479, 5028939" style="width:100%; padding:4px; border-radius:4px; border:1px solid #3b4c66; background:#222c3d; color:#fff; box-sizing:border-box;" />
         </div>
 
         <button type="button" onclick="updateCesiumPositionFromVN2000()" style="background:#00f2ff; color:#121826; border:none; padding:6px 14px; border-radius:4px; font-weight:bold; cursor:pointer;">
-          🚀 Tải & Định Vị Hàng Loạt
+          🚀 Tải Lại Hàng Loạt
+        </button>
+      </div>
+
+      <!-- 🛠 BẢNG ĐIỀU KHIỂN TINH CHỈNH TỪNG MÔ HÌNH -->
+      <div style="background:#111622; padding:8px 20px; display:flex; align-items:center; gap:12px; flex-wrap:wrap; border-bottom:1px solid #283348; color:#fff; font-size:11px;">
+        <span style="color:#f39c12; font-weight:bold;">🎛️ Công Cụ Hiệu Chỉnh:</span>
+        <div>
+          <label>Chọn Model:</label>
+          <select id="dt-inspect-select" onchange="loadSelectedModelConfigToUI()" style="padding:3px 6px; background:#1a2332; color:#fff; border:1px solid #3b4c66; border-radius:4px; cursor:pointer;"></select>
+        </div>
+        <div>
+          <label>Độ lệch X (m):</label>
+          <input type="number" id="dt-adj-dx" value="0" step="0.5" style="width:60px; padding:3px; background:#1a2332; color:#fff; border:1px solid #3b4c66; text-align:center;" />
+        </div>
+        <div>
+          <label>Độ lệch Y (m):</label>
+          <input type="number" id="dt-adj-dy" value="0" step="0.5" style="width:60px; padding:3px; background:#1a2332; color:#fff; border:1px solid #3b4c66; text-align:center;" />
+        </div>
+        <div>
+          <label>Cao độ Z (m):</label>
+          <input type="number" id="dt-adj-dz" value="10" step="1" style="width:50px; padding:3px; background:#1a2332; color:#fff; border:1px solid #3b4c66; text-align:center;" />
+        </div>
+        <div>
+          <label>Góc xoay Heading (°):</label>
+          <input type="number" id="dt-adj-heading" value="0" step="1" style="width:55px; padding:3px; background:#1a2332; color:#fff; border:1px solid #3b4c66; text-align:center;" />
+        </div>
+        <button type="button" onclick="applyTransformToActiveModel()" style="background:#28a745; color:#fff; border:none; padding:5px 12px; border-radius:4px; font-weight:bold; cursor:pointer;">
+          💾 Cập Nhật Model Này
         </button>
       </div>
 
@@ -486,74 +514,67 @@ function createOrShowCesiumModal() {
 }
 
 /**
- * 🟢 HÀM THÊM MỘT MÔ HÌNH 3D TILES VÀO MẢNG QUẢN LÝ ĐA MÔ HÌNH
+ * 🟢 TÍNH TOÁN VÀ CẬP NHẬT MA TRẬN BIẾN ĐỔI CHO MỘT MODEL CỤ THỂ
  */
-async function addBimModelToCesium(targetLng, targetLat, inputVal = '', heightOffset = 10) {
-  if (!cesiumViewerInstance) return;
+function updateModelMatrix(modelObj) {
+  if (!cesiumViewerInstance || !modelObj || !modelObj.tileset) return;
 
-  inputVal = String(inputVal).trim();
-  if (!inputVal) return;
+  const tileset = modelObj.tileset;
+  const targetLng = modelObj.lng;
+  const targetLat = modelObj.lat;
+  
+  // Áp dụng dịch chuyển dx, dy tương đối từ gốc VN-2000
+  const finalLngLat = offsetLatLng(targetLng, targetLat, modelObj.dx, modelObj.dy);
+  const surfacePosition = Cesium.Cartesian3.fromDegrees(finalLngLat.lng, finalLngLat.lat, modelObj.dz);
 
-  try {
-    let tileset;
-    if (!isNaN(inputVal)) {
-      tileset = await Cesium.Cesium3DTileset.fromIonAssetId(parseInt(inputVal));
-    } else {
-      tileset = await Cesium.Cesium3DTileset.fromUrl(inputVal);
-    }
+  const hpr = new Cesium.HeadingPitchRoll(
+    Cesium.Math.toRadians(modelObj.heading || 0),
+    Cesium.Math.toRadians(0.0),
+    Cesium.Math.toRadians(0.0)
+  );
+  const targetMatrix = Cesium.Transforms.headingPitchRollToFixedFrame(surfacePosition, hpr);
 
-    cesiumViewerInstance.scene.primitives.add(tileset);
-    activeCesiumTilesets.push(tileset);
+  const center = tileset.boundingSphere.center;
+  const inverseModelMatrix = Cesium.Matrix4.inverse(
+    Cesium.Transforms.eastNorthUpToFixedFrame(center),
+    new Cesium.Matrix4()
+  );
 
-    if (tileset.readyPromise) {
-      await tileset.readyPromise;
-    }
-
-    const surfacePosition = Cesium.Cartesian3.fromDegrees(targetLng, targetLat, heightOffset);
-    const hpr = new Cesium.HeadingPitchRoll(
-      Cesium.Math.toRadians(0.0),
-      Cesium.Math.toRadians(0.0),
-      Cesium.Math.toRadians(0.0)
-    );
-    const targetMatrix = Cesium.Transforms.headingPitchRollToFixedFrame(surfacePosition, hpr);
-
-    const center = tileset.boundingSphere.center;
-    const inverseModelMatrix = Cesium.Matrix4.inverse(
-      Cesium.Transforms.eastNorthUpToFixedFrame(center),
-      new Cesium.Matrix4()
-    );
-
-    const finalMatrix = new Cesium.Matrix4();
-    Cesium.Matrix4.multiply(targetMatrix, inverseModelMatrix, finalMatrix);
-    tileset.modelMatrix = finalMatrix;
-
-    console.log(`✅ Đã thêm mô hình ID: ${inputVal} thành công!`);
-  } catch (err) {
-    console.warn(`⚠️ Lỗi tải mô hình ID ${inputVal}:`, err);
-  }
+  const finalMatrix = new Cesium.Matrix4();
+  Cesium.Matrix4.multiply(targetMatrix, inverseModelMatrix, finalMatrix);
+  tileset.modelMatrix = finalMatrix;
 }
 
 /**
- * 🧹 XÓA TOÀN BỘ MÔ HÌNH CŨ TRƯỚC KHI TẢI LẠI DANH SÁCH MỚI
+ * Hàm hỗ trợ dịch chuyển mét sang kinh độ/vĩ độ tương đối
+ */
+function offsetLatLng(lng, lat, dxMeters, dyMeters) {
+  const earthRadius = 6378137;
+  const dLat = (dyMeters / earthRadius) * (180 / Math.PI);
+  const dLng = (dxMeters / (earthRadius * Math.cos(Math.PI * lat / 180))) * (180 / Math.PI);
+  return { lng: lng + dLng, lat: lat + dLat };
+}
+
+/**
+ * 🧹 XÓA TOÀN BỘ MÔ HÌNH VÀ MARKER TRÊN BẢN ĐỒ
  */
 function clearAllCesiumModels() {
   if (!cesiumViewerInstance) return;
-  activeCesiumTilesets.forEach(tileset => {
-    cesiumViewerInstance.scene.primitives.remove(tileset);
+  managedCesiumModels.forEach(m => {
+    cesiumViewerInstance.scene.primitives.remove(m.tileset);
   });
-  activeCesiumTilesets = [];
+  managedCesiumModels = [];
+  cesiumViewerInstance.entities.removeAll();
 }
 
 /**
- * 🚀 NẠP ĐỒNG THỜI NHIỀU ASYNC/AWAIT DỰA TRÊN Ô NHẬP LIỆU CÁCH NHAU DẤU PHẨY
+ * 🚀 NẠP HÀNG LOẠT VÀ KHỞI TẠO BẢNG ĐIỀU KHIỂN
  */
 async function loadMultipleInfrastructureModels() {
   if (!cesiumViewerInstance) return;
 
   clearAllCesiumModels();
-  cesiumViewerInstance.entities.removeAll();
 
-  // Đọc chuỗi Asset IDs từ ô input (ví dụ: "6018479, 6018480, 6018481")
   const rawInput = document.getElementById('dt-model-url') ? document.getElementById('dt-model-url').value.trim() : '6018479';
   const assetIds = rawInput.split(',').map(s => s.trim()).filter(Boolean);
 
@@ -569,44 +590,116 @@ async function loadMultipleInfrastructureModels() {
     proj4.defs("VN2000_CUSTOM", `+proj=tmerc +lat_0=0 +lon_0=${lon0} +k=0.9999 +x_0=500000 +y_0=0 +ellps=WGS84 +units=m +no_defs`);
   }
 
-  // Duyệt qua từng Asset ID và đưa lên bản đồ đồng thời
-  for (let i = 0; i < assetIds.length; i++) {
-    const assetId = assetIds[i];
-    let targetLng = 108.25;
-    let targetLat = 14.0;
+  let baseLng = 108.25;
+  let baseLat = 14.0;
 
-    if (window.proj4) {
-      let latLon = proj4("VN2000_CUSTOM", "EPSG:4326", [baseX, baseY]);
-      targetLng = latLon[0];
-      targetLat = latLon[1];
-    }
-
-    cesiumViewerInstance.entities.add({
-      name: `Mô hình hạ tầng ID: ${assetId}`,
-      position: Cesium.Cartesian3.fromDegrees(targetLng, targetLat, 0),
-      point: { pixelSize: 14, color: Cesium.Color.CYAN, outlineColor: Cesium.Color.WHITE, outlineWidth: 2 },
-      label: {
-        text: `ID: ${assetId}`,
-        font: '11pt sans-serif',
-        style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-        fillColor: Cesium.Color.WHITE,
-        outlineColor: Cesium.Color.BLACK,
-        outlineWidth: 2,
-        pixelOffset: new Cesium.Cartesian2(0, -25)
-      }
-    });
-
-    await addBimModelToCesium(targetLng, targetLat, assetId, 10);
+  if (window.proj4) {
+    let latLon = proj4("VN2000_CUSTOM", "EPSG:4326", [baseX, baseY]);
+    baseLng = latLon[0];
+    baseLat = latLon[1];
   }
 
-  // Zoom camera tập trung vào nhóm mô hình
-  if (activeCesiumTilesets.length > 0 && cesiumViewerInstance.zoomTo) {
-    cesiumViewerInstance.zoomTo(activeCesiumTilesets[0], new Cesium.HeadingPitchRange(
+  for (let i = 0; i < assetIds.length; i++) {
+    const assetId = assetIds[i];
+    try {
+      let tileset;
+      if (!isNaN(assetId)) {
+        tileset = await Cesium.Cesium3DTileset.fromIonAssetId(parseInt(assetId));
+      } else {
+        tileset = await Cesium.Cesium3DTileset.fromUrl(assetId);
+      }
+
+      cesiumViewerInstance.scene.primitives.add(tileset);
+      if (tileset.readyPromise) {
+        await tileset.readyPromise;
+      }
+
+      const modelConfig = {
+        id: assetId,
+        tileset: tileset,
+        lng: baseLng,
+        lat: baseLat,
+        dx: 0,
+        dy: 0,
+        dz: 10,
+        heading: 0
+      };
+
+      managedCesiumModels.push(modelConfig);
+      updateModelMatrix(modelConfig);
+
+      cesiumViewerInstance.entities.add({
+        name: `Model ID: ${assetId}`,
+        position: Cesium.Cartesian3.fromDegrees(baseLng, baseLat, 0),
+        point: { pixelSize: 14, color: Cesium.Color.CYAN, outlineColor: Cesium.Color.WHITE, outlineWidth: 2 },
+        label: {
+          text: `ID: ${assetId}`,
+          font: '11pt sans-serif',
+          style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+          fillColor: Cesium.Color.WHITE,
+          outlineColor: Cesium.Color.BLACK,
+          outlineWidth: 2,
+          pixelOffset: new Cesium.Cartesian2(0, -25)
+        }
+      });
+    } catch (err) {
+      console.warn(`Lỗi tải model ID ${assetId}:`, err);
+    }
+  }
+
+  updateInspectorDropdown();
+
+  if (managedCesiumModels.length > 0 && cesiumViewerInstance.zoomTo) {
+    cesiumViewerInstance.zoomTo(managedCesiumModels[0].tileset, new Cesium.HeadingPitchRange(
       Cesium.Math.toRadians(0.0),
       Cesium.Math.toRadians(-45.0),
       300.0
     ));
   }
+}
+
+function updateInspectorDropdown() {
+  const select = document.getElementById('dt-inspect-select');
+  if (!select) return;
+  select.innerHTML = '';
+  managedCesiumModels.forEach((m) => {
+    const opt = document.createElement('option');
+    opt.value = m.id;
+    opt.innerText = `Model [${m.id}]`;
+    select.appendChild(opt);
+  });
+  if (managedCesiumModels.length > 0) {
+    loadSelectedModelConfigToUI();
+  }
+}
+
+function loadSelectedModelConfigToUI() {
+  const select = document.getElementById('dt-inspect-select');
+  if (!select) return;
+  const targetId = select.value;
+  const found = managedCesiumModels.find(m => m.id === targetId);
+  if (!found) return;
+
+  document.getElementById('dt-adj-dx').value = found.dx;
+  document.getElementById('dt-adj-dy').value = found.dy;
+  document.getElementById('dt-adj-dz').value = found.dz;
+  document.getElementById('dt-adj-heading').value = found.heading;
+}
+
+function applyTransformToActiveModel() {
+  const select = document.getElementById('dt-inspect-select');
+  if (!select) return;
+  const targetId = select.value;
+  const found = managedCesiumModels.find(m => m.id === targetId);
+  if (!found) return;
+
+  found.dx = parseFloat(document.getElementById('dt-adj-dx').value) || 0;
+  found.dy = parseFloat(document.getElementById('dt-adj-dy').value) || 0;
+  found.dz = parseFloat(document.getElementById('dt-adj-dz').value) || 0;
+  found.heading = parseFloat(document.getElementById('dt-adj-heading').value) || 0;
+
+  updateModelMatrix(found);
+  alert(`✅ Đã cập nhật tọa độ & góc xoay cho Model [${found.id}] thành công!`);
 }
 
 function updateCesiumPositionFromVN2000() {
@@ -1789,5 +1882,6 @@ window.closeAssetPanel = closeAssetPanel;
 window.openCesiumGisMap = openCesiumGisMap;
 window.closeCesiumGisMap = closeCesiumGisMap;
 window.updateCesiumPositionFromVN2000 = updateCesiumPositionFromVN2000;
-window.addBimModelToCesium = addBimModelToCesium;
 window.loadMultipleInfrastructureModels = loadMultipleInfrastructureModels;
+window.loadSelectedModelConfigToUI = loadSelectedModelConfigToUI;
+window.applyTransformToActiveModel = applyTransformToActiveModel;
