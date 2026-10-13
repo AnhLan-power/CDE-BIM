@@ -438,12 +438,12 @@ function createOrShowCesiumModal() {
 
         <div>
           <label style="font-weight:bold;">X (m):</label>
-          <input type="number" id="dt-vn2000-x" value="603867.56" style="width:85px; padding:4px; border-radius:4px; border:1px solid #3b4c66; background:#222c3d; color:#fff; text-align:center;" />
+          <input type="number" id="dt-vn2000-x" value="604083.56" style="width:85px; padding:4px; border-radius:4px; border:1px solid #3b4c66; background:#222c3d; color:#fff; text-align:center;" />
         </div>
 
         <div>
           <label style="font-weight:bold;">Y (m):</label>
-          <input type="number" id="dt-vn2000-y" value="1528469.13" style="width:85px; padding:4px; border-radius:4px; border:1px solid #3b4c66; background:#222c3d; color:#fff; text-align:center;" />
+          <input type="number" id="dt-vn2000-y" value="1528409.13" style="width:85px; padding:4px; border-radius:4px; border:1px solid #3b4c66; background:#222c3d; color:#fff; text-align:center;" />
         </div>
 
         <div>
