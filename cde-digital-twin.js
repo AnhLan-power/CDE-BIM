@@ -448,7 +448,7 @@ function createOrShowCesiumModal() {
 
         <div style="flex: 1; min-width: 220px;">
           <label style="font-weight:bold; color:#00f2ff;">📦 Asset IDs (Cách dấu phẩy):</label>
-          <input type="text" id="dt-model-url" value="6018479, 5028939" placeholder="VD: 6018479, 5028939" style="width:100%; padding:4px; border-radius:4px; border:1px solid #3b4c66; background:#222c3d; color:#fff; box-sizing:border-box;" />
+          <input type="text" id="dt-model-url" value="6018479, 6022034" placeholder="VD: 6018479, 6022034" style="width:100%; padding:4px; border-radius:4px; border:1px solid #3b4c66; background:#222c3d; color:#fff; box-sizing:border-box;" />
         </div>
 
         <button type="button" onclick="updateCesiumPositionFromVN2000()" style="background:#00f2ff; color:#121826; border:none; padding:6px 14px; border-radius:4px; font-weight:bold; cursor:pointer;">
@@ -456,31 +456,31 @@ function createOrShowCesiumModal() {
         </button>
       </div>
 
-      <!-- 🛠 BẢNG ĐIỀU KHIỂN TINH CHỈNH TỪNG MÔ HÌNH -->
+      <!-- 🛠 BẢNG ĐIỀU KHIỂN TINH CHỈNH CHÍNH XÁC X, Y, Z VÀ GÓC XOAY CHO TỪNG MODEL -->
       <div style="background:#111622; padding:8px 20px; display:flex; align-items:center; gap:12px; flex-wrap:wrap; border-bottom:1px solid #283348; color:#fff; font-size:11px;">
-        <span style="color:#f39c12; font-weight:bold;">🎛️ Công Cụ Hiệu Chỉnh:</span>
+        <span style="color:#f39c12; font-weight:bold;">🎛️ Hiệu Chỉnh Độc Lập:</span>
         <div>
-          <label>Chọn Model:</label>
+          <label>Model:</label>
           <select id="dt-inspect-select" onchange="loadSelectedModelConfigToUI()" style="padding:3px 6px; background:#1a2332; color:#fff; border:1px solid #3b4c66; border-radius:4px; cursor:pointer;"></select>
         </div>
         <div>
           <label>Độ lệch X (m):</label>
-          <input type="number" id="dt-adj-dx" value="0" step="0.5" style="width:60px; padding:3px; background:#1a2332; color:#fff; border:1px solid #3b4c66; text-align:center;" />
+          <input type="number" id="dt-adj-dx" value="0" step="0.1" style="width:65px; padding:3px; background:#1a2332; color:#fff; border:1px solid #3b4c66; text-align:center;" />
         </div>
         <div>
           <label>Độ lệch Y (m):</label>
-          <input type="number" id="dt-adj-dy" value="0" step="0.5" style="width:60px; padding:3px; background:#1a2332; color:#fff; border:1px solid #3b4c66; text-align:center;" />
+          <input type="number" id="dt-adj-dy" value="0" step="0.1" style="width:65px; padding:3px; background:#1a2332; color:#fff; border:1px solid #3b4c66; text-align:center;" />
         </div>
         <div>
           <label>Cao độ Z (m):</label>
-          <input type="number" id="dt-adj-dz" value="10" step="1" style="width:50px; padding:3px; background:#1a2332; color:#fff; border:1px solid #3b4c66; text-align:center;" />
+          <input type="number" id="dt-adj-dz" value="0" step="0.5" style="width:60px; padding:3px; background:#1a2332; color:#fff; border:1px solid #3b4c66; text-align:center;" />
         </div>
         <div>
-          <label>Góc xoay Heading (°):</label>
+          <label>Góc xoay (°):</label>
           <input type="number" id="dt-adj-heading" value="0" step="1" style="width:55px; padding:3px; background:#1a2332; color:#fff; border:1px solid #3b4c66; text-align:center;" />
         </div>
         <button type="button" onclick="applyTransformToActiveModel()" style="background:#28a745; color:#fff; border:none; padding:5px 12px; border-radius:4px; font-weight:bold; cursor:pointer;">
-          💾 Cập Nhật & Zoom Tới Model
+          💾 Cập Nhật & Zoom
         </button>
       </div>
 
@@ -514,14 +514,40 @@ function createOrShowCesiumModal() {
 }
 
 /**
- * 🟢 TÍNH TOÁN VÀ CẬP NHẬT MA TRẬN BIẾN ĐỔI AN TOÀN CHO TỪNG MODEL
+ * 🟢 TÍNH TOÁN MA TRẬN CHUẨN XÁC DỰA TRÊN TỌA ĐỘ VN-2000 CỘNG ĐỘ LỆCH MÉT (X, Y, Z) VÀ QUAY (HEADING)
  */
 function updateModelMatrix(modelObj) {
   if (!cesiumViewerInstance || !modelObj || !modelObj.tileset) return;
 
   const tileset = modelObj.tileset;
-  const finalLngLat = offsetLatLng(modelObj.lng, modelObj.lat, modelObj.dx, modelObj.dy);
-  const surfacePosition = Cesium.Cartesian3.fromDegrees(finalLngLat.lng, finalLngLat.lat, modelObj.dz);
+
+  const xInput = document.getElementById('dt-vn2000-x');
+  const yInput = document.getElementById('dt-vn2000-y');
+  const selectEl = document.getElementById('dt-province-select');
+
+  const baseX = parseFloat(xInput ? xInput.value : '604083.56');
+  const baseY = parseFloat(yInput ? yInput.value : '1528409.13');
+  const lon0 = parseFloat(selectEl ? selectEl.value : '108.25');
+
+  if (window.proj4) {
+    proj4.defs("VN2000_CUSTOM", `+proj=tmerc +lat_0=0 +lon_0=${lon0} +k=0.9999 +x_0=500000 +y_0=0 +ellps=WGS84 +units=m +no_defs`);
+  }
+
+  // Cộng trực tiếp độ lệch mét (dx, dy) vào tọa độ VN-2000 gốc để đảm bảo độ chính xác tuyệt đối
+  const finalX = baseX + (modelObj.dx || 0);
+  const finalY = baseY + (modelObj.dy || 0);
+
+  let targetLng = 108.25;
+  let targetLat = 14.0;
+
+  if (window.proj4) {
+    let latLon = proj4("VN2000_CUSTOM", "EPSG:4326", [finalX, finalY]);
+    targetLng = latLon[0];
+    targetLat = latLon[1];
+  }
+
+  // Cao độ Z (mét) so với mặt đất
+  const surfacePosition = Cesium.Cartesian3.fromDegrees(targetLng, targetLat, modelObj.dz || 0);
 
   const hpr = new Cesium.HeadingPitchRoll(
     Cesium.Math.toRadians(modelObj.heading || 0),
@@ -531,7 +557,6 @@ function updateModelMatrix(modelObj) {
   
   const targetMatrix = Cesium.Transforms.headingPitchRollToFixedFrame(surfacePosition, hpr);
 
-  // Kiểm tra an toàn boundingSphere để tránh mất mô hình khi đổi góc xoay
   if (tileset.boundingSphere) {
     const center = tileset.boundingSphere.center;
     const inverseModelMatrix = Cesium.Matrix4.inverse(
@@ -547,17 +572,7 @@ function updateModelMatrix(modelObj) {
 }
 
 /**
- * Hàm hỗ trợ dịch chuyển mét sang kinh độ/vĩ độ tương đối
- */
-function offsetLatLng(lng, lat, dxMeters, dyMeters) {
-  const earthRadius = 6378137;
-  const dLat = (dyMeters / earthRadius) * (180 / Math.PI);
-  const dLng = (dxMeters / (earthRadius * Math.cos(Math.PI * lat / 180))) * (180 / Math.PI);
-  return { lng: lng + dLng, lat: lat + dLat };
-}
-
-/**
- * 🧹 XÓA TOÀN BỘ MÔ HÌNH VÀ MARKER TRÊN BẢN ĐỒ
+ * 🧹 XÓA TOÀN BỘ MÔ HÌNH VÀ ENTITY TRÊN BẢN ĐỒ
  */
 function clearAllCesiumModels() {
   if (!cesiumViewerInstance) return;
@@ -618,11 +633,9 @@ async function loadMultipleInfrastructureModels() {
       const modelConfig = {
         id: assetId,
         tileset: tileset,
-        lng: baseLng,
-        lat: baseLat,
         dx: 0,
         dy: 0,
-        dz: 10,
+        dz: 0,
         heading: 0
       };
 
@@ -701,7 +714,6 @@ function applyTransformToActiveModel() {
 
   updateModelMatrix(found);
 
-  // 🎯 Tự động zoom camera ngay tới model vừa cập nhật để dễ quan sát
   if (cesiumViewerInstance && found.tileset) {
     cesiumViewerInstance.zoomTo(found.tileset, new Cesium.HeadingPitchRange(
       Cesium.Math.toRadians(0.0),
@@ -1753,7 +1765,7 @@ function injectDigitalTwinDashboardModal() {
               <div id="dt-dash-op" style="font-size:24px; font-weight:bold; color:#28a745; margin-top:5px;">0</div>
             </div>
             <div style="background:#fff; padding:15px; border-radius:8px; border-left:4px solid #f39c12;">
-              <div style="font-size:12px; color:#666; font-weight:bold;">🟡 Đang BẢO TRÌ</div>
+              <div style="font-size:12px; color:#666; font-weight:bold;">🟡 ĐANG BẢO TRÌ</div>
               <div id="dt-dash-maint" style="font-size:24px; font-weight:bold; color:#f39c12; margin-top:5px;">0</div>
             </div>
             <div style="background:#fff; padding:15px; border-radius:8px; border-left:4px solid #dc3545;">
