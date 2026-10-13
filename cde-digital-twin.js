@@ -399,40 +399,40 @@ function createOrShowCesiumModal() {
         <div>
           <label style="font-weight:bold; color:#00f2ff;">📍 Tỉnh:</label>
           <select id="dt-province-select" style="padding:4px 6px; border-radius:4px; background:#222c3d; color:#fff; border:1px solid #3b4c66; cursor:pointer;">
-            <option value="104.45">An Giang (KTTrục: 104°45')</option>
+            <option value="104.75">An Giang (KTTrục: 104°45')</option>
             <option value="107">Bắc Ninh (KTTrục: 107°00')</option>
-            <option value="104.3">Cà Mau (KTTrục: 104°30')</option>
-            <option value="105.45">Cao Bằng (KTTrục: 105°45')</option>
-            <option value="108.3">Đắk Lắk (KTTrục: 108°30')</option>
+            <option value="104.5">Cà Mau (KTTrục: 104°30')</option>
+            <option value="105.75">Cao Bằng (KTTrục: 105°45')</option>
+            <option value="108.5">Đắk Lắk (KTTrục: 108°30')</option>
             <option value="103">Điện Biên (KTTrục: 103°30')</option>
-            <option value="107.45">Đồng Nai (KTTrục: 107°45')</option>
+            <option value="107.75">Đồng Nai (KTTrục: 107°45')</option>
             <option value="105">Đồng Tháp (KTTrục: 105°00')</option>
-            <option value="108.15" selected>Gia Lai (KTTrục: 108°15')</option>
-            <option value="105.3">Hà Tĩnh (KTTrục: 105°30')</option>
-            <option value="105.3">Hưng Yên (KTTrục: 105°30')</option>
-            <option value="108.15">Khánh Hòa (KTTrục: 108°15')</option>
-            <option value="104.45">Lai Châu (KTTrục: 104°45')</option>
-            <option value="107.15">Lạng Sơn (KTTrục: 107°15')</option>
-            <option value="104.45">Lào Cai (KTTrục: 104°45')</option>
-            <option value="107.45">Lâm Đồng (KTTrục: 107°45')</option>
-            <option value="104.45">Nghệ An (KTTrục: 104°45')</option>
+            <option value="108.25" selected>Gia Lai (KTTrục: 108°15')</option>
+            <option value="105.5">Hà Tĩnh (KTTrục: 105°30')</option>
+            <option value="105.5">Hưng Yên (KTTrục: 105°30')</option>
+            <option value="108.25">Khánh Hòa (KTTrục: 108°15')</option>
+            <option value="104.75">Lai Châu (KTTrục: 104°45')</option>
+            <option value="107.25">Lạng Sơn (KTTrục: 107°15')</option>
+            <option value="104.75">Lào Cai (KTTrục: 104°45')</option>
+            <option value="107.75">Lâm Đồng (KTTrục: 107°45')</option>
+            <option value="104.75">Nghệ An (KTTrục: 104°45')</option>
             <option value="105">Ninh Bình (KTTrục: 105°00')</option>
-            <option value="104.45">Phú Thọ (KTTrục: 104°45')</option>
+            <option value="104.75">Phú Thọ (KTTrục: 104°45')</option>
             <option value="108">Quảng Ngãi (KTTrục: 108°00')</option>
-            <option value="107.45">Quảng Ninh (KTTrục: 107°45')</option>
+            <option value="107.75">Quảng Ninh (KTTrục: 107°45')</option>
             <option value="106">Quảng Trị (KTTrục: 106°00')</option>
             <option value="104">Sơn La (KTTrục: 104°00')</option>
-            <option value="105.45">Tây Ninh (KTTrục: 105°45')</option>
-            <option value="106.3">Thái Nguyên (KTTrục: 106°30')</option>
+            <option value="105.75">Tây Ninh (KTTrục: 105°45')</option>
+            <option value="106.5">Thái Nguyên (KTTrục: 106°30')</option>
             <option value="105">Thanh Hóa (KTTrục: 105°00')</option>
             <option value="105">Cần Thơ (KTTrục: 105°00')</option>
-            <option value="107.45">Đà Nẵng (KTTrục: 107°45')</option>
+            <option value="107.75">Đà Nẵng (KTTrục: 107°45')</option>
             <option value="105">Hà Nội (KTTrục: 105°00')</option>
-            <option value="105.45">Hải Phòng (KTTrục: 105°45')</option>
-            <option value="105.45">Hồ Chí Minh (KTTrục: 105°45')</option>
+            <option value="105.75">Hải Phòng (KTTrục: 105°45')</option>
+            <option value="105.75">Hồ Chí Minh (KTTrục: 105°45')</option>
             <option value="107">Huế (KTTrục: 107°00')</option>
             <option value="106">Tuyên Quang (KTTrục: 106°00')</option>
-            <option value="105.3">Vĩnh Long (KTTrục: 105°30')</option>
+            <option value="105.5">Vĩnh Long (KTTrục: 105°30')</option>
           </select>
         </div>
 
