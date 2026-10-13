@@ -336,7 +336,7 @@ window.focusAndOpenAssetFromDashboard = function(expressId, globalId, assetName)
 };
 
 // =========================================================================
-// --- TÍCH HỢP BẢN ĐỒ GIS 3D & QUẢN LÝ NHIỀU MÔ HÌNH HẠ TẦNG (CESIUMJS) ---
+// --- TÍCH HỢP BẢN ĐỒ GIS 3D & QUẢN LÝ ĐA MÔ HÌNH HẠ TẦNG (CESIUMJS) ---
 // =========================================================================
 
 function loadCesiumScripts(callback) {
@@ -391,48 +391,48 @@ function createOrShowCesiumModal() {
     modal.style.cssText = 'position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(0,0,0,0.85); z-index:999999; display:flex; flex-direction:column; font-family:sans-serif;';
     modal.innerHTML = `
       <div style="background:#121826; color:#00f2ff; padding:12px 20px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #3b4c66;">
-        <h3 style="margin:0; font-size:15px;">🌍 Bản Đồ GIS 3D - Quy Đổi Tọa Độ VN-2000 & Đồng Bộ Đa Mô Hình BIM</h3>
+        <h3 style="margin:0; font-size:15px;">🌍 Bản Đồ GIS 3D - Quản Lý Đa Mô Hình Hạ Tầng BIM</h3>
         <button type="button" onclick="closeCesiumGisMap()" style="background:#dc3545; color:#fff; border:none; padding:6px 12px; border-radius:4px; font-weight:bold; cursor:pointer;">✕ Đóng Bản Đồ</button>
       </div>
 
-      <div style="background:#1a2332; padding:10px 20px; display:flex; align-items:center; gap:12px; flex-wrap:wrap; border-bottom:1px solid #3b4c66; color:#fff; font-size:12px;">
+      <div style="background:#1a2332; padding:10px 20px; display:flex; align-items:center; gap:10px; flex-wrap:wrap; border-bottom:1px solid #3b4c66; color:#fff; font-size:12px;">
         <div>
           <label style="font-weight:bold; color:#00f2ff;">📍 Tỉnh:</label>
           <select id="dt-province-select" style="padding:4px 6px; border-radius:4px; background:#222c3d; color:#fff; border:1px solid #3b4c66; cursor:pointer;">
-            <option value="104.75">An Giang (KTTrục: 104°45')</option>
-            <option value="107">Bắc Ninh (KTTrục: 107°00')</option>
-            <option value="104.5">Cà Mau (KTTrục: 104°30')</option>
-            <option value="105.75">Cao Bằng (KTTrục: 105°45')</option>
-            <option value="108.5">Đắk Lắk (KTTrục: 108°30')</option>
-            <option value="103">Điện Biên (KTTrục: 103°30')</option>
-            <option value="107.75">Đồng Nai (KTTrục: 107°45')</option>
-            <option value="105">Đồng Tháp (KTTrục: 105°00')</option>
+            <option value="104.75">An Giang</option>
+            <option value="107">Bắc Ninh</option>
+            <option value="104.5">Cà Mau</option>
+            <option value="105.75">Cao Bằng</option>
+            <option value="108.5">Đắk Lắk</option>
+            <option value="103">Điện Biên</option>
+            <option value="107.75">Đồng Nai</option>
+            <option value="105">Đồng Tháp</option>
             <option value="108.25" selected>Gia Lai (KTTrục: 108°15')</option>
-            <option value="105.5">Hà Tĩnh (KTTrục: 105°30')</option>
-            <option value="105.5">Hưng Yên (KTTrục: 105°30')</option>
-            <option value="108.25">Khánh Hòa (KTTrục: 108°15')</option>
-            <option value="104.75">Lai Châu (KTTrục: 104°45')</option>
-            <option value="107.25">Lạng Sơn (KTTrục: 107°15')</option>
-            <option value="104.75">Lào Cai (KTTrục: 104°45')</option>
-            <option value="107.75">Lâm Đồng (KTTrục: 107°45')</option>
-            <option value="104.75">Nghệ An (KTTrục: 104°45')</option>
-            <option value="105">Ninh Bình (KTTrục: 105°00')</option>
-            <option value="104.75">Phú Thọ (KTTrục: 104°45')</option>
-            <option value="108">Quảng Ngãi (KTTrục: 108°00')</option>
-            <option value="107.75">Quảng Ninh (KTTrục: 107°45')</option>
-            <option value="106">Quảng Trị (KTTrục: 106°00')</option>
-            <option value="104">Sơn La (KTTrục: 104°00')</option>
-            <option value="105.75">Tây Ninh (KTTrục: 105°45')</option>
-            <option value="106.5">Thái Nguyên (KTTrục: 106°30')</option>
-            <option value="105">Thanh Hóa (KTTrục: 105°00')</option>
-            <option value="105">Cần Thơ (KTTrục: 105°00')</option>
-            <option value="107.75">Đà Nẵng (KTTrục: 107°45')</option>
-            <option value="105">Hà Nội (KTTrục: 105°00')</option>
-            <option value="105.75">Hải Phòng (KTTrục: 105°45')</option>
-            <option value="105.75">Hồ Chí Minh (KTTrục: 105°45')</option>
-            <option value="107">Huế (KTTrục: 107°00')</option>
-            <option value="106">Tuyên Quang (KTTrục: 106°00')</option>
-            <option value="105.5">Vĩnh Long (KTTrục: 105°30')</option>
+            <option value="105.5">Hà Tĩnh</option>
+            <option value="105.5">Hưng Yên</option>
+            <option value="108.25">Khánh Hòa</option>
+            <option value="104.75">Lai Châu</option>
+            <option value="107.25">Lạng Sơn</option>
+            <option value="104.75">Lào Cai</option>
+            <option value="107.75">Lâm Đồng</option>
+            <option value="104.75">Nghệ An</option>
+            <option value="105">Ninh Bình</option>
+            <option value="104.75">Phú Thọ</option>
+            <option value="108">Quảng Ngãi</option>
+            <option value="107.75">Quảng Ninh</option>
+            <option value="106">Quảng Trị</option>
+            <option value="104">Sơn La</option>
+            <option value="105.75">Tây Ninh</option>
+            <option value="106.5">Thái Nguyên</option>
+            <option value="105">Thanh Hóa</option>
+            <option value="105">Cần Thơ</option>
+            <option value="107.75">Đà Nẵng</option>
+            <option value="105">Hà Nội</option>
+            <option value="105.75">Hải Phòng</option>
+            <option value="105.75">Hồ Chí Minh</option>
+            <option value="107">Huế</option>
+            <option value="106">Tuyên Quang</option>
+            <option value="105.5">Vĩnh Long</option>
           </select>
         </div>
 
@@ -446,13 +446,13 @@ function createOrShowCesiumModal() {
           <input type="number" id="dt-vn2000-y" value="1528409.13" style="width:85px; padding:4px; border-radius:4px; border:1px solid #3b4c66; background:#222c3d; color:#fff; text-align:center;" />
         </div>
 
-        <div>
-          <label style="font-weight:bold; color:#00f2ff;">📦 Asset ID / Link 3D Tiles:</label>
-          <input type="text" id="dt-model-url" value="6018479" placeholder="Nhập ID 6018479 hoặc URL..." style="width:190px; padding:4px; border-radius:4px; border:1px solid #3b4c66; background:#222c3d; color:#fff;" />
+        <div style="flex: 1; min-width: 260px;">
+          <label style="font-weight:bold; color:#00f2ff;">📦 Asset IDs (Cách nhau dấu phẩy):</label>
+          <input type="text" id="dt-model-url" value="6018479" placeholder="VD: 6018479, 6018480, ..." style="width:100%; padding:4px; border-radius:4px; border:1px solid #3b4c66; background:#222c3d; color:#fff; box-sizing:border-box;" />
         </div>
 
-        <button type="button" onclick="updateCesiumPositionFromVN2000()" style="background:#00f2ff; color:#121826; border:none; padding:6px 12px; border-radius:4px; font-weight:bold; cursor:pointer;">
-          🚀 Định Vị & Tải Đa Mô Hình
+        <button type="button" onclick="updateCesiumPositionFromVN2000()" style="background:#00f2ff; color:#121826; border:none; padding:6px 14px; border-radius:4px; font-weight:bold; cursor:pointer;">
+          🚀 Tải & Định Vị Hàng Loạt
         </button>
       </div>
 
@@ -486,7 +486,7 @@ function createOrShowCesiumModal() {
 }
 
 /**
- * 🟢 HÀM THÊM MỘT MÔ HÌNH 3D TILES VÀO MẢNG QUẢN LÝ CHUNG TRÊN CESIUM
+ * 🟢 HÀM THÊM MỘT MÔ HÌNH 3D TILES VÀO MẢNG QUẢN LÝ ĐA MÔ HÌNH
  */
 async function addBimModelToCesium(targetLng, targetLat, inputVal = '', heightOffset = 10) {
   if (!cesiumViewerInstance) return;
@@ -503,15 +503,13 @@ async function addBimModelToCesium(targetLng, targetLat, inputVal = '', heightOf
     }
 
     cesiumViewerInstance.scene.primitives.add(tileset);
-    activeCesiumTilesets.push(tileset); // Lưu vào mảng quản lý đa mô hình
+    activeCesiumTilesets.push(tileset);
 
     if (tileset.readyPromise) {
       await tileset.readyPromise;
     }
 
-    // 1. Tạo vị trí WGS84 chuẩn theo tọa độ VN-2000
     const surfacePosition = Cesium.Cartesian3.fromDegrees(targetLng, targetLat, heightOffset);
-    
     const hpr = new Cesium.HeadingPitchRoll(
       Cesium.Math.toRadians(0.0),
       Cesium.Math.toRadians(0.0),
@@ -519,7 +517,6 @@ async function addBimModelToCesium(targetLng, targetLat, inputVal = '', heightOf
     );
     const targetMatrix = Cesium.Transforms.headingPitchRollToFixedFrame(surfacePosition, hpr);
 
-    // 2. Triệt tiêu tọa độ gốc không gian và dán sát xuống mặt đất chính xác
     const center = tileset.boundingSphere.center;
     const inverseModelMatrix = Cesium.Matrix4.inverse(
       Cesium.Transforms.eastNorthUpToFixedFrame(center),
@@ -530,14 +527,14 @@ async function addBimModelToCesium(targetLng, targetLat, inputVal = '', heightOf
     Cesium.Matrix4.multiply(targetMatrix, inverseModelMatrix, finalMatrix);
     tileset.modelMatrix = finalMatrix;
 
-    console.log(`✅ Đã thêm mô hình (ID: ${inputVal}) lên bản đồ thành công!`);
+    console.log(`✅ Đã thêm mô hình ID: ${inputVal} thành công!`);
   } catch (err) {
     console.warn(`⚠️ Lỗi tải mô hình ID ${inputVal}:`, err);
   }
 }
 
 /**
- * 🧹 HÀM XÓA TOÀN BỘ CÁC MÔ HÌNH ĐANG HIỂN THỊ TRÊN MÀN HÌNH
+ * 🧹 XÓA TOÀN BỘ MÔ HÌNH CŨ TRƯỚC KHI TẢI LẠI DANH SÁCH MỚI
  */
 function clearAllCesiumModels() {
   if (!cesiumViewerInstance) return;
@@ -548,54 +545,48 @@ function clearAllCesiumModels() {
 }
 
 /**
- * 🚀 HÀM ĐỒNG BỘ VÀ TẢI ĐỒNG THỜI NHIỀU MÔ HÌNH HẠ TẦNG
+ * 🚀 NẠP ĐỒNG THỜI NHIỀU ASYNC/AWAIT DỰA TRÊN Ô NHẬP LIỆU CÁCH NHAU DẤU PHẨY
  */
 async function loadMultipleInfrastructureModels() {
   if (!cesiumViewerInstance) return;
 
-  // 1. Xóa mô hình cũ trước khi load danh sách mới
   clearAllCesiumModels();
   cesiumViewerInstance.entities.removeAll();
 
-  // 📋 DANH SÁCH MÔ HÌNH HẠ TẦNG QUẢN LÝ (Cậu có thể thêm nhiều Asset ID vào đây)
-  const inputVal = document.getElementById('dt-model-url') ? document.getElementById('dt-model-url').value.trim() : '6018479';
+  // Đọc chuỗi Asset IDs từ ô input (ví dụ: "6018479, 6018480, 6018481")
+  const rawInput = document.getElementById('dt-model-url') ? document.getElementById('dt-model-url').value.trim() : '6018479';
+  const assetIds = rawInput.split(',').map(s => s.trim()).filter(Boolean);
+
   const xInput = document.getElementById('dt-vn2000-x');
   const yInput = document.getElementById('dt-vn2000-y');
   const selectEl = document.getElementById('dt-province-select');
 
-  const xVal = parseFloat(xInput ? xInput.value : '604083.56');
-  const yVal = parseFloat(yInput ? yInput.value : '1528409.13');
+  const baseX = parseFloat(xInput ? xInput.value : '604083.56');
+  const baseY = parseFloat(yInput ? yInput.value : '1528409.13');
   const lon0 = parseFloat(selectEl ? selectEl.value : '108.25');
-
-  // Có thể gom nhóm danh sách hạ tầng tại đây để load đồng thời nhiều mô hình
-  const infrastructureList = [
-    { assetId: inputVal, x: xVal, y: yVal, height: 10 },
-    // Ví dụ nếu muốn load thêm phân khu khác cùng lúc:
-    // { assetId: '6018480', x: xVal + 150, y: yVal + 150, height: 10 }
-  ];
 
   if (window.proj4) {
     proj4.defs("VN2000_CUSTOM", `+proj=tmerc +lat_0=0 +lon_0=${lon0} +k=0.9999 +x_0=500000 +y_0=0 +ellps=WGS84 +units=m +no_defs`);
   }
 
-  // 2. Vòng lặp nạp đồng thời các mô hình
-  for (const item of infrastructureList) {
+  // Duyệt qua từng Asset ID và đưa lên bản đồ đồng thời
+  for (let i = 0; i < assetIds.length; i++) {
+    const assetId = assetIds[i];
     let targetLng = 108.25;
     let targetLat = 14.0;
 
     if (window.proj4) {
-      let latLon = proj4("VN2000_CUSTOM", "EPSG:4326", [item.x, item.y]);
+      let latLon = proj4("VN2000_CUSTOM", "EPSG:4326", [baseX, baseY]);
       targetLng = latLon[0];
       targetLat = latLon[1];
     }
 
-    // Tạo điểm định vị cho từng công trình
     cesiumViewerInstance.entities.add({
-      name: `Công trình Asset ID: ${item.assetId}`,
+      name: `Mô hình hạ tầng ID: ${assetId}`,
       position: Cesium.Cartesian3.fromDegrees(targetLng, targetLat, 0),
-      point: { pixelSize: 16, color: Cesium.Color.CYAN, outlineColor: Cesium.Color.WHITE, outlineWidth: 2 },
+      point: { pixelSize: 14, color: Cesium.Color.CYAN, outlineColor: Cesium.Color.WHITE, outlineWidth: 2 },
       label: {
-        text: `ID: ${item.assetId}`,
+        text: `ID: ${assetId}`,
         font: '11pt sans-serif',
         style: Cesium.LabelStyle.FILL_AND_OUTLINE,
         fillColor: Cesium.Color.WHITE,
@@ -605,10 +596,10 @@ async function loadMultipleInfrastructureModels() {
       }
     });
 
-    await addBimModelToCesium(targetLng, targetLat, item.assetId, item.height);
+    await addBimModelToCesium(targetLng, targetLat, assetId, 10);
   }
 
-  // 3. Zoom camera tập trung vào khu vực dự án
+  // Zoom camera tập trung vào nhóm mô hình
   if (activeCesiumTilesets.length > 0 && cesiumViewerInstance.zoomTo) {
     cesiumViewerInstance.zoomTo(activeCesiumTilesets[0], new Cesium.HeadingPitchRange(
       Cesium.Math.toRadians(0.0),
