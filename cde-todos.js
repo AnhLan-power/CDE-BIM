@@ -204,7 +204,7 @@ async function loadTodosList() {
 
   const { data, error } = await sb
     .from("project_todos")
-    .select("*, project_todo_assignees(user_id, profiles(full_name))")
+    .select("*, project_todo_assignees(user_id, profiles(full_name, email))")
     .eq("project_id", activeProjectId)
     .eq("status", tdActiveTab)
     .order("created_at", { ascending: false });
@@ -306,21 +306,38 @@ function highlightTodoElements(globalIds) {
 // camera và cấu kiện đã lưu kèm ToDo đó (nếu có), thay vì luôn lấy góc
 // nhìn hiện tại đang xem dở trên màn hình.
 async function exportTodoAsBcf(t) {
-  if (!window.exportBcfIssue) { alert("Thiếu chức năng xuất BCF (exportBcfIssue) — kiểm tra lại index.html."); return; }
+  if (!window.exportBcfIssue) { alert("Thiếu chức năng xuất BCF (exportBcfIssue) — kiểm tra lại index.html (cde-bcf.js)."); return; }
 
-  let camera = null;
+  // Ưu tiên đúng góc nhìn đã lưu kèm ToDo; nếu ToDo chưa có thì hỏi trước khi
+  // dùng góc nhìn camera đang xem dở (tránh xuất nhầm 1 góc nhìn ngẫu nhiên).
+  let view = null;
   if (t.linked_view_id) {
-    const { data: v } = await sb.from("project_views").select("*").eq("id", t.linked_view_id).single();
-    if (v) camera = { eye: v.camera_eye, look: v.camera_look, up: v.camera_up };
+    const { data } = await sb.from("project_views").select("*").eq("id", t.linked_view_id).single();
+    view = data || null;
   }
+  if (!view) {
+    const ok = confirm("ToDo này chưa có góc nhìn lưu kèm.\n\nOK = xuất BCF bằng góc nhìn camera ĐANG XEM trên màn hình.\nHuỷ = dừng lại để cậu xoay tới đúng vị trí trước.");
+    if (!ok) return;
+  }
+
+  const assignees = (t.project_todo_assignees || [])
+    .map(a => a.profiles && (a.profiles.email || a.profiles.full_name)).filter(Boolean);
+  const typeMap = { clash: "Clash", issue: "Issue", rfi: "Request", task: "Issue" };
+  const prioMap = { high: "Major", normal: "Normal", low: "Minor" };
 
   await window.exportBcfIssue({
     title: t.title,
     description: t.description || "",
-    eye: camera ? camera.eye : undefined,
-    look: camera ? camera.look : undefined,
-    up: camera ? camera.up : undefined,
-    targetIds: t.linked_global_ids || undefined
+    eye: view ? view.camera_eye : undefined,
+    look: view ? view.camera_look : undefined,
+    up: view ? view.camera_up : undefined,
+    snapshotDataUrl: view ? view.thumbnail : undefined,
+    targetIds: t.linked_global_ids || undefined,
+    status: t.status === "closed" ? "Closed" : "Open",
+    topicType: typeMap[t.todo_type] || "Issue",
+    priority: prioMap[t.priority] || "Normal",
+    dueDate: t.due_date || undefined,
+    assignedTo: assignees[0]
   });
 }
 
