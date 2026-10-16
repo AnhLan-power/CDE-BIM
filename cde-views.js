@@ -65,12 +65,14 @@ function renderSaveViewBox() {
 }
 
 function captureThumbnail() {
+  // Ưu tiên cách chụp dùng chung (ép render trước khi chụp -> không bị ảnh
+  // trống/đen); dự phòng về cách cũ nếu cde-bcf.js chưa nạp.
   try {
+    if (window.CdeSnapshot) return window.CdeSnapshot.capture(320, "image/jpeg", 0.7);
     const srcCanvas = viewer.scene.canvas.canvas;
     const small = document.createElement("canvas");
     small.width = 160; small.height = 100;
-    const ctx = small.getContext("2d");
-    ctx.drawImage(srcCanvas, 0, 0, small.width, small.height);
+    small.getContext("2d").drawImage(srcCanvas, 0, 0, small.width, small.height);
     return small.toDataURL("image/jpeg", 0.55);
   } catch (e) { return null; }
 }

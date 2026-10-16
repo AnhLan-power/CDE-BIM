@@ -3784,18 +3784,15 @@ window.debugClashPair = function() {
 
     // BCF Export — phần dựng + tải file .bcfzip nằm trong cde-bcf.js
     // (window.exportBcfIssue), dùng chung với nút "Xuất BCF" của từng ToDo.
+    // Chụp ảnh xem trước bằng CdeSnapshot (cde-bcf.js): render + drawImage,
+    // KHÔNG dùng viewer.getSnapshot vì hàm đó đổi kích thước canvas làm
+    // khung 3D bị đen tới khi có tương tác.
     async function refreshBcfViewPreview() {
       const img = document.getElementById("bcfViewPreview");
       if (!img) return;
       try {
-        let url = viewer.getSnapshot ? await viewer.getSnapshot({ format: "jpeg", width: 480, height: 270 }) : null;
-        if (!url || !String(url).startsWith("data:image")) {
-          const canvas = viewer.scene.canvas.canvas;
-          const small = document.createElement("canvas");
-          small.width = 240; small.height = 135;
-          small.getContext("2d").drawImage(canvas, 0, 0, small.width, small.height);
-          url = small.toDataURL("image/jpeg", 0.7);
-        }
+        const url = window.CdeSnapshot ? window.CdeSnapshot.capture(480, "image/jpeg", 0.8) : null;
+        if (!url) { img.style.display = "none"; return; }
         img.src = url;
         img.style.display = "block";
       } catch (e) { img.style.display = "none"; }
