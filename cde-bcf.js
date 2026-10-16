@@ -258,11 +258,22 @@
     const sel = selectedCenterBcf();
     el.textContent =
       "Camera (toạ độ IFC, m)  : " + fmt(eye) + "\n" +
+      "Offset đang áp dụng (m): " + fmt(off) + "\n" +
       "Camera gửi đi (-offset) : " + fmt(sent) + "\n" +
       (sel ? "Tâm " + sel.n + " cấu kiện chọn  : " + fmt(sel.center) + "\nKích thước (Đ;B;Cao)   : " + fmt(sel.size)
            : "Tâm cấu kiện chọn     : (chưa chọn cấu kiện nào)");
     const o = getOffset();
-    ["X", "Y", "Z"].forEach((k, i) => { const inp = root.document.getElementById("bcfOff" + k); if (inp && root.document.activeElement !== inp) inp.value = o[i]; });
+    const f = unitFactor();
+    ["X", "Y", "Z"].forEach((k, i) => {
+      const inp = root.document.getElementById("bcfOff" + k);
+      if (inp && root.document.activeElement !== inp) inp.value = Number((o[i] / f).toFixed(6));
+    });
+  }
+
+  function unitFactor() {
+    const sel = root.document.getElementById("bcfOffUnit");
+    const f = sel ? parseFloat(sel.value) : 1;
+    return Number.isFinite(f) && f > 0 ? f : 1;
   }
 
   function injectCalibrationUI() {
@@ -278,7 +289,11 @@
       <div style="margin-top:6px;color:#555;line-height:1.5;">
         <pre id="bcfCoordReadout" style="background:#f6f8fa;border-radius:6px;padding:6px;font-size:10px;white-space:pre-wrap;margin:0;"></pre>
         <button type="button" id="bcfCoordRefresh" class="btn" style="width:100%;margin-top:4px;font-size:10px;">🔄 Cập nhật toạ độ</button>
-        <div style="margin-top:6px;font-weight:600;">Offset trừ khỏi vị trí camera khi xuất (m):</div>
+        <div style="margin-top:6px;font-weight:600;">Offset trừ khỏi vị trí camera khi xuất:</div>
+        <div style="display:flex;gap:4px;align-items:center;margin-bottom:4px;">
+          <span>Đơn vị nhập:</span>
+          <select id="bcfOffUnit" style="flex:1;"><option value="1">m (mét)</option><option value="0.001">mm (như Revit hiển thị)</option></select>
+        </div>
         <div style="display:flex;gap:4px;">
           <input type="number" step="any" id="bcfOffX" placeholder="X (Đông)" style="flex:1;min-width:0;">
           <input type="number" step="any" id="bcfOffY" placeholder="Y (Bắc)" style="flex:1;min-width:0;">
@@ -290,7 +305,8 @@
         </div>
         <div style="margin-top:6px;color:#888;">
           Mô hình dùng toạ độ địa lý thật (hàng trăm nghìn mét). Nếu BIMcollab/Revit đặt gốc toạ độ khác IFC thì camera rơi rất xa mô hình.
-          Offset = toạ độ IFC của 1 điểm (xem ở trên) − toạ độ của <b>đúng điểm đó</b> trong Revit. Offset lưu theo trình duyệt và áp dụng cho cả nút "Xuất BCF" của ToDo.
+          Cách đơn giản: nhập toạ độ chia sẻ của <b>Project Base Point</b> (E/W, N/S, Elev — xem ở tab Geographic Reference khi xuất IFC với Coordinate Base = Project Base Point).
+          Hoặc tính: toạ độ IFC của 1 điểm (xem ở trên) − toạ độ của <b>đúng điểm đó</b> đo trong Revit. Offset lưu theo trình duyệt và áp dụng cho cả nút "Xuất BCF" của ToDo.
         </div>
       </div>`;
     refreshBtn.parentNode.insertBefore(box, refreshBtn.nextSibling);
@@ -298,10 +314,12 @@
     d.getElementById("bcfCoordRefresh").addEventListener("click", refreshReadout);
     box.addEventListener("toggle", () => { if (box.open) refreshReadout(); });
     d.getElementById("bcfOffSave").addEventListener("click", () => {
-      const v = ["X", "Y", "Z"].map(k => parseFloat(d.getElementById("bcfOff" + k).value) || 0);
+      const f = unitFactor();
+      const v = ["X", "Y", "Z"].map(k => Number(((parseFloat(d.getElementById("bcfOff" + k).value) || 0) * f).toFixed(6)));
       setOffset(v); refreshReadout();
     });
     d.getElementById("bcfOffZero").addEventListener("click", () => { setOffset([0, 0, 0]); refreshReadout(); });
+    d.getElementById("bcfOffUnit").addEventListener("change", refreshReadout);
   }
 
   root.CdeBcf = { buildBcfFiles, parseDataUrl, getOffset, setOffset };
