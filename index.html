@@ -506,6 +506,7 @@
       <button class="ribbon-tab" data-panel="ribbonAnalysis">Phân Tích</button>
       <button class="ribbon-tab" data-panel="ribbonReview">Kiểm Tra</button>
       <button class="ribbon-tab" data-panel="ribbonNavigate">Điều Hướng</button>
+      <button class="ribbon-tab" data-panel="ribbonOperate">Vận hành</button>
     </div>
 
     <div class="ribbon-panels">
@@ -679,6 +680,16 @@
             <span id="navHelpText">🖱️ Orbit: kéo chuột trái để xoay, cuộn để zoom.<br>🚶 Walk: W/A/S/D hoặc phím mũi tên để đi, kéo chuột trái để nhìn quanh.</span>
           </div>
           <div class="ribbon-group-label">Hướng Dẫn</div>
+        </div>
+      </div>
+
+      <!-- ===================== TAB: VẬN HÀNH ===================== -->
+      <div class="ribbon-panel" id="ribbonOperate">
+        <div class="ribbon-group">
+          <div class="ribbon-group-buttons">
+            <button class="btn" id="btnDigitalTwin" onclick="toggleDigitalTwinPanelFromMenu()" title="Hồ sơ thiết bị, nhật ký bảo trì và trạng thái vận hành của cấu kiện đang chọn (Digital Twin)">🏭 Digital Twin</button>
+          </div>
+          <div class="ribbon-group-label">Quản Lý Tài Sản</div>
         </div>
       </div>
     </div>
@@ -949,6 +960,17 @@
 
     const loadedModels = new Map();
     let selectedEntity = null;
+    // Cho module ngoài (cde-digital-twin.js...) đọc/ghi cấu kiện đang chọn mà
+    // không cần sửa từng chỗ gán selectedEntity bên dưới (getter luôn đồng bộ).
+    Object.defineProperty(window, "selectedEntity", {
+      configurable: true,
+      get: () => selectedEntity,
+      set: (v) => { selectedEntity = v; }
+    });
+    Object.defineProperty(window, "selectedMetaObject", {
+      configurable: true,
+      get: () => (selectedEntity ? lookupMetaObject(selectedEntity.id, selectedEntity.originalSystemId) : null)
+    });
     let multiSelectMode = false;
     const multiSelectedIds = new Set();
     window.multiSelectedIds = multiSelectedIds; // Set = kiểu tham chiếu, luôn đồng bộ tự động
@@ -4026,5 +4048,6 @@ window.debugClashPair = function() {
   <script src="./cde-wind-analysis.js"></script>
   <script src="./cde-wind-streamlines.js"></script>
   <script src="./cde-dashboard.js"></script>
+  <script src="./cde-digital-twin.js"></script>
 </body>
 </html>

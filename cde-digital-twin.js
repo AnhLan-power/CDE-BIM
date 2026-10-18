@@ -40,6 +40,41 @@ function cleanId(val) {
   return s;
 }
 
+// Escape mọi dữ liệu từ DB / thuộc tính mô hình IFC trước khi đưa vào innerHTML
+// (tên file, mô tả nhật ký, tên thiết bị... do người dùng/đối tác nhập -> nếu
+// không escape thì có thể chèn mã chạy trong phiên của người khác).
+function esc(v) {
+  return String(v === null || v === undefined ? '' : v)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// Chỉ cho phép liên kết http(s) — chặn javascript: / data: trong file_url.
+function safeUrl(u) {
+  const t = String(u || '').trim();
+  return /^https?:\/\//i.test(t) ? t : '#';
+}
+
+// Dự án đang chọn trong panel CDE (cde-auth.js đặt window.activeProjectId).
+// Bản cũ đọc window.currentProjectId (không tồn tại) nên mọi tài sản đều bị
+// lưu vào project_id = 'DEFAULT_PROJ'.
+function dtProjectId() {
+  return window.activeProjectId || window.currentProjectId || null;
+}
+
+// Chỉ Author trở lên được ghi dữ liệu (RLS ở DB mới là chốt chặn thật sự).
+function dtCanWrite() {
+  try {
+    return ['author', 'task_team_manager', 'bim_manager'].includes(activeRole);
+  } catch (e) { return false; }
+}
+
+// Thông báo không chặn thao tác (thay cho alert mỗi lần click chọn nguồn/nhánh).
+function dtNotify(msg) {
+  if (typeof window.showToast === 'function') window.showToast(msg, 'success');
+  else alert(msg);
+}
+
 function isValidAABB(aabb) {
   if (!aabb || (!Array.isArray(aabb) && !ArrayBuffer.isView(aabb)) || aabb.length !== 6) return false;
   if (!isFinite(aabb[0]) || !isFinite(aabb[1]) || !isFinite(aabb[2]) ||
@@ -56,21 +91,26 @@ function getAABBCenter(aabb) {
   ];
 }
 
+// Trả về toạ độ theo VIEWPORT (cửa sổ trình duyệt), không phải toạ độ trong
+// canvas: các lớp phủ (marker, canvas System Trace) là position:fixed phủ cả
+// cửa sổ, trong khi khung 3D có thể bị đẩy lệch khi ghim panel trái/phải/dưới
+// (cde-docking.js). Phải cộng vị trí canvas (rect.left/top) thì marker và
+// đường dòng mới khớp đúng cấu kiện.
 function projectWorldToCanvas(viewer, worldPos) {
   if (!viewer || !viewer.scene) return null;
   const scene = viewer.scene;
+  const canvasEl = scene.canvas && scene.canvas.canvas;
+  if (!canvasEl) return null;
+  const rect = canvasEl.getBoundingClientRect();
 
-  if (scene.canvas && typeof scene.canvas.worldToCanvas === 'function') {
+  if (typeof scene.canvas.worldToCanvas === 'function') {
     const out = [0, 0];
     scene.canvas.worldToCanvas(worldPos, out);
-    return out;
+    return [out[0] + rect.left, out[1] + rect.top];
   }
 
   const camera = scene.camera;
   if (!camera || !camera.viewMatrix || !camera.projMatrix) return null;
-
-  const canvasEl = scene.canvas.canvas;
-  if (!canvasEl) return null;
 
   const viewMat = camera.viewMatrix;
   const projMat = camera.projMatrix;
@@ -88,11 +128,19 @@ function projectWorldToCanvas(viewer, worldPos) {
   let nx = px / pw;
   let ny = py / pw;
 
-  const rect = canvasEl.getBoundingClientRect();
   let x = (nx + 1) * 0.5 * rect.width;
   let y = (1 - ny) * 0.5 * rect.height;
 
-  return [x, y];
+  return [rect.left + x, rect.top + y];
+}
+
+// Điểm (toạ độ viewport) có nằm trong khung 3D không — để ẩn marker khi nó
+// rơi ra ngoài khung (vd bị panel ghim che) thay vì vẽ đè lên panel.
+function dtInsideCanvas(viewer, p) {
+  const el = viewer && viewer.scene && viewer.scene.canvas && viewer.scene.canvas.canvas;
+  if (!el || !p) return false;
+  const r = el.getBoundingClientRect();
+  return p[0] >= r.left && p[0] <= r.right && p[1] >= r.top && p[1] <= r.bottom;
 }
 
 function injectMarkerStyles() {
@@ -407,7 +455,8 @@ function createOrShowCesiumModal() {
             <option value="103">Điện Biên</option>
             <option value="107.75">Đồng Nai</option>
             <option value="105">Đồng Tháp</option>
-            <option value="108.25" selected>Gia Lai (KTTrục: 108°15')</option>
+            <option value="108.25" selected>Gia Lai – vùng Bình Định cũ (108°15')</option>
+            <option value="108.5">Gia Lai – vùng Gia Lai cũ (108°30')</option>
             <option value="105.5">Hà Tĩnh</option>
             <option value="105.5">Hưng Yên</option>
             <option value="108.25">Khánh Hòa</option>
@@ -454,6 +503,11 @@ function createOrShowCesiumModal() {
         <button type="button" onclick="updateCesiumPositionFromVN2000()" style="background:#00f2ff; color:#121826; border:none; padding:6px 14px; border-radius:4px; font-weight:bold; cursor:pointer;">
           🚀 Tải Lại Hàng Loạt
         </button>
+
+        <label style="display:flex; align-items:center; gap:5px; cursor:pointer; color:#9fe8ff;" title="Áp dụng 7 tham số chuyển datum VN-2000 → WGS84 theo EPSG. Tắt nếu cậu đã tự bù lệch bằng Độ lệch X/Y.">
+          <input type="checkbox" id="dt-use-towgs84" ${dtUseTowgs84() ? 'checked' : ''} onchange="dtToggleTowgs84(this.checked)" />
+          Chuyển datum VN-2000→WGS84 (chuẩn EPSG)
+        </label>
       </div>
 
       <!-- 🛠 BẢNG ĐIỀU KHIỂN TINH CHỈNH CHÍNH XÁC X, Y, Z VÀ GÓC XOAY CHO TỪNG MODEL -->
@@ -497,17 +551,22 @@ function createOrShowCesiumModal() {
     }
 
     if (!cesiumViewerInstance) {
-      const satelliteProvider = new Cesium.ArcGisMapServerImageryProvider({
-        url: 'https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer'
-      });
-
-      cesiumViewerInstance = new Cesium.Viewer('cesiumContainer', {
-        imageryProvider: satelliteProvider,
-        geocoder: true,
-        animation: false,
-        timeline: false,
-        baseLayerPicker: true
-      });
+      // Cesium 1.114 (đang nạp ở trên): từ 1.107 đã GỠ tuỳ chọn Viewer
+      // `imageryProvider` và constructor ArcGisMapServerImageryProvider({url})
+      // (gọi kiểu cũ sẽ ném lỗi làm bản đồ trống). Dùng `baseLayer` +
+      // `.fromUrl`; baseLayer chỉ hợp lệ khi baseLayerPicker = false.
+      const viewerOptions = { geocoder: true, animation: false, timeline: false, baseLayerPicker: false };
+      try {
+        viewerOptions.baseLayer = Cesium.ImageryLayer.fromProviderAsync(
+          Cesium.ArcGisMapServerImageryProvider.fromUrl(
+            'https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer'
+          )
+        );
+      } catch (e) {
+        console.warn('Không tạo được lớp ảnh vệ tinh ArcGIS, dùng ảnh nền mặc định:', e);
+        viewerOptions.baseLayerPicker = true;
+      }
+      cesiumViewerInstance = new Cesium.Viewer('cesiumContainer', viewerOptions);
     }
     updateCesiumPositionFromVN2000();
   });
@@ -516,6 +575,27 @@ function createOrShowCesiumModal() {
 /**
  * 🟢 TÍNH TOÁN MA TRẬN CHUẨN XÁC DỰA TRÊN TỌA ĐỘ VN-2000 CỘNG ĐỘ LỆCH MÉT (X, Y, Z) VÀ QUAY (HEADING)
  */
+// Tham số chuyển VN-2000 -> WGS84 theo đăng ký EPSG (Helmert 7 thông số, nguồn
+// Cục Đo đạc & Bản đồ). Bỏ qua tham số này làm mô hình trên bản đồ vệ tinh lệch
+// ~225 m tại khu vực Quy Nhơn (≈194 m Đông-Tây, 115 m Bắc-Nam).
+const DT_VN2000_TOWGS84 = '+towgs84=-191.90441429,-39.30318279,-111.45032835,-0.00928836,0.01975479,-0.00427372,0.252906278';
+
+function dtUseTowgs84() {
+  const el = document.getElementById('dt-use-towgs84');
+  if (el) return el.checked;
+  try { return localStorage.getItem('dt_use_towgs84') !== '0'; } catch (e) { return true; }
+}
+
+function dtRegisterVn2000(lon0) {
+  if (!window.proj4) return;
+  proj4.defs("VN2000_CUSTOM", `+proj=tmerc +lat_0=0 +lon_0=${lon0} +k=0.9999 +x_0=500000 +y_0=0 +ellps=WGS84 ${dtUseTowgs84() ? DT_VN2000_TOWGS84 : ''} +units=m +no_defs`);
+}
+
+window.dtToggleTowgs84 = function (on) {
+  try { localStorage.setItem('dt_use_towgs84', on ? '1' : '0'); } catch (e) { /* bỏ qua */ }
+  updateCesiumPositionFromVN2000();
+};
+
 function updateModelMatrix(modelObj) {
   if (!cesiumViewerInstance || !modelObj || !modelObj.tileset) return;
 
@@ -529,9 +609,7 @@ function updateModelMatrix(modelObj) {
   const baseY = parseFloat(yInput ? yInput.value : '1528409.13');
   const lon0 = parseFloat(selectEl ? selectEl.value : '108.25');
 
-  if (window.proj4) {
-    proj4.defs("VN2000_CUSTOM", `+proj=tmerc +lat_0=0 +lon_0=${lon0} +k=0.9999 +x_0=500000 +y_0=0 +ellps=WGS84 +units=m +no_defs`);
-  }
+  dtRegisterVn2000(lon0);
 
   // Cộng trực tiếp độ lệch mét (dx, dy) vào tọa độ VN-2000 gốc để đảm bảo độ chính xác tuyệt đối
   const finalX = baseX + (modelObj.dx || 0);
@@ -602,9 +680,7 @@ async function loadMultipleInfrastructureModels() {
   const baseY = parseFloat(yInput ? yInput.value : '1528409.13');
   const lon0 = parseFloat(selectEl ? selectEl.value : '108.25');
 
-  if (window.proj4) {
-    proj4.defs("VN2000_CUSTOM", `+proj=tmerc +lat_0=0 +lon_0=${lon0} +k=0.9999 +x_0=500000 +y_0=0 +ellps=WGS84 +units=m +no_defs`);
-  }
+  dtRegisterVn2000(lon0);
 
   let baseLng = 108.25;
   let baseLat = 14.0;
@@ -1051,7 +1127,7 @@ function bind3DPickListener() {
           selectedSourceEntity = hit.entity;
           hit.entity.colorize = [0.1, 0.8, 0.3];
           hit.entity.colorized = true;
-          alert(`🟢 ĐÃ NHẬN NGUỒN: ${hit.entity.name || hit.entity.id}`);
+          dtNotify(`🟢 Đã nhận nguồn: ${hit.entity.name || hit.entity.id}`);
           currentPickMode = null;
         } else if (currentPickMode === 'branch') {
           if (!selectedBranchEntities.includes(hit.entity)) {
@@ -1059,7 +1135,7 @@ function bind3DPickListener() {
             hit.entity.colorize = [1.0, 0.75, 0.0];
             hit.entity.colorized = true;
           }
-          alert(`🎯 ĐÃ THÊM NHÁNH RẼ (${selectedBranchEntities.length}): ${hit.entity.name || hit.entity.id}`);
+          dtNotify(`🎯 Đã thêm nhánh rẽ (${selectedBranchEntities.length}): ${hit.entity.name || hit.entity.id}`);
         }
         updateToolbarStatusText();
         if (viewer.scene) {
@@ -1074,9 +1150,9 @@ function bind3DPickListener() {
 function enablePickMode(mode) {
   currentPickMode = mode;
   if (mode === 'source') {
-    alert('👉 Đang ở chế độ chọn NGUỒN: Hãy click chuột vào Thiết bị nguồn trên 3D!');
+    dtNotify('👉 Chế độ chọn NGUỒN: click vào thiết bị nguồn trên 3D');
   } else if (mode === 'branch') {
-    alert('👉 Đang ở chế độ chọn NHÁNH RẼ: Hãy click vào các đoạn ống xả muốn mô phỏng!');
+    dtNotify('👉 Chế độ chọn NHÁNH RẼ: click vào các đoạn ống muốn mô phỏng');
   }
 }
 
@@ -1121,6 +1197,13 @@ function renderTraceFlowLines() {
   canvas.width = window.innerWidth;
   canvas.height = window.innerHeight;
   ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // Chỉ vẽ trong khung 3D (khi có panel ghim, khung 3D nhỏ hơn cửa sổ)
+  const cr = viewer.scene.canvas.canvas.getBoundingClientRect();
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(cr.left, cr.top, cr.width, cr.height);
+  ctx.clip();
 
   traceDashOffset -= 0.8;
 
@@ -1172,6 +1255,7 @@ function renderTraceFlowLines() {
       }
     });
   }
+  ctx.restore();
 }
 
 function stopTandemSystemTrace() {
@@ -1218,8 +1302,8 @@ function injectSystemTraceToolbar() {
     const checked = (idx === 0) ? 'checked' : '';
     checkboxesHtml += `
       <label>
-        <input type="checkbox" class="dt-sys-checkbox" value="${sys}" ${checked} onchange="updateToolbarStatusText()" />
-        ${sys}
+        <input type="checkbox" class="dt-sys-checkbox" value="${esc(sys)}" ${checked} onchange="updateToolbarStatusText()" />
+        ${esc(sys)}
       </label>
     `;
   });
@@ -1485,6 +1569,8 @@ async function openDigitalTwinPanel(expressID, globalID, assetName = '') {
   if (client && (finalGlobalID || finalExpressID)) {
     try {
       let query = client.from('project_assets').select('*, asset_documents(*)');
+      const dtPid = dtProjectId();
+      if (dtPid) query = query.eq('project_id', dtPid);
       if (finalGlobalID) query = query.eq('global_id', finalGlobalID);
       else if (finalExpressID && !isNaN(parseInt(finalExpressID))) query = query.eq('express_id', parseInt(finalExpressID));
 
@@ -1501,7 +1587,7 @@ async function openDigitalTwinPanel(expressID, globalID, assetName = '') {
         if (existingAsset.asset_documents?.length > 0) {
           let docsHtml = '<b>Tài liệu đã đính kèm:</b><br>';
           existingAsset.asset_documents.forEach(doc => {
-            docsHtml += `📄 <a href="${doc.file_url}" target="_blank" style="color:#1a73e8;">${doc.file_name}</a><br>`;
+            docsHtml += `📄 <a href="${esc(safeUrl(doc.file_url))}" target="_blank" rel="noopener noreferrer" style="color:#1a73e8;">${esc(doc.file_name)}</a><br>`;
           });
           document.getElementById('dt_doc_list').innerHTML = docsHtml;
         }
@@ -1559,11 +1645,11 @@ async function loadMaintenanceHistory(globalId) {
       html += `
         <div style="border-left: 3px solid ${badgeBg}; padding: 6px 8px; margin-bottom: 6px; background: #ffffff; border-radius: 0 4px 4px 0; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
           <div style="display:flex; justify-content:space-between; align-items:center; font-size:10px; color:#666; margin-bottom:3px;">
-            <span>📅 <b>${log.log_date || '-'}</b></span>
-            <span style="background:${badgeBg}; color:#fff; padding:1px 6px; border-radius:3px; font-weight:bold; font-size:9px;">${log.action_type || 'Nhật ký'}</span>
+            <span>📅 <b>${esc(log.log_date || '-')}</b></span>
+            <span style="background:${badgeBg}; color:#fff; padding:1px 6px; border-radius:3px; font-weight:bold; font-size:9px;">${esc(log.action_type || 'Nhật ký')}</span>
           </div>
-          <div style="font-size:11px; color:#333; word-break:break-word; white-space:pre-wrap;">${log.description}</div>
-          ${log.performer ? `<div style="font-size:10px; color:#777; margin-top:3px;">👤 Người thực hiện: <i>${log.performer}</i></div>` : ''}
+          <div style="font-size:11px; color:#333; word-break:break-word; white-space:pre-wrap;">${esc(log.description)}</div>
+          ${log.performer ? `<div style="font-size:10px; color:#777; margin-top:3px;">👤 Người thực hiện: <i>${esc(log.performer)}</i></div>` : ''}
         </div>
       `;
     });
@@ -1584,6 +1670,7 @@ async function addMaintenanceLogRecord() {
 
   if (!globalId) return alert('⚠️ Chưa chọn thiết bị!');
   if (!description.trim()) return alert('⚠️ Vui lòng nhập nội dung công việc!');
+  if (!dtCanWrite()) return alert('⛔ Vai trò hiện tại không có quyền ghi nhật ký (cần Author trở lên).');
 
   const client = getDigitalTwinSupabaseClient();
   if (!client) return alert('⚠️ Chưa kết nối CSDL Supabase!');
@@ -1618,7 +1705,9 @@ async function applyAssetColorCoding() {
   if (!client) return alert('Chưa kết nối CSDL Supabase!');
 
   try {
-    const { data: assets } = await client.from('project_assets').select('*');
+    const dtPid = dtProjectId();
+    if (!dtPid) return dtNotify('Chọn dự án trong panel 📁 CDE trước khi tô màu trạng thái.');
+    const { data: assets } = await client.from('project_assets').select('*').eq('project_id', dtPid);
     if (!assets || assets.length === 0) return;
 
     const viewer = window.xeokitViewer || window.viewer;
@@ -1699,7 +1788,7 @@ function render3DMarkers(assets) {
       const markerDiv = document.createElement('div');
       markerDiv.className = `dt-3d-marker ${markerClass}`;
       markerDiv.style.display = 'none';
-      markerDiv.innerHTML = `<span>${markerIcon}</span><span>${asset.asset_code || asset.asset_name}</span>`;
+      markerDiv.innerHTML = `<span>${markerIcon}</span><span>${esc(asset.asset_code || asset.asset_name)}</span>`;
 
       markerDiv.onclick = (e) => {
         e.stopPropagation();
@@ -1719,7 +1808,7 @@ function render3DMarkers(assets) {
 
     trackedItems.forEach(item => {
       const sp = projectWorldToCanvas(currentViewer, item.worldPos);
-      if (sp) {
+      if (sp && dtInsideCanvas(currentViewer, sp)) {
         item.element.style.display = 'flex';
         item.element.style.left = Math.round(sp[0]) + 'px';
         item.element.style.top = Math.round(sp[1]) + 'px';
@@ -1817,7 +1906,11 @@ async function openDigitalTwinDashboard() {
   if (!client) return;
 
   try {
-    const { data: assets } = await client.from('project_assets').select('*');
+    const dtPid = dtProjectId();
+    if (!dtPid) dtNotify('Chọn dự án trong panel 📁 CDE để xem thống kê đúng dự án.');
+    const { data: assets } = dtPid
+      ? await client.from('project_assets').select('*').eq('project_id', dtPid)
+      : { data: [] };
     let total = assets ? assets.length : 0;
     let op = 0, maint = 0, fault = 0;
     let alertRowsHtml = '';
@@ -1832,12 +1925,12 @@ async function openDigitalTwinDashboard() {
           const badge = asset.status === 'FAULT' ? '<span style="color:#dc3545; font-weight:bold;">🔴 Sự cố</span>' : '<span style="color:#f39c12; font-weight:bold;">🟡 Bảo trì</span>';
           alertRowsHtml += `
             <tr style="border-bottom:1px solid #eee;">
-              <td style="padding:8px; font-weight:bold;">${asset.asset_code || '-'}</td>
-              <td style="padding:8px;">${asset.asset_name || '-'}</td>
+              <td style="padding:8px; font-weight:bold;">${esc(asset.asset_code || '-')}</td>
+              <td style="padding:8px;">${esc(asset.asset_name || '-')}</td>
               <td style="padding:8px;">${badge}</td>
-              <td style="padding:8px; color:#1a73e8; font-weight:bold;">${asset.next_maintenance_date || '-'}</td>
+              <td style="padding:8px; color:#1a73e8; font-weight:bold;">${esc(asset.next_maintenance_date || '-')}</td>
               <td style="padding:8px; text-align:center;">
-                <button type="button" class="dt-btn-view-detail" data-express-id="${cleanId(asset.express_id)}" data-global-id="${cleanId(asset.global_id)}" data-asset-name="${encodeURIComponent(asset.asset_name || '')}" style="padding:4px 8px; background:#1a73e8; color:#fff; border:none; border-radius:4px; font-size:11px; cursor:pointer;">🔎 Xem Chi Tiết</button>
+                <button type="button" class="dt-btn-view-detail" data-express-id="${esc(cleanId(asset.express_id))}" data-global-id="${esc(cleanId(asset.global_id))}" data-asset-name="${encodeURIComponent(asset.asset_name || '')}" style="padding:4px 8px; background:#1a73e8; color:#fff; border:none; border-radius:4px; font-size:11px; cursor:pointer;">🔎 Xem Chi Tiết</button>
               </td>
             </tr>
           `;
@@ -1869,12 +1962,18 @@ async function saveAssetToDatabase() {
 
   if (!assetCode || !assetName) return alert('Vui lòng nhập Mã Tài Sản và Tên Thiết Bị!');
 
+  const dtPid = dtProjectId();
+  if (!dtPid) return alert('⚠️ Chưa chọn dự án. Vào panel 📁 CDE, chọn dự án rồi lưu lại.');
+  if (!dtCanWrite()) return alert('⛔ Vai trò hiện tại không có quyền ghi hồ sơ thiết bị (cần Author trở lên).');
+  // Thiếu GlobalId thì mọi thiết bị sẽ cùng ghi đè lên 1 dòng (global_id rỗng).
+  if (!cleanId(globalId)) return alert('⚠️ Thiết bị chưa có GlobalId — hãy chọn lại cấu kiện trên mô hình 3D.');
+
   const client = getDigitalTwinSupabaseClient();
   if (!client) return alert('Chưa kết nối CSDL Supabase!');
 
   try {
     const { error } = await client.from('project_assets').upsert({
-      project_id: window.currentProjectId || 'DEFAULT_PROJ',
+      project_id: dtPid,
       global_id: globalId,
       express_id: parseInt(expressId) || 0,
       asset_code: assetCode,
