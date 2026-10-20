@@ -1460,10 +1460,15 @@ function injectDigitalTwinPanel() {
           </div>
         </div>
 
-        <div style="margin-bottom:15px;">
-          <label style="font-size:12px;">Đính kèm Tài Liệu / HDSD (PDF):</label>
-          <input type="file" id="dt_file_input" accept=".pdf,.docx,.png,.jpg" style="width:100%; font-size:12px;" />
-          <div id="dt_doc_list" style="margin-top:8px; font-size:12px; color:#1a73e8;"></div>
+        <div style="margin-bottom:15px;" id="dt_docs_section">
+          <label style="font-size:12px; font-weight:bold;">📎 Tài liệu thiết bị / HDSD <span style="font-weight:normal; color:#888;">(lưu trên Google Drive của dự án)</span></label>
+          <div id="dt_drive_folder_cfg" style="margin:6px 0; font-size:11px;"></div>
+          <div id="dt_upload_row" style="display:none; gap:6px; align-items:center;">
+            <input type="file" id="dt_file_input" accept=".pdf,.docx,.xlsx,.png,.jpg,.jpeg" style="flex:1; min-width:0; font-size:12px;" />
+            <button type="button" id="dt_upload_btn" data-dt-upload="1" style="padding:6px 10px; background:#1a73e8; color:#fff; border:none; border-radius:5px; font-size:12px; cursor:pointer; white-space:nowrap;">⬆️ Tải lên</button>
+          </div>
+          <div id="dt_upload_progress" style="font-size:11px; margin-top:4px; color:#1a73e8;"></div>
+          <div id="dt_doc_list" style="margin-top:8px; font-size:12px;"></div>
         </div>
 
         <button type="button" onclick="saveAssetToDatabase()" style="width:100%; padding:10px; background:#1a73e8; color:#fff; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">💾 Lưu Hồ Sơ Thiết Bị</button>
@@ -1472,6 +1477,7 @@ function injectDigitalTwinPanel() {
   `;
   document.body.insertAdjacentHTML('beforeend', panelHtml);
   makePanelDraggable();
+  dtBindDocsEvents();
 }
 
 function makePanelDraggable() {
@@ -1562,6 +1568,10 @@ async function openDigitalTwinPanel(expressID, globalID, assetName = '') {
   applyValues(finalGlobalID, finalExpressID, assetName);
   focusCameraOnEntity(finalGlobalID, finalExpressID, assetName);
 
+  dtLegacyDocs = [];
+  document.getElementById('dt_upload_progress').textContent = '';
+  dtLoadDriveFolderConfig().then(dtRefreshAssetDocs);
+
   const activeGlobalId = finalGlobalID || finalExpressID;
   if (activeGlobalId) loadMaintenanceHistory(activeGlobalId);
 
@@ -1584,13 +1594,9 @@ async function openDigitalTwinPanel(expressID, globalID, assetName = '') {
         document.getElementById('dt_last_maint_date').value = existingAsset.last_maintenance_date || '';
         document.getElementById('dt_next_maint_date').value = existingAsset.next_maintenance_date || '';
 
-        if (existingAsset.asset_documents?.length > 0) {
-          let docsHtml = '<b>Tài liệu đã đính kèm:</b><br>';
-          existingAsset.asset_documents.forEach(doc => {
-            docsHtml += `📄 <a href="${esc(safeUrl(doc.file_url))}" target="_blank" rel="noopener noreferrer" style="color:#1a73e8;">${esc(doc.file_name)}</a><br>`;
-          });
-          document.getElementById('dt_doc_list').innerHTML = docsHtml;
-        }
+        // Tài liệu kiểu cũ (chỉ có đường link) vẫn hiển thị cạnh tài liệu trên Drive
+        dtLegacyDocs = existingAsset.asset_documents || [];
+        dtRefreshAssetDocs();
       }
     } catch (e) {
       console.warn('Lỗi đọc thông tin tài sản từ CSDL:', e);
@@ -1998,6 +2004,365 @@ async function saveAssetToDatabase() {
 // =========================================================================
 // --- ĐĂNG KÝ HÀM TOÀN CỤC CHO GIAO DIỆN HTML (ONCLICK) ---
 // =========================================================================
+/* =====================================================================
+   TÀI LIỆU THIẾT BỊ TRÊN GOOGLE DRIVE CỦA DỰ ÁN
+   - File nằm trong thư mục Drive do BIM Manager chỉ định (projects.drive_assets_url)
+   - Frontend KHÔNG giữ khoá Google: mọi thao tác đi qua Edge Function drive-proxy,
+     function kiểm tra vai trò rồi dùng refresh token của BIM Manager.
+   - Upload cắt khúc 4 MiB (giao thức resumable của Drive), đứt mạng thì hỏi lại
+     vị trí Drive đã nhận rồi tiếp tục.
+   - Metadata (tên, loại, dung lượng, drive_file_id) lưu ở bảng asset_files.
+   ===================================================================== */
+const DT_DRIVE_CHUNK = 4 * 1024 * 1024;   // phải là bội số của 256 KiB (yêu cầu của Drive)
+const DT_MAX_FILE = 25 * 1024 * 1024;
+const DT_ALLOWED_TYPES = {
+  pdf: 'application/pdf',
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+};
+
+let dtLegacyDocs = [];       // asset_documents kiểu cũ (chỉ có file_url)
+let dtDocRows = [];          // bản ghi asset_files đang hiển thị
+let dtDriveFolderReady = false;
+let dtUploadBusy = false;
+
+function dtApiBase() {
+  const url = (typeof SUPABASE_URL !== 'undefined' && SUPABASE_URL) ? SUPABASE_URL : DT_SUPABASE_URL;
+  const key = (typeof SUPABASE_ANON_KEY !== 'undefined' && SUPABASE_ANON_KEY) ? SUPABASE_ANON_KEY : DT_SUPABASE_KEY;
+  return { fn: `${url}/functions/v1/drive-proxy`, key };
+}
+
+async function dtAuth() {
+  const client = getDigitalTwinSupabaseClient();
+  const { data } = client ? await client.auth.getSession() : { data: null };
+  const session = data && data.session;
+  if (!session || !session.access_token) throw new Error('Phiên đăng nhập đã hết hạn, hãy đăng nhập lại.');
+  return { token: session.access_token, userId: session.user && session.user.id, client };
+}
+
+async function dtDriveCall(body) {
+  const { token } = await dtAuth();
+  const api = dtApiBase();
+  const res = await fetch(api.fn, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, apikey: api.key },
+    body: JSON.stringify(body)
+  });
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok || j.error) throw new Error(j.error || `Lỗi máy chủ (HTTP ${res.status})`);
+  return j;
+}
+
+// Khúc dữ liệu & truy vấn trạng thái upload gửi nhị phân -> tham số đi theo query string
+async function dtDriveBinary(action, extraQuery, blob) {
+  const { token } = await dtAuth();
+  const api = dtApiBase();
+  const q = new URLSearchParams({ action, projectId: dtProjectId(), ...extraQuery });
+  const res = await fetch(`${api.fn}?${q}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/octet-stream', Authorization: `Bearer ${token}`, apikey: api.key },
+    body: blob
+  });
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok || j.error) throw new Error(j.error || `Lỗi máy chủ (HTTP ${res.status})`);
+  return j;
+}
+
+function dtFmtSize(n) {
+  n = Number(n) || 0;
+  if (n >= 1048576) return (n / 1048576).toFixed(1) + ' MB';
+  if (n >= 1024) return Math.round(n / 1024) + ' KB';
+  return n + ' B';
+}
+
+function dtSleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// Tải 1 file lên thư mục tài liệu thiết bị. Trả về {id, name, mimeType, size} của Drive.
+async function dtUploadFileToDrive(file, namePrefix, onProgress) {
+  const ext = (file.name.split('.').pop() || '').toLowerCase();
+  const mimeType = DT_ALLOWED_TYPES[ext];
+  if (!mimeType) throw new Error('Chỉ nhận file PDF, DOCX, XLSX, PNG, JPG.');
+  if (file.size <= 0) throw new Error('File rỗng.');
+  if (file.size > DT_MAX_FILE) throw new Error(`File quá lớn (${dtFmtSize(file.size)}), tối đa ${DT_MAX_FILE / 1048576} MB.`);
+
+  const pid = dtProjectId();
+  const init = await dtDriveCall({
+    action: 'asset_upload_init', projectId: pid,
+    fileName: `${namePrefix}__${file.name}`, mimeType, size: file.size
+  });
+
+  let offset = 0, failures = 0, stalls = 0, result = null;
+  while (offset < file.size) {
+    const end = Math.min(offset + DT_DRIVE_CHUNK, file.size);
+    try {
+      const j = await dtDriveBinary('asset_upload_chunk',
+        { sessionUri: init.sessionUri, start: String(offset), total: String(file.size) },
+        file.slice(offset, end));
+      if (j.done) { result = j.file; break; }
+      stalls = (j.received <= offset) ? stalls + 1 : 0;
+      if (stalls >= 3) throw new Error('Drive không nhận thêm dữ liệu, hãy thử tải lên lại.');
+      offset = j.received;
+      failures = 0;
+    } catch (e) {
+      if (++failures > 3) throw e;
+      await dtSleep(700 * failures);
+      // Hỏi Drive đã nhận tới đâu rồi tiếp tục từ đó (tránh gửi lại từ đầu / gửi trùng)
+      const st = await dtDriveBinary('asset_upload_status', { sessionUri: init.sessionUri, total: String(file.size) });
+      if (st.done) { result = st.file; break; }
+      offset = st.received;
+    }
+    if (onProgress) onProgress(Math.min(100, Math.round(offset / file.size * 100)));
+  }
+  if (!result || !result.id) throw new Error('Upload không hoàn tất.');
+  return result;
+}
+
+function dtDriveFolderIdFromUrl(url) {
+  const m = String(url || '').match(/folders\/([a-zA-Z0-9_-]+)/);
+  return m ? m[1] : null;
+}
+
+function dtIsManager() {
+  try { return activeRole === 'bim_manager'; } catch (e) { return false; }
+}
+
+function dtApplyUploadVisibility() {
+  const row = document.getElementById('dt_upload_row');
+  if (row) row.style.display = (dtCanWrite() && dtDriveFolderReady) ? 'flex' : 'none';
+}
+
+// Hiển thị cấu hình thư mục Drive của dự án (BIM Manager nhập link, người khác chỉ xem)
+async function dtLoadDriveFolderConfig(editMode) {
+  const el = document.getElementById('dt_drive_folder_cfg');
+  if (!el) return;
+  dtDriveFolderReady = false;
+  const pid = dtProjectId();
+  const client = getDigitalTwinSupabaseClient();
+
+  if (!pid || !client) {
+    el.innerHTML = '<span style="color:#d93025;">Chọn dự án trong panel 📁 CDE để dùng tài liệu thiết bị.</span>';
+    dtApplyUploadVisibility();
+    return;
+  }
+
+  const { data, error } = await client.from('projects').select('drive_assets_url').eq('id', pid).maybeSingle();
+  if (pid !== dtProjectId()) return;   // đã đổi dự án trong lúc chờ
+  if (error) {
+    el.innerHTML = `<span style="color:#d93025;">Không đọc được cấu hình thư mục: ${esc(error.message)} (đã chạy SQL thêm cột drive_assets_url chưa?)</span>`;
+    dtApplyUploadVisibility();
+    return;
+  }
+
+  const url = data && data.drive_assets_url;
+  const folderId = dtDriveFolderIdFromUrl(url);
+  dtDriveFolderReady = !!folderId;
+
+  if (folderId && !editMode) {
+    el.innerHTML = `📁 Thư mục Drive: <a href="${esc(safeUrl(url))}" target="_blank" rel="noopener noreferrer" style="color:#1a73e8;">mở thư mục</a>` +
+      (dtIsManager() ? ` · <a href="#" data-dt-cfg="edit" style="color:#888;">đổi link</a>` : '');
+  } else if (dtIsManager()) {
+    el.innerHTML = `
+      <div style="color:#555; margin-bottom:4px;">Dán link thư mục Google Drive dùng chứa tài liệu thiết bị (thư mục BIM Manager đã kết nối Drive có quyền ghi):</div>
+      <div style="display:flex; gap:6px;">
+        <input type="text" id="dt_drive_url_input" value="${esc(url || '')}" placeholder="https://drive.google.com/drive/folders/..." style="flex:1; min-width:0; font-size:11px; padding:5px;" />
+        <button type="button" data-dt-cfg="save" style="padding:5px 10px; background:#1a73e8; color:#fff; border:none; border-radius:5px; font-size:11px; cursor:pointer;">Lưu</button>
+      </div>`;
+  } else {
+    el.innerHTML = '<span style="color:#e37400;">BIM Manager chưa cấu hình thư mục Drive cho tài liệu thiết bị của dự án này.</span>';
+  }
+  dtApplyUploadVisibility();
+}
+
+async function dtSaveDriveFolderUrl() {
+  const input = document.getElementById('dt_drive_url_input');
+  const url = input ? input.value.trim() : '';
+  if (!dtDriveFolderIdFromUrl(url)) return alert('Link phải có dạng https://drive.google.com/drive/folders/<mã thư mục>');
+  const client = getDigitalTwinSupabaseClient();
+  const pid = dtProjectId();
+  if (!client || !pid) return alert('Chọn dự án trong panel 📁 CDE trước.');
+  const { data, error } = await client.from('projects').update({ drive_assets_url: url }).eq('id', pid).select('id');
+  if (error) return alert('Lỗi lưu link: ' + error.message);
+  if (!data || data.length === 0) return alert('⛔ Không cập nhật được — chỉ BIM Manager của dự án được đổi link thư mục.');
+  dtNotify('✅ Đã lưu thư mục Drive cho tài liệu thiết bị');
+  await dtLoadDriveFolderConfig();
+  dtRefreshAssetDocs();
+}
+
+// Danh sách tài liệu của thiết bị đang mở (asset_files + tài liệu kiểu cũ)
+async function dtRefreshAssetDocs() {
+  const listEl = document.getElementById('dt_doc_list');
+  if (!listEl) return;
+  dtApplyUploadVisibility();
+  const gidEl = document.getElementById('dt_global_id');
+  const gid = cleanId(gidEl && gidEl.value);
+  const pid = dtProjectId();
+  const client = getDigitalTwinSupabaseClient();
+
+  let rows = [];
+  if (pid && gid && client) {
+    const { data, error } = await client.from('asset_files').select('*')
+      .eq('project_id', pid).eq('global_id', gid).order('created_at', { ascending: false });
+    if (cleanId(document.getElementById('dt_global_id').value) !== gid) return;   // đã chuyển sang thiết bị khác
+    if (error) {
+      listEl.innerHTML = `<div style="color:#d93025;">Không đọc được danh sách tài liệu: ${esc(error.message)} (đã chạy SQL bảng asset_files chưa?)</div>`;
+      return;
+    }
+    rows = data || [];
+  }
+  dtDocRows = rows;
+
+  const canWrite = dtCanWrite();
+  const btn = (act, idx, label, title) =>
+    `<button type="button" data-dt-doc="${act}" data-idx="${idx}" title="${title}" style="padding:2px 7px; border:1px solid #ccc; background:#f8f9fa; border-radius:4px; cursor:pointer; font-size:12px;">${label}</button>`;
+
+  let html = rows.map((r, i) => `
+    <div style="display:flex; align-items:center; gap:6px; padding:5px 0; border-bottom:1px solid #eee;">
+      <span style="flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${esc(r.file_name)}">
+        📄 ${esc(r.file_name)} <span style="color:#999;">(${esc(dtFmtSize(r.size_bytes))})</span>
+      </span>
+      ${btn('view', i, '👁', 'Xem')}${btn('download', i, '⬇️', 'Tải về')}${canWrite ? btn('delete', i, '🗑', 'Xoá') : ''}
+    </div>`).join('');
+
+  dtLegacyDocs.forEach(doc => {
+    html += `<div style="padding:5px 0; border-bottom:1px solid #eee;">📄 <a href="${esc(safeUrl(doc.file_url))}" target="_blank" rel="noopener noreferrer" style="color:#1a73e8;">${esc(doc.file_name)}</a> <span style="color:#999;">(tài liệu cũ)</span></div>`;
+  });
+
+  listEl.innerHTML = html || '<div style="color:#888; font-style:italic;">Chưa có tài liệu nào.</div>';
+}
+
+async function dtUploadSelectedFile() {
+  if (dtUploadBusy) return;
+  const input = document.getElementById('dt_file_input');
+  const progress = document.getElementById('dt_upload_progress');
+  const btn = document.getElementById('dt_upload_btn');
+  const file = input && input.files && input.files[0];
+  const pid = dtProjectId();
+  const gid = cleanId(document.getElementById('dt_global_id').value);
+
+  if (!file) return alert('Chọn file cần tải lên trước.');
+  if (!pid) return alert('⚠️ Chưa chọn dự án. Vào panel 📁 CDE, chọn dự án rồi thử lại.');
+  if (!dtCanWrite()) return alert('⛔ Vai trò hiện tại không được tải tài liệu lên (cần Author trở lên).');
+  if (!dtDriveFolderReady) return alert('BIM Manager chưa cấu hình thư mục Drive cho tài liệu thiết bị.');
+  if (!gid) return alert('⚠️ Thiết bị chưa có GlobalId — hãy chọn lại cấu kiện trên mô hình 3D.');
+
+  dtUploadBusy = true;
+  if (btn) btn.disabled = true;
+  // Xoá ngay thông báo của lần trước (nếu không, lỗi cũ vẫn hiện tới khi khúc đầu xong)
+  progress.style.color = '#1a73e8';
+  progress.textContent = '⏳ Đang chuẩn bị tải lên…';
+  try {
+    const assetCode = (document.getElementById('dt_asset_code').value || '').trim();
+    const uploaded = await dtUploadFileToDrive(file, assetCode || gid.slice(0, 8),
+      pct => { progress.style.color = '#1a73e8'; progress.textContent = `⏳ Đang tải lên Google Drive… ${pct}%`; });
+
+    const { client, userId } = await dtAuth();
+    const { error } = await client.from('asset_files').insert({
+      project_id: pid, global_id: gid, asset_code: assetCode || null,
+      file_name: file.name, mime_type: DT_ALLOWED_TYPES[(file.name.split('.').pop() || '').toLowerCase()],
+      size_bytes: file.size, drive_file_id: uploaded.id, uploaded_by: userId
+    });
+    if (error) {
+      // Dọn file mồ côi vừa tạo trên Drive (nếu được)
+      await dtDriveCall({ action: 'asset_delete', projectId: pid, fileId: uploaded.id }).catch(() => {});
+      throw new Error('Đã tải lên Drive nhưng không ghi được vào CSDL: ' + error.message + ' (đã chạy SQL bảng asset_files chưa?)');
+    }
+    progress.style.color = '#188038';
+    progress.textContent = '✅ Đã tải lên Google Drive của dự án';
+    input.value = '';
+    await dtRefreshAssetDocs();
+  } catch (e) {
+    progress.style.color = '#d93025';
+    progress.textContent = '❌ ' + e.message;
+  } finally {
+    dtUploadBusy = false;
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function dtFetchAssetBlob(row) {
+  const { token } = await dtAuth();
+  const api = dtApiBase();
+  const res = await fetch(api.fn, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, apikey: api.key },
+    body: JSON.stringify({ action: 'asset_download', projectId: dtProjectId(), fileId: row.drive_file_id })
+  });
+  if (!res.ok) {
+    const j = await res.json().catch(() => ({}));
+    throw new Error(j.error || `Lỗi tải file (HTTP ${res.status})`);
+  }
+  return res.blob();
+}
+
+async function dtViewAssetDoc(row, btn) {
+  const old = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = '⏳'; }
+  try {
+    const blob = await dtFetchAssetBlob(row);
+    if (typeof renderPreviewBlob === 'function') {
+      await renderPreviewBlob(row.file_name, blob);   // dùng chung khung xem trước của app
+      const ov = document.getElementById('cdePreviewOverlay');
+      if (ov) ov.style.zIndex = '10050';              // panel Digital Twin có z-index 9999
+    } else {
+      window.open(URL.createObjectURL(blob), '_blank');   // cde-auth.js bản cũ: mở tab mới
+    }
+  } catch (e) { alert(e.message); }
+  finally { if (btn) { btn.disabled = false; btn.textContent = old; } }
+}
+
+async function dtDownloadAssetDoc(row, btn) {
+  const old = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = '⏳'; }
+  try {
+    const blob = await dtFetchAssetBlob(row);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = row.file_name; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  } catch (e) { alert(e.message); }
+  finally { if (btn) { btn.disabled = false; btn.textContent = old; } }
+}
+
+async function dtDeleteAssetDoc(row) {
+  if (!dtCanWrite()) return alert('⛔ Vai trò hiện tại không được xoá tài liệu (cần Author trở lên).');
+  if (!confirm(`Xoá tài liệu "${row.file_name}"?\n(File được chuyển vào thùng rác Google Drive, khôi phục được.)`)) return;
+  try {
+    try {
+      await dtDriveCall({ action: 'asset_delete', projectId: dtProjectId(), fileId: row.drive_file_id });
+    } catch (e) {
+      // File đã bị xoá thủ công trên Drive -> vẫn dọn bản ghi trong CSDL
+      if (!/đã bị xoá|Không tìm thấy file/.test(e.message)) throw e;
+    }
+    const { client } = await dtAuth();
+    const { data, error } = await client.from('asset_files').delete().eq('id', row.id).select('id');
+    if (error) throw new Error(error.message);
+    if (!data || data.length === 0) throw new Error('Không xoá được bản ghi (không đủ quyền).');
+    await dtRefreshAssetDocs();
+  } catch (e) { alert('Lỗi xoá tài liệu: ' + e.message); }
+}
+
+// Một lần duy nhất khi dựng panel: uỷ quyền sự kiện cho các nút được vẽ lại liên tục
+function dtBindDocsEvents() {
+  const section = document.getElementById('dt_docs_section');
+  if (!section || section.dataset.bound === '1') return;
+  section.dataset.bound = '1';
+  section.addEventListener('click', (e) => {
+    const t = e.target.closest ? e.target.closest('[data-dt-doc],[data-dt-cfg],[data-dt-upload]') : null;
+    if (!t) return;
+    if (t.dataset.dtUpload) { e.preventDefault(); return dtUploadSelectedFile(); }
+    if (t.dataset.dtCfg === 'save') { e.preventDefault(); return dtSaveDriveFolderUrl(); }
+    if (t.dataset.dtCfg === 'edit') { e.preventDefault(); return dtLoadDriveFolderConfig(true); }
+    const row = dtDocRows[Number(t.dataset.idx)];
+    if (!row) return;
+    if (t.dataset.dtDoc === 'view') return dtViewAssetDoc(row, t);
+    if (t.dataset.dtDoc === 'download') return dtDownloadAssetDoc(row, t);
+    if (t.dataset.dtDoc === 'delete') return dtDeleteAssetDoc(row);
+  });
+}
+
 window.toggleDigitalTwinPanelFromMenu = toggleDigitalTwinPanelFromMenu;
 window.openDigitalTwinPanel = openDigitalTwinPanel;
 window.closeAssetPanel = closeAssetPanel;

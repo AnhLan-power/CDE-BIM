@@ -5,8 +5,8 @@
    ===================================================================== */
 
 // !!! ĐIỀN THÔNG TIN DỰ ÁN SUPABASE CỦA CẬU VÀO ĐÂY !!!
-const SUPABASE_URL = "https://znzakqzdezxzqzfplmgv.supabase.co";
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpuemFrcXpkZXp4enF6ZnBsbWd2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc4MTQyNzAsImV4cCI6MjEwMzM5MDI3MH0.aV5YaOLxTySiB26ror4CRzJvQsjANNI1DwbtbxcNe4A";
+const SUPABASE_URL = "https://YOUR-PROJECT.supabase.co";
+const SUPABASE_ANON_KEY = "YOUR-ANON-PUBLIC-KEY";
 
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 window.sb = sb; // để module chính (viewer, markup, check va chạm) dùng được Supabase
@@ -240,7 +240,7 @@ function renderStatusTabs() {
    tiếp — quyền ai xem được gì vẫn do vai trò ISO 19650 trong app quyết
    định, không phải theo chia sẻ thủ công trên Drive nữa.
    --------------------------------------------------------------------- */
-const GOOGLE_OAUTH_CLIENT_ID = "1059326356978-r60548d88469ll4287v80187fnd1rnds.apps.googleusercontent.com";
+const GOOGLE_OAUTH_CLIENT_ID = "DIEN-CLIENT-ID-CUA-CAU.apps.googleusercontent.com";
 
 async function renderDriveConnectionStatus() {
   const box = document.getElementById("cdeDriveConnectBox");
@@ -482,63 +482,73 @@ function closePreviewModal() {
   if (cdeCurrentPreviewUrl) { URL.revokeObjectURL(cdeCurrentPreviewUrl); cdeCurrentPreviewUrl = null; }
 }
 
+// Hiển thị 1 file (dạng Blob) trong khung xem trước của app. Tách riêng khỏi
+// previewDriveFile để module khác (vd tài liệu thiết bị Digital Twin) dùng
+// lại cùng khung xem trước mà không phải copy code.
+function escPreviewHtml(v) {
+  return String(v === null || v === undefined ? "" : v)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+async function renderPreviewBlob(name, blob) {
+  const ext = (name.split(".").pop() || "").toLowerCase();
+  const bodyEl = document.getElementById("cdePreviewBody");
+  document.getElementById("cdePreviewTitle").innerText = name;
+
+  if (ext === "pdf") {
+    const url = URL.createObjectURL(blob);
+    cdeCurrentPreviewUrl = url;
+    bodyEl.innerHTML = `<iframe src="${url}" style="width:100%;height:100%;border:none;"></iframe>`;
+    document.getElementById("cdePreviewNewTab").href = url;
+    document.getElementById("cdePreviewNewTab").style.display = "inline";
+
+  } else if (["jpg", "jpeg", "png", "gif", "webp"].includes(ext)) {
+    const url = URL.createObjectURL(blob);
+    cdeCurrentPreviewUrl = url;
+    bodyEl.innerHTML = `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;"><img src="${url}" style="max-width:100%;max-height:100%;object-fit:contain;"></div>`;
+    document.getElementById("cdePreviewNewTab").href = url;
+    document.getElementById("cdePreviewNewTab").style.display = "inline";
+
+  } else if (ext === "docx") {
+    document.getElementById("cdePreviewNewTab").style.display = "none";
+    const arrayBuffer = await blob.arrayBuffer();
+    const result = await mammoth.convertToHtml({ arrayBuffer });
+    bodyEl.innerHTML = `<div style="background:#fff;max-width:800px;width:100%;height:100%;overflow:auto;padding:30px;box-sizing:border-box;font-family:'Segoe UI',Tahoma,sans-serif;line-height:1.6;">${result.value}</div>`;
+
+  } else if (["xlsx", "xls"].includes(ext)) {
+    document.getElementById("cdePreviewNewTab").style.display = "none";
+    const arrayBuffer = await blob.arrayBuffer();
+    const workbook = XLSX.read(arrayBuffer, { type: "array" });
+    const tabsHtml = workbook.SheetNames.map((sheetName, i) =>
+      `<button class="cde-xlsx-tab" data-sheet="${i}" style="padding:5px 10px;margin-right:4px;border:1px solid #ccc;border-radius:6px 6px 0 0;background:${i === 0 ? "#fff" : "#e9ecef"};cursor:pointer;">${escPreviewHtml(sheetName)}</button>`
+    ).join("");
+    bodyEl.innerHTML = `
+      <div style="background:#fff;width:100%;height:100%;overflow:auto;padding:10px;box-sizing:border-box;">
+        <div style="margin-bottom:6px;">${tabsHtml}</div>
+        <div id="cdeXlsxTableWrap" style="overflow:auto;"></div>
+      </div>`;
+    const renderSheet = (idx) => {
+      const html = XLSX.utils.sheet_to_html(workbook.Sheets[workbook.SheetNames[idx]]);
+      document.getElementById("cdeXlsxTableWrap").innerHTML = html;
+      document.querySelectorAll(".cde-xlsx-tab").forEach((btn, i) => {
+        btn.style.background = i === idx ? "#fff" : "#e9ecef";
+      });
+    };
+    bodyEl.querySelectorAll(".cde-xlsx-tab").forEach(btn => {
+      btn.addEventListener("click", () => renderSheet(parseInt(btn.dataset.sheet)));
+    });
+    renderSheet(0);
+  }
+
+  document.getElementById("cdePreviewOverlay").classList.remove("hidden");
+}
+
 function previewDriveFile(f, btn) {
   const originalText = btn ? btn.innerText : "";
   if (btn) { btn.disabled = true; btn.innerText = "⏳ Đang tải..."; }
 
   fetchDriveFileBlob(f)
-    .then(async blob => {
-      const ext = (f.name.split(".").pop() || "").toLowerCase();
-      const bodyEl = document.getElementById("cdePreviewBody");
-      document.getElementById("cdePreviewTitle").innerText = f.name;
-
-      if (ext === "pdf") {
-        const url = URL.createObjectURL(blob);
-        cdeCurrentPreviewUrl = url;
-        bodyEl.innerHTML = `<iframe src="${url}" style="width:100%;height:100%;border:none;"></iframe>`;
-        document.getElementById("cdePreviewNewTab").href = url;
-        document.getElementById("cdePreviewNewTab").style.display = "inline";
-
-      } else if (["jpg", "jpeg", "png", "gif", "webp"].includes(ext)) {
-        const url = URL.createObjectURL(blob);
-        cdeCurrentPreviewUrl = url;
-        bodyEl.innerHTML = `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;"><img src="${url}" style="max-width:100%;max-height:100%;object-fit:contain;"></div>`;
-        document.getElementById("cdePreviewNewTab").href = url;
-        document.getElementById("cdePreviewNewTab").style.display = "inline";
-
-      } else if (ext === "docx") {
-        document.getElementById("cdePreviewNewTab").style.display = "none";
-        const arrayBuffer = await blob.arrayBuffer();
-        const result = await mammoth.convertToHtml({ arrayBuffer });
-        bodyEl.innerHTML = `<div style="background:#fff;max-width:800px;width:100%;height:100%;overflow:auto;padding:30px;box-sizing:border-box;font-family:'Segoe UI',Tahoma,sans-serif;line-height:1.6;">${result.value}</div>`;
-
-      } else if (["xlsx", "xls"].includes(ext)) {
-        document.getElementById("cdePreviewNewTab").style.display = "none";
-        const arrayBuffer = await blob.arrayBuffer();
-        const workbook = XLSX.read(arrayBuffer, { type: "array" });
-        const tabsHtml = workbook.SheetNames.map((name, i) =>
-          `<button class="cde-xlsx-tab" data-sheet="${i}" style="padding:5px 10px;margin-right:4px;border:1px solid #ccc;border-radius:6px 6px 0 0;background:${i === 0 ? "#fff" : "#e9ecef"};cursor:pointer;">${name}</button>`
-        ).join("");
-        bodyEl.innerHTML = `
-          <div style="background:#fff;width:100%;height:100%;overflow:auto;padding:10px;box-sizing:border-box;">
-            <div style="margin-bottom:6px;">${tabsHtml}</div>
-            <div id="cdeXlsxTableWrap" style="overflow:auto;"></div>
-          </div>`;
-        const renderSheet = (idx) => {
-          const html = XLSX.utils.sheet_to_html(workbook.Sheets[workbook.SheetNames[idx]]);
-          document.getElementById("cdeXlsxTableWrap").innerHTML = html;
-          document.querySelectorAll(".cde-xlsx-tab").forEach((btn, i) => {
-            btn.style.background = i === idx ? "#fff" : "#e9ecef";
-          });
-        };
-        bodyEl.querySelectorAll(".cde-xlsx-tab").forEach(btn => {
-          btn.addEventListener("click", () => renderSheet(parseInt(btn.dataset.sheet)));
-        });
-        renderSheet(0);
-      }
-
-      document.getElementById("cdePreviewOverlay").classList.remove("hidden");
-    })
+    .then(blob => renderPreviewBlob(f.name, blob))
     .catch(e => alert(e.message))
     .finally(() => {
       if (btn) { btn.disabled = false; btn.innerText = originalText; }
