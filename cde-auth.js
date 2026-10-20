@@ -5,8 +5,8 @@
    ===================================================================== */
 
 // !!! ĐIỀN THÔNG TIN DỰ ÁN SUPABASE CỦA CẬU VÀO ĐÂY !!!
-const SUPABASE_URL = "https://YOUR-PROJECT.supabase.co";
-const SUPABASE_ANON_KEY = "YOUR-ANON-PUBLIC-KEY";
+const SUPABASE_URL = "https://znzakqzdezxzqzfplmgv.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpuemFrcXpkZXp4enF6ZnBsbWd2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc4MTQyNzAsImV4cCI6MjEwMzM5MDI3MH0.aV5YaOLxTySiB26ror4CRzJvQsjANNI1DwbtbxcNe4A";
 
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 window.sb = sb; // để module chính (viewer, markup, check va chạm) dùng được Supabase
@@ -240,7 +240,7 @@ function renderStatusTabs() {
    tiếp — quyền ai xem được gì vẫn do vai trò ISO 19650 trong app quyết
    định, không phải theo chia sẻ thủ công trên Drive nữa.
    --------------------------------------------------------------------- */
-const GOOGLE_OAUTH_CLIENT_ID = "DIEN-CLIENT-ID-CUA-CAU.apps.googleusercontent.com";
+const GOOGLE_OAUTH_CLIENT_ID = "1059326356978-r60548d88469ll4287v80187fnd1rnds.apps.googleusercontent.com";
 
 async function renderDriveConnectionStatus() {
   const box = document.getElementById("cdeDriveConnectBox");
