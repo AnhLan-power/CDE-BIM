@@ -1385,6 +1385,9 @@ function injectDigitalTwinPanel() {
       <form id="dt-asset-form">
         <input type="hidden" id="dt_global_id" />
         <input type="hidden" id="dt_express_id" />
+        <div id="dt_selection_hint" style="display:none; margin-bottom:10px; padding:8px 10px; background:#fff4e5; border:1px solid #ffd8a8; border-radius:6px; font-size:12px; color:#8a4b00;">
+          👆 Chưa chọn thiết bị. Hãy <b>click vào cấu kiện trên mô hình 3D</b> — panel sẽ tự điền thông tin của cấu kiện vừa chọn.
+        </div>
 
         <div style="margin-bottom:10px;">
           <label style="font-size:12px; font-weight:bold; color:#333;">GlobalID IFC:</label>
@@ -1478,6 +1481,7 @@ function injectDigitalTwinPanel() {
   document.body.insertAdjacentHTML('beforeend', panelHtml);
   makePanelDraggable();
   dtBindDocsEvents();
+  dtBindDirtyTracking();
 }
 
 function makePanelDraggable() {
@@ -1503,28 +1507,17 @@ function makePanelDraggable() {
 
 function toggleDigitalTwinPanelFromMenu() {
   injectDigitalTwinPanel();
+  dtHookSelection();
   const panel = document.getElementById('dt-asset-panel');
   if (panel.style.display === 'none' || panel.style.display === '') {
-    const entity = window.selectedEntity;
-    const metaObject = window.selectedMetaObject;
-    let expressID = entity ? entity.id : '';
-    let globalID = '';
-    let assetName = (metaObject && metaObject.name) ? metaObject.name : '';
-
-    if (metaObject) {
-      if (metaObject.originalSystemId) globalID = metaObject.originalSystemId;
-      else if (metaObject.globalId) globalID = metaObject.globalId;
-      else if (metaObject.id && String(metaObject.id).includes('-')) globalID = metaObject.id;
-    }
-    if (!globalID && entity && entity.globalId) globalID = entity.globalId;
-
-    openDigitalTwinPanel(expressID, globalID, assetName);
+    const { entity, meta } = dtCurrentSelection();
+    openDigitalTwinPanel(entity ? entity.id : '', dtGuidOf(entity, meta), (meta && meta.name) ? meta.name : '');
   } else {
     panel.style.display = 'none';
   }
 }
 
-async function openDigitalTwinPanel(expressID, globalID, assetName = '') {
+async function openDigitalTwinPanel(expressID, globalID, assetName = '', opts = {}) {
   injectDigitalTwinPanel();
   const panel = document.getElementById('dt-asset-panel');
   panel.style.display = 'block';
@@ -1539,22 +1532,23 @@ async function openDigitalTwinPanel(expressID, globalID, assetName = '') {
   let finalExpressID = cleanId(expressID);
   let finalGlobalID = cleanId(globalID);
 
+  // Dự phòng: đọc dòng "ID Cấu Kiện" trong bảng thuộc tính của app. Bảng đó dùng
+  // <th>nhãn</th><td>giá trị</td>; bản cũ chỉ tìm ô td/span/div nên không bao giờ khớp.
   function getIfcGlobalIdFromDOM() {
-    const elements = Array.from(document.querySelectorAll('tr, div, td, span'));
-    for (const el of elements) {
-      if (el.innerText && el.innerText.trim() === 'ID Cấu Kiện') {
-        const parentRow = el.closest('tr') || el.parentElement;
-        if (parentRow) {
-          const cells = parentRow.querySelectorAll('td, span, div');
-          if (cells.length > 1) return cells[1].innerText.trim();
-        }
+    for (const el of Array.from(document.querySelectorAll('th, td'))) {
+      if ((el.textContent || '').trim() === 'ID Cấu Kiện' && el.nextElementSibling) {
+        const v = (el.nextElementSibling.textContent || '').trim();
+        if (v) return v.includes('#') ? v.split('#').pop() : v;   // bỏ tiền tố "<mã mô hình>#"
       }
     }
     return '';
   }
 
   if (!finalGlobalID) {
-    const domId = getIfcGlobalIdFromDOM();
+    // Bảng thuộc tính của app KHÔNG tự xoá khi bỏ chọn -> chỉ tin giá trị đọc được nếu
+    // cấu kiện đó vẫn đang được chọn trong viewer (tránh lấy nhầm dữ liệu cũ).
+    const domRaw = getIfcGlobalIdFromDOM();
+    const domId = dtIsGuidSelected(domRaw) ? domRaw : '';
     if (domId && domId !== 'ID Cấu Kiện') finalGlobalID = domId;
   }
 
@@ -1566,7 +1560,11 @@ async function openDigitalTwinPanel(expressID, globalID, assetName = '') {
   };
 
   applyValues(finalGlobalID, finalExpressID, assetName);
-  focusCameraOnEntity(finalGlobalID, finalExpressID, assetName);
+  dtFormDirty = false;
+  const hint = document.getElementById('dt_selection_hint');
+  if (hint) hint.style.display = (finalGlobalID || finalExpressID) ? 'none' : 'block';
+  // Khi panel tự cập nhật theo cú click của người dùng thì KHÔNG bay camera (đã nhìn đúng chỗ rồi)
+  if (!opts.noFocus) focusCameraOnEntity(finalGlobalID, finalExpressID, assetName);
 
   dtLegacyDocs = [];
   document.getElementById('dt_upload_progress').textContent = '';
@@ -1972,7 +1970,7 @@ async function saveAssetToDatabase() {
   if (!dtPid) return alert('⚠️ Chưa chọn dự án. Vào panel 📁 CDE, chọn dự án rồi lưu lại.');
   if (!dtCanWrite()) return alert('⛔ Vai trò hiện tại không có quyền ghi hồ sơ thiết bị (cần Author trở lên).');
   // Thiếu GlobalId thì mọi thiết bị sẽ cùng ghi đè lên 1 dòng (global_id rỗng).
-  if (!cleanId(globalId)) return alert('⚠️ Thiết bị chưa có GlobalId — hãy chọn lại cấu kiện trên mô hình 3D.');
+  if (!cleanId(globalId)) return alert('⚠️ Panel chưa có thiết bị. Hãy click chọn cấu kiện trên mô hình 3D — panel sẽ tự điền thông tin rồi cậu thử lại.');
 
   const client = getDigitalTwinSupabaseClient();
   if (!client) return alert('Chưa kết nối CSDL Supabase!');
@@ -2246,7 +2244,7 @@ async function dtUploadSelectedFile() {
   if (!pid) return alert('⚠️ Chưa chọn dự án. Vào panel 📁 CDE, chọn dự án rồi thử lại.');
   if (!dtCanWrite()) return alert('⛔ Vai trò hiện tại không được tải tài liệu lên (cần Author trở lên).');
   if (!dtDriveFolderReady) return alert('BIM Manager chưa cấu hình thư mục Drive cho tài liệu thiết bị.');
-  if (!gid) return alert('⚠️ Thiết bị chưa có GlobalId — hãy chọn lại cấu kiện trên mô hình 3D.');
+  if (!gid) return alert('⚠️ Panel chưa có thiết bị. Hãy click chọn cấu kiện trên mô hình 3D — panel sẽ tự điền thông tin rồi cậu thử lại.');
 
   dtUploadBusy = true;
   if (btn) btn.disabled = true;
@@ -2362,6 +2360,114 @@ function dtBindDocsEvents() {
     if (t.dataset.dtDoc === 'delete') return dtDeleteAssetDoc(row);
   });
 }
+
+/* =====================================================================
+   THEO DÕI CẤU KIỆN ĐANG CHỌN
+   Trước đây panel chỉ đọc window.selectedEntity MỘT LẦN lúc mở -> mở panel trước
+   rồi mới click cấu kiện (hoặc index.html chưa cung cấp biến đó) thì các ô
+   GlobalID/Mã/Tên mãi trống. Nay module tự lắng nghe click trên khung 3D (không
+   phụ thuộc index.html) và cập nhật panel khi đang mở.
+   ===================================================================== */
+let dtPicked = null;          // {entity, metaObject} của lần click gần nhất trên 3D
+let dtHookDone = false;
+let dtHookTries = 0;
+let dtFormDirty = false;      // người dùng đã sửa form chưa lưu?
+
+function dtResolveMeta(viewer, entity) {
+  const mo = viewer && viewer.metaScene && viewer.metaScene.metaObjects;
+  if (!mo || !entity) return null;
+  return mo[entity.id] || (entity.originalSystemId ? mo[entity.originalSystemId] : null) || null;
+}
+
+// GlobalId (IFC) của cấu kiện; bỏ tiền tố "<mã mô hình>#" mà viewer gắn vào entity.id
+function dtGuidOf(entity, meta) {
+  if (meta) {
+    if (meta.originalSystemId) return String(meta.originalSystemId);
+    if (meta.globalId) return String(meta.globalId);
+  }
+  if (entity) {
+    if (entity.originalSystemId) return String(entity.originalSystemId);
+    if (entity.globalId) return String(entity.globalId);
+    const id = entity.id ? String(entity.id) : '';
+    return id.includes('#') ? id.split('#').pop() : id;
+  }
+  return '';
+}
+
+// Cấu kiện đang chọn: ưu tiên biến của app (nếu index.html cung cấp), nếu không
+// có thì dùng cú click gần nhất mà module này tự theo dõi (còn đang ở trạng thái "đã chọn").
+function dtCurrentSelection() {
+  const viewer = window.xeokitViewer || window.viewer;
+  let entity = window.selectedEntity || null;
+  let meta = window.selectedMetaObject || null;
+  // window.selectedEntity có thể là "xác cũ": chính focusCameraOnEntity() cũng gán biến này
+  // và nó không tự xoá khi người dùng bỏ chọn. Chỉ tin cấu kiện CÒN ở trạng thái đã chọn
+  // (cờ .selected mà app đặt khi click) — nếu không, người dùng có thể lưu nhầm dữ liệu
+  // vào thiết bị khác.
+  if (entity && !entity.selected) { entity = null; meta = null; }
+  if (!entity && dtPicked && dtPicked.entity && dtPicked.entity.selected) {
+    entity = dtPicked.entity;
+    meta = dtPicked.metaObject;
+  }
+  if (entity && !meta) meta = dtResolveMeta(viewer, entity);
+  return { entity, meta };
+}
+
+// Cấu kiện có GlobalId này hiện có đang được chọn trong viewer không?
+function dtIsGuidSelected(guid) {
+  if (!guid) return false;
+  const viewer = window.xeokitViewer || window.viewer;
+  const ids = (viewer && viewer.scene && viewer.scene.selectedObjectIds) || [];
+  return ids.some(id => {
+    const e = viewer.scene.objects && viewer.scene.objects[id];
+    return id === guid || String(id).endsWith('#' + guid) || (e && e.originalSystemId === guid);
+  });
+}
+
+function dtHookSelection() {
+  if (dtHookDone) return;
+  const viewer = window.xeokitViewer || window.viewer;
+  if (!viewer || !viewer.cameraControl || typeof viewer.cameraControl.on !== 'function') {
+    // File này nạp TRƯỚC module chính nên viewer chưa có: thử lại tới khi sẵn sàng
+    if (++dtHookTries < 240) setTimeout(dtHookSelection, 500);
+    return;
+  }
+  dtHookDone = true;
+  viewer.cameraControl.on('picked', (pickResult) => {
+    const entity = pickResult && pickResult.entity;
+    if (!entity) return;
+    dtPicked = { entity, metaObject: dtResolveMeta(viewer, entity) };
+    // Đợi handler của app chạy xong rồi mới xét: khi app đang ở chế độ đo / markup /
+    // chọn nhiều, nó bỏ qua cú click (cấu kiện không ở trạng thái "đã chọn") thì
+    // panel cũng không được tự đổi theo.
+    setTimeout(() => {
+      const multi = window.multiSelectedIds && window.multiSelectedIds.size > 0;
+      if (entity.selected && !multi) dtOnPickWhilePanelOpen(dtPicked);
+    }, 0);
+  });
+  viewer.cameraControl.on('pickedNothing', () => { dtPicked = null; });
+}
+
+// Panel đang mở mà người dùng click cấu kiện khác -> panel chuyển sang cấu kiện đó
+function dtOnPickWhilePanelOpen(picked) {
+  const panel = document.getElementById('dt-asset-panel');
+  if (!panel || panel.style.display !== 'block') return;
+  const guid = dtGuidOf(picked.entity, picked.metaObject);
+  const current = (document.getElementById('dt_global_id') || {}).value || '';
+  if (guid && guid === current) return;                       // vẫn là thiết bị đang mở
+  if (dtFormDirty && !confirm('Panel đang có thay đổi chưa lưu.\nChuyển sang thiết bị vừa chọn và bỏ các thay đổi đó?')) return;
+  openDigitalTwinPanel(picked.entity.id, guid, (picked.metaObject && picked.metaObject.name) || '', { noFocus: true });
+}
+
+// Ghi nhận người dùng đã sửa form (đặt trên form, gắn 1 lần khi dựng panel)
+function dtBindDirtyTracking() {
+  const form = document.getElementById('dt-asset-form');
+  if (!form || form.dataset.dirtyBound === '1') return;
+  form.dataset.dirtyBound = '1';
+  form.addEventListener('input', () => { dtFormDirty = true; });
+}
+
+dtHookSelection();
 
 window.toggleDigitalTwinPanelFromMenu = toggleDigitalTwinPanelFromMenu;
 window.openDigitalTwinPanel = openDigitalTwinPanel;
