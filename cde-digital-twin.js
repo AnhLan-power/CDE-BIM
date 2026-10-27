@@ -2041,6 +2041,18 @@ async function dtAuth() {
   return { token: session.access_token, userId: session.user && session.user.id, client };
 }
 
+// Bản drive-proxy CŨ (chưa hỗ trợ thao tác asset_*) coi mọi yêu cầu là loại "theo trạng thái
+// CDE" nên đòi thêm `status` và trả đúng câu "Thiếu projectId hoặc status". Nhận ra tình
+// huống đó để báo thẳng nguyên nhân thay vì để người dùng đoán.
+function dtDriveErrorMessage(j, res, action) {
+  const msg = (j && j.error) || `Lỗi máy chủ (HTTP ${res.status})`;
+  if (String(action).startsWith('asset_') && /Thiếu projectId hoặc status/.test(msg)) {
+    return 'Edge Function "drive-proxy" trên Supabase vẫn là BẢN CŨ (chưa hỗ trợ tài liệu thiết bị). ' +
+      'Hãy deploy bản mới (file drive-proxy-function/index.ts) rồi thử lại.';
+  }
+  return msg;
+}
+
 async function dtDriveCall(body) {
   const { token } = await dtAuth();
   const api = dtApiBase();
@@ -2050,7 +2062,7 @@ async function dtDriveCall(body) {
     body: JSON.stringify(body)
   });
   const j = await res.json().catch(() => ({}));
-  if (!res.ok || j.error) throw new Error(j.error || `Lỗi máy chủ (HTTP ${res.status})`);
+  if (!res.ok || j.error) throw new Error(dtDriveErrorMessage(j, res, body.action));
   return j;
 }
 
@@ -2065,7 +2077,7 @@ async function dtDriveBinary(action, extraQuery, blob) {
     body: blob
   });
   const j = await res.json().catch(() => ({}));
-  if (!res.ok || j.error) throw new Error(j.error || `Lỗi máy chủ (HTTP ${res.status})`);
+  if (!res.ok || j.error) throw new Error(dtDriveErrorMessage(j, res, action));
   return j;
 }
 
@@ -2290,7 +2302,7 @@ async function dtFetchAssetBlob(row) {
   });
   if (!res.ok) {
     const j = await res.json().catch(() => ({}));
-    throw new Error(j.error || `Lỗi tải file (HTTP ${res.status})`);
+    throw new Error(dtDriveErrorMessage(j, res, 'asset_download').replace(/^Lỗi máy chủ/, 'Lỗi tải file'));
   }
   return res.blob();
 }
