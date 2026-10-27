@@ -497,7 +497,7 @@ function createOrShowCesiumModal() {
 
         <div style="flex: 1; min-width: 220px;">
           <label style="font-weight:bold; color:#00f2ff;">📦 Asset IDs (Cách dấu phẩy):</label>
-          <input type="text" id="dt-model-url" value="6018479, 6022034" placeholder="VD: 6018479" style="width:100%; padding:4px; border-radius:4px; border:1px solid #3b4c66; background:#222c3d; color:#fff; box-sizing:border-box;" />
+          <input type="text" id="dt-model-url" value="6018479" placeholder="VD: 6018479" style="width:100%; padding:4px; border-radius:4px; border:1px solid #3b4c66; background:#222c3d; color:#fff; box-sizing:border-box;" />
         </div>
 
         <button type="button" onclick="updateCesiumPositionFromVN2000()" style="background:#00f2ff; color:#121826; border:none; padding:6px 14px; border-radius:4px; font-weight:bold; cursor:pointer;">
