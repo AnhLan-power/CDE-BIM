@@ -98,21 +98,37 @@ function canEditTasks() {
 }
 
 /* ---------------------------------------------------------------------
-   3. THÊM / SỬA / XOÁ TASK
+   3. THÊM / SỬA / XOÁ TASK (Có chọn hiệu ứng & máy móc)
    --------------------------------------------------------------------- */
 function renderAddTaskBox() {
   const box = document.getElementById("tlAddTaskBox");
   if (!canEditTasks()) { box.innerHTML = ""; return; }
   box.innerHTML = `
     <div class="cde-file-card">
-      <div class="fname" style="margin-bottom:6px;">➕ Thêm công việc</div>
-      <input type="text" id="tlNewName" placeholder="Tên công việc, vd: Đổ bê tông móng">
-      <select id="tlNewType" style="width:100%;padding:7px 8px;margin:4px 0;border:1px solid #dcdfe3;border-radius:6px;font-size:11px;">
-        <option value="construction">Thi công (xây mới)</option>
-        <option value="demolition">Tháo dỡ</option>
-        <option value="temporary">Tạm thời (dàn giáo, cốp pha...)</option>
-      </select>
-      <div style="display:flex;gap:6px;">
+      <div class="fname" style="margin-bottom:6px;">➕ Thêm công việc & Cấu hình Animation</div>
+      <input type="text" id="tlNewName" placeholder="Tên công việc, vd: Lắp dầm cầu / Cẩu tháp">
+      
+      <div style="display:flex;gap:6px;margin:4px 0;">
+        <select id="tlNewType" style="flex:1;padding:6px;border:1px solid #dcdfe3;border-radius:6px;font-size:11px;">
+          <option value="construction">Thi công (Xây mới)</option>
+          <option value="demolition">Tháo dỡ</option>
+          <option value="temporary">Tạm thời</option>
+        </select>
+        <select id="tlNewAnim" style="flex:1;padding:6px;border:1px solid #dcdfe3;border-radius:6px;font-size:11px;">
+          <option value="fade">✨ Hiệu ứng: Mờ dần (Fade)</option>
+          <option value="slide">📦 Hiệu ứng: Trượt từ trên xuống</option>
+        </select>
+      </div>
+
+      <div style="margin:4px 0;">
+        <select id="tlNewMachine" style="width:100%;padding:6px;border:1px solid #dcdfe3;border-radius:6px;font-size:11px;">
+          <option value="none">🚜 Máy móc: Không có / Bình thường</option>
+          <option value="rotate">🔄 Máy móc: Xoay vòng (Cần cẩu, quạt...)</option>
+          <option value="translate">🚚 Máy móc: Di chuyển tịnh tiến (Xe chạy...)</option>
+        </select>
+      </div>
+
+      <div style="display:flex;gap:6px;margin-top:4px;">
         <input type="date" id="tlNewStart" style="flex:1;">
         <input type="date" id="tlNewEnd" style="flex:1;">
       </div>
@@ -124,6 +140,8 @@ function renderAddTaskBox() {
 async function addTimelineTask() {
   const name = document.getElementById("tlNewName").value.trim();
   const type = document.getElementById("tlNewType").value;
+  const anim = document.getElementById("tlNewAnim").value;
+  const machine = document.getElementById("tlNewMachine").value;
   const start = document.getElementById("tlNewStart").value;
   const end = document.getElementById("tlNewEnd").value;
 
@@ -132,8 +150,12 @@ async function addTimelineTask() {
 
   const { error } = await window.sb.from("project_tasks").insert({
     project_id: window.activeProjectId,
-    name, task_type: type,
-    planned_start: start, planned_end: end,
+    name, 
+    task_type: type,
+    animation_type: anim,       // Lưu kiểu hiệu ứng ('fade' hoặc 'slide')
+    machine_mode: machine,        // Lưu chế độ máy móc ('none', 'rotate', 'translate')
+    planned_start: start, 
+    planned_end: end,
     color: TASK_TYPE_COLORS[type],
     created_by: window.currentUser ? window.currentUser.id : null
   });
@@ -154,6 +176,8 @@ async function deleteTimelineTask(taskId) {
 async function saveEditedTask(taskId) {
   const name = document.getElementById("tlEditName").value.trim();
   const type = document.getElementById("tlEditType").value;
+  const anim = document.getElementById("tlEditAnim").value;
+  const machine = document.getElementById("tlEditMachine").value;
   const start = document.getElementById("tlEditStart").value;
   const end = document.getElementById("tlEditEnd").value;
 
@@ -161,8 +185,12 @@ async function saveEditedTask(taskId) {
   if (end < start) { alert("Ngày kết thúc phải sau ngày bắt đầu."); return; }
 
   const { error } = await window.sb.from("project_tasks").update({
-    name, task_type: type,
-    planned_start: start, planned_end: end,
+    name, 
+    task_type: type,
+    animation_type: anim,
+    machine_mode: machine,
+    planned_start: start, 
+    planned_end: end,
     color: TASK_TYPE_COLORS[type]
   }).eq("id", taskId);
   if (error) { alert("Lỗi lưu chỉnh sửa: " + error.message); return; }
@@ -237,11 +265,24 @@ function renderTaskList() {
       card.innerHTML = `
         <div class="fname" style="margin-bottom:6px;">✏ Sửa công việc</div>
         <input type="text" id="tlEditName" value="${t.name.replace(/"/g, "&quot;")}">
-        <select id="tlEditType" style="width:100%;padding:7px 8px;margin:4px 0;border:1px solid #dcdfe3;border-radius:6px;font-size:11px;">
-          <option value="construction" ${t.task_type === "construction" ? "selected" : ""}>Thi công (xây mới)</option>
-          <option value="demolition" ${t.task_type === "demolition" ? "selected" : ""}>Tháo dỡ</option>
-          <option value="temporary" ${t.task_type === "temporary" ? "selected" : ""}>Tạm thời (dàn giáo, cốp pha...)</option>
-        </select>
+        <div style="display:flex;gap:6px;margin:4px 0;">
+          <select id="tlEditType" style="flex:1;padding:6px;border:1px solid #dcdfe3;border-radius:6px;font-size:11px;">
+            <option value="construction" ${t.task_type === "construction" ? "selected" : ""}>Thi công</option>
+            <option value="demolition" ${t.task_type === "demolition" ? "selected" : ""}>Tháo dỡ</option>
+            <option value="temporary" ${t.task_type === "temporary" ? "selected" : ""}>Tạm thời</option>
+          </select>
+          <select id="tlEditAnim" style="flex:1;padding:6px;border:1px solid #dcdfe3;border-radius:6px;font-size:11px;">
+            <option value="fade" ${t.animation_type === "fade" ? "selected" : ""}>✨ Mờ dần (Fade)</option>
+            <option value="slide" ${t.animation_type === "slide" ? "selected" : ""}>📦 Trượt xuống</option>
+          </select>
+        </div>
+        <div style="margin:4px 0;">
+          <select id="tlEditMachine" style="width:100%;padding:6px;border:1px solid #dcdfe3;border-radius:6px;font-size:11px;">
+            <option value="none" ${t.machine_mode === "none" ? "selected" : ""}>🚜 Máy móc: Không</option>
+            <option value="rotate" ${t.machine_mode === "rotate" ? "selected" : ""}>🔄 Máy móc: Xoay vòng</option>
+            <option value="translate" ${t.machine_mode === "translate" ? "selected" : ""}>🚚 Máy móc: Di chuyển</option>
+          </select>
+        </div>
         <div style="display:flex;gap:6px;">
           <input type="date" id="tlEditStart" value="${t.planned_start}" style="flex:1;">
           <input type="date" id="tlEditEnd" value="${t.planned_end}" style="flex:1;">
@@ -256,8 +297,11 @@ function renderTaskList() {
       return;
     }
 
+    const animLabel = t.animation_type === "slide" ? "📦 Trượt" : "✨ Mờ";
+    const machLabel = t.machine_mode === "rotate" ? " · 🔄 Xoay" : (t.machine_mode === "translate" ? " · 🚚 Di chuyển" : "");
+
     card.innerHTML = `
-      <div class="fname">${t.name} <span style="font-weight:400;color:#888;">(${TASK_TYPE_LABELS[t.task_type]})</span></div>
+      <div class="fname">${t.name} <span style="font-weight:400;color:#888;">(${TASK_TYPE_LABELS[t.task_type]} · ${animLabel}${machLabel})</span></div>
       <div class="meta">${t.planned_start} → ${t.planned_end} · ${elemCount} cấu kiện gắn</div>
       <div style="background:#eee;border-radius:4px;height:8px;margin:6px 0;position:relative;">
         <div style="position:absolute;left:${leftPct}%;width:${widthPct}%;height:100%;background:${t.color || "#3B82F6"};border-radius:4px;"></div>
@@ -300,7 +344,7 @@ function renderTaskList() {
 }
 
 /* ---------------------------------------------------------------------
-   6. MÔ PHỎNG 4D KẾT HỢP TRƯỢT CẤU KIỆN & QUAY CẦN CẨU
+   6. MÔ PHỎNG 4D KẾT HỢP ANIMATION TÙY CHỌN & MÁY MÓC
    --------------------------------------------------------------------- */
 function renderSimulateBox() {
   const box = document.getElementById("tlSimulateBox");
@@ -320,7 +364,7 @@ function renderSimulateBox() {
       </div>
       <div style="text-align:center;font-size:12px;font-weight:700;" id="tlDateLabel">${formatDateVN(minDate)}</div>
       <div style="display:flex;gap:6px;justify-content:center;font-size:10px;margin-top:6px;color:#666;">
-        <span>🟢 Thi công (Trượt & Lắp)</span><span>🔴 Tháo dỡ</span><span>🟠 Tạm thời</span>
+        <span>🟢 Thi công</span><span>🔴 Tháo dỡ</span><span>🟠 Tạm thời</span>
       </div>
       <div class="actions" style="margin-top:6px;">
         <button id="tlResetVisBtn">↺ Hiện lại tất cả (Thoát mô phỏng)</button>
@@ -373,7 +417,7 @@ function toggleTimelinePlay(minDate, totalDays) {
 }
 
 /**
- * 🚀 ÁP DỤNG TRẠNG THÁI TIẾN ĐỘ + HIỆU ỨNG TRƯỢT (SLIDE-IN) & MÁY MÓC QUAY
+ * 🚀 ÁP DỤNG TRẠNG THÁI TIẾN ĐỘ THEO LỰA CHỌN ANIMATION & MÁY MÓC CỦA TỪNG TASK
  */
 function applyTimelineDateWithAnimation(currentDate, floatDay) {
   const viewer = window.xeokitViewer || window.viewer;
@@ -394,46 +438,55 @@ function applyTimelineDateWithAnimation(currentDate, floatDay) {
     const start = new Date(t.planned_start);
     const end = new Date(t.planned_end);
     const viewerIds = globalIds.flatMap(gid => globalIdToViewerIds[gid] || []);
+    const animType = t.animation_type || "fade"; // 'fade' hoặc 'slide'
+    const machineMode = t.machine_mode || "none"; // 'none', 'rotate', 'translate'
 
     if (t.task_type === "construction") {
       if (currentDate < start) {
-        setObjectsStateAndSlide(viewerIds, false, 0.0, 1.0, null); // Ẩn và dịch lên trên
+        setObjectsStateAdvanced(viewerIds, false, 0.0, 1.0, null, animType);
       } else if (currentDate <= end) {
-        // Hiệu ứng trượt hiện: progress chạy từ 0 -> 1
         const totalDuration = Math.max(1, end - start);
         const elapsed = currentDate - start;
         const progress = Math.min(1.0, Math.max(0.0, elapsed / totalDuration));
         
-        // Cấu kiện vừa mờ dần (opacity = progress) vừa trượt từ trên cao xuống ($Z$ offset từ 15m về 0)
-        setObjectsStateAndSlide(viewerIds, true, progress, 1.0 - progress, [0.25, 0.85, 0.35]);
+        // Truyền progress để xử lý mờ dần hoặc trượt xuống
+        setObjectsStateAdvanced(viewerIds, true, progress, 1.0 - progress, [0.25, 0.85, 0.35], animType);
       } else {
-        setObjectsStateAndSlide(viewerIds, true, 1.0, 0.0, null); // Hoàn thành - Về vị trí gốc, màu gốc
+        setObjectsStateAdvanced(viewerIds, true, 1.0, 0.0, null, animType);
       }
     } else if (t.task_type === "demolition") {
       if (currentDate < start) {
-        setObjectsStateAndSlide(viewerIds, true, 1.0, 0.0, null);
+        setObjectsStateAdvanced(viewerIds, true, 1.0, 0.0, null, animType);
       } else if (currentDate <= end) {
-        setObjectsStateAndSlide(viewerIds, true, 1.0, 0.0, [0.95, 0.3, 0.3]); // Đang tháo dỡ - Đỏ
+        setObjectsStateAdvanced(viewerIds, true, 1.0, 0.0, [0.95, 0.3, 0.3], animType);
       } else {
-        setObjectsStateAndSlide(viewerIds, false, 0.0, 1.0, null);
+        setObjectsStateAdvanced(viewerIds, false, 0.0, 1.0, null, animType);
       }
     } else { // temporary
       if (currentDate < start || currentDate > end) {
-        setObjectsStateAndSlide(viewerIds, false, 0.0, 1.0, null);
+        setObjectsStateAdvanced(viewerIds, false, 0.0, 1.0, null, animType);
       } else {
-        setObjectsStateAndSlide(viewerIds, true, 1.0, 0.0, [0.95, 0.65, 0.15]); // Tạm thời - Cam
+        setObjectsStateAdvanced(viewerIds, true, 1.0, 0.0, [0.95, 0.65, 0.15], animType);
       }
+    }
+
+    // Nếu công việc này được cấu hình là máy móc, áp dụng hoạt hoạ cho các cấu kiện gắn kèm
+    if (machineMode !== "none") {
+      animateAssignedMachinery(viewerIds, machineMode, floatDay);
     }
   });
 
-  // Hoạt hoạ máy móc thi công (Quay cần cẩu theo thời gian thực)
-  animateMachineryRigging(floatDay);
+  // Đồng thời quét tự động theo tên nếu có cẩu tháp trong mô hình
+  animateAutoMachineryRigging(floatDay);
+  
+  viewer.scene._needUpdate = 1;
+  if (typeof viewer.scene.render === "function") viewer.scene.render();
 }
 
 /**
- * 📦 HÀM THỰC THI HIỆN THỊ, ĐỘ MỜ & HIỆU ỨNG TRƯỢT TRỤC Z
+ * 📦 XỬ LÝ HIỆU ỨNG MỜ (FADE) HOẶC TRƯỢT (SLIDE)
  */
-function setObjectsStateAndSlide(viewerIds, visible, opacity, slideFactor, colorize) {
+function setObjectsStateAdvanced(viewerIds, visible, progress, slideFactor, colorize, animType) {
   const viewer = window.xeokitViewer || window.viewer;
   if (!viewer || !viewer.scene) return;
 
@@ -444,40 +497,86 @@ function setObjectsStateAndSlide(viewerIds, visible, opacity, slideFactor, color
     e.visible = visible;
     if (!visible) return;
 
-    e.opacity = opacity;
+    // Nếu chọn hiệu ứng Mờ dần (fade)
+    if (animType === "fade") {
+      e.opacity = progress;
+    } else {
+      // Nếu chọn hiệu ứng Trượt (slide): Vừa mờ vừa dịch chuyển trục Z xuống
+      e.opacity = Math.min(1.0, progress * 1.5);
+    }
+
     e.colorize = colorize;
 
-    // Lưu ma trận gốc nếu chưa có
     if (!objectBaseMatrices[id]) {
       objectBaseMatrices[id] = e.matrix ? Float32Array.from(e.matrix) : null;
     }
 
-    // Nếu đối tượng có ma trận biến đổi, áp dụng hiệu ứng trượt dọc trục Z (index 14)
     if (e.matrix && objectBaseMatrices[id]) {
       const baseMat = objectBaseMatrices[id];
       const newMat = Float32Array.from(baseMat);
       
-      // Dịch chuyển Z cao hơn 12 mét khi slideFactor = 1.0, và về 0 khi slideFactor = 0.0
-      const zOffset = slideFactor * 12.0; 
-      newMat[14] = baseMat[14] + zOffset; // Index 14 lưu vị trí dịch chuyển trục Z trong WebGL matrix
-      
+      if (animType === "slide") {
+        // Trượt từ trên cao xuống (Z offset 15 mét về 0)
+        const zOffset = slideFactor * 15.0;
+        newMat[14] = baseMat[14] + zOffset;
+      } else {
+        newMat[14] = baseMat[14];
+      }
       e.matrix = newMat;
     }
   });
 }
 
 /**
- * 🏗️ HOẠT HOẠ QUAY CẦN CẨU THÁP & MÁY MÓC THI CÔNG
+ * 🚜 HOẠT HOẠ MÁY MÓC THEO CÔNG VIỆC ĐƯỢC CHỌN (XOAY HOẶC DI CHUYỂN)
  */
-function animateMachineryRigging(floatDay) {
+function animateAssignedMachinery(viewerIds, mode, floatDay) {
+  const viewer = window.xeokitViewer || window.viewer;
+  if (!viewer || !viewer.scene) return;
+
+  viewerIds.forEach(id => {
+    const obj = viewer.scene.objects[id];
+    if (!obj) return;
+
+    if (!objectBaseMatrices[id]) {
+      objectBaseMatrices[id] = obj.matrix ? Float32Array.from(obj.matrix) : null;
+    }
+
+    if (obj.matrix && objectBaseMatrices[id]) {
+      const baseMat = objectBaseMatrices[id];
+      const mat = Float32Array.from(baseMat);
+
+      if (mode === "rotate") {
+        // Quay vòng tròn quanh trục Z
+        const angleRad = (floatDay * 15) * (Math.PI / 180);
+        const cos = Math.cos(angleRad);
+        const sin = Math.sin(angleRad);
+        mat[0] = baseMat[0] * cos - baseMat[4] * sin;
+        mat[1] = baseMat[1] * cos - baseMat[5] * sin;
+        mat[4] = baseMat[0] * sin + baseMat[4] * cos;
+        mat[5] = baseMat[1] * sin + baseMat[5] * cos;
+      } else if (mode === "translate") {
+        // Di chuyển tịnh tiến theo trục X/Y
+        const offset = Math.sin(floatDay * 0.5) * 10.0; // Lướt qua lại 10 mét
+        mat[12] = baseMat[12] + offset;
+      }
+
+      obj.matrix = mat;
+    }
+  });
+}
+
+/**
+ * 🏗️ NHẬN DIỆN TỰ ĐỘNG CẦN CẨU THÁP QUA TÊN ĐỂ QUAY VÒNG
+ */
+function animateAutoMachineryRigging(floatDay) {
   const viewer = window.xeokitViewer || window.viewer;
   if (!viewer || !viewer.scene || !viewer.scene.objects) return;
 
-  const angleRad = (floatDay * 12) * (Math.PI / 180); // Tốc độ quay theo ngày
+  const angleRad = (floatDay * 12) * (Math.PI / 180);
 
   Object.values(viewer.scene.objects).forEach(obj => {
     const name = String(obj.name || "").toLowerCase();
-    // Nhận diện cần cẩu / tháp cẩu trong mô hình
     if (name.includes("crane") || name.includes("cẩu") || name.includes("tháp")) {
       const id = obj.id;
       if (!objectBaseMatrices[id]) {
@@ -487,8 +586,6 @@ function animateMachineryRigging(floatDay) {
       if (obj.matrix && objectBaseMatrices[id]) {
         const baseMat = objectBaseMatrices[id];
         const rotMat = Float32Array.from(baseMat);
-
-        // Phép quay quanh trục Z (trục đứng) cho cần cẩu
         const cos = Math.cos(angleRad);
         const sin = Math.sin(angleRad);
 
@@ -517,12 +614,13 @@ function resetTimelineVisibility() {
       if (e) {
         e.opacity = 1.0;
         e.colorize = null;
-        // Khôi phục lại ma trận gốc
         if (objectBaseMatrices[id]) {
           e.matrix = objectBaseMatrices[id];
         }
       }
     });
+    viewer.scene._needUpdate = 1;
+    if (typeof viewer.scene.render === "function") viewer.scene.render();
   }
 }
 
@@ -568,6 +666,8 @@ async function handleTimelineImport() {
       project_id: window.activeProjectId,
       name: t.name,
       task_type: "construction",
+      animation_type: "fade",
+      machine_mode: "none",
       planned_start: t.start,
       planned_end: t.end,
       color: TASK_TYPE_COLORS.construction,
