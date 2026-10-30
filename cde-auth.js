@@ -279,7 +279,7 @@ function startGoogleDriveConnect() {
     response_type: "code",
     access_type: "offline",
     prompt: "consent",
-    scope: "https://www.googleapis.com/auth/drive.readonly",
+    scope: "https://www.googleapis.com/auth/drive",
     state: activeProjectId
   });
   window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
