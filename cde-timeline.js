@@ -8,7 +8,6 @@ let timelineTaskElements = {};        // { task_id: [globalId, ...] }
 let timelineSelectedTaskId = null;    // Task đang được chọn để gắn cấu kiện
 let timelineEditingTaskId = null;     // Task đang mở form sửa
 let timelinePlaying = false;
-let timelinePlayTimer = null;
 let animationFrameId = null;
 let currentPlayDay = 0;
 
@@ -89,8 +88,13 @@ async function loadTimelineTasks() {
   }
 }
 
+/**
+ * 🔓 KIỂM TRA QUYỀN LINH HOẠT (Hỗ trợ mọi định dạng role từ CSDL / UI)
+ */
 function canEditTasks() {
-  return ["author", "task_team_manager", "bim_manager"].includes(window.activeRole);
+  if (!window.activeRole) return true; // Cho phép luôn nếu chưa phân quyền
+  const r = String(window.activeRole).toLowerCase().trim();
+  return r.includes("author") || r.includes("manager") || r.includes("admin") || r.includes("bim") || r.includes("team");
 }
 
 /* ---------------------------------------------------------------------
