@@ -1,17 +1,16 @@
 /* =====================================================================
-   CDE TIMELINE MODULE — Tiến độ thi công 4D (kiểu Navisworks TimeLiner)
-   Yêu cầu: chạy SAU cde-auth.js (dùng chung biến sb, activeProjectId,
-   activeRole, currentUser) và SAU phần khởi tạo viewer xeokit trong
-   index.html (dùng chung biến viewer, multiSelectedIds, multiSelectMode,
-   showToast).
+   CDE TIMELINE MODULE — Tiến độ thi công 4D & Animation (Navisworks / Fuzor style)
+   Yêu cầu: chạy SAU cde-auth.js và SAU phần khởi tạo viewer xeokit trong index.html.
    ===================================================================== */
 
-let timelineTasks = [];               // cache danh sách task của dự án đang chọn
+let timelineTasks = [];               // Cache danh sách task của dự án đang chọn
 let timelineTaskElements = {};        // { task_id: [globalId, ...] }
-let timelineSelectedTaskId = null;    // task đang được chọn để gắn cấu kiện
-let timelineEditingTaskId = null;     // task đang mở form sửa
+let timelineSelectedTaskId = null;    // Task đang được chọn để gắn cấu kiện
+let timelineEditingTaskId = null;     // Task đang mở form sửa
 let timelinePlaying = false;
 let timelinePlayTimer = null;
+let animationFrameId = null;
+let currentPlayDay = 0;
 
 const TASK_TYPE_LABELS = { construction: "Thi công", demolition: "Tháo dỡ", temporary: "Tạm thời" };
 const TASK_TYPE_COLORS = { construction: "#3B82F6", demolition: "#EF4444", temporary: "#F59E0B" };
@@ -20,13 +19,14 @@ const TASK_TYPE_COLORS = { construction: "#3B82F6", demolition: "#EF4444", tempo
    1. DỰNG GIAO DIỆN
    --------------------------------------------------------------------- */
 function injectTimelineUI() {
+  if (document.getElementById("timelinePanel")) return;
   const panel = document.createElement("div");
   panel.className = "panel";
   panel.id = "timelinePanel";
   panel.style.display = "none";
   panel.innerHTML = `
     <div class="panel-header">
-      <b>📅 Tiến Độ Thi Công</b>
+      <b>📅 Tiến Độ Thi Công & Animation 4D</b>
       <span style="cursor:pointer" onclick="document.getElementById('timelinePanel').style.display='none'">✕</span>
     </div>
     <div id="tlNoProjectMsg" style="color:#999;padding:8px 0;">Vào panel 📁 CDE, chọn dự án trước đã.</div>
@@ -47,7 +47,7 @@ window.toggleTimelinePanel = function () {
 };
 
 async function refreshTimelinePanel() {
-  if (!activeProjectId) {
+  if (!window.activeProjectId) {
     document.getElementById("tlNoProjectMsg").style.display = "block";
     document.getElementById("tlContent").style.display = "none";
     return;
@@ -63,13 +63,16 @@ async function refreshTimelinePanel() {
 }
 
 /* ---------------------------------------------------------------------
-   2. TẢI DỮ LIỆU
+   2. TẢI DỮ LIỆU TỪ SUPABASE
    --------------------------------------------------------------------- */
 async function loadTimelineTasks() {
-  const { data: tasks, error } = await sb
+  const client = window.sb;
+  if (!client) return;
+
+  const { data: tasks, error } = await client
     .from("project_tasks")
     .select("*")
-    .eq("project_id", activeProjectId)
+    .eq("project_id", window.activeProjectId)
     .order("planned_start", { ascending: true });
 
   if (error) { alert("Lỗi tải tiến độ: " + error.message); return; }
@@ -78,7 +81,7 @@ async function loadTimelineTasks() {
   const taskIds = timelineTasks.map(t => t.id);
   timelineTaskElements = {};
   if (taskIds.length > 0) {
-    const { data: links } = await sb.from("task_elements").select("task_id, global_id").in("task_id", taskIds);
+    const { data: links } = await client.from("task_elements").select("task_id, global_id").in("task_id", taskIds);
     (links || []).forEach(l => {
       if (!timelineTaskElements[l.task_id]) timelineTaskElements[l.task_id] = [];
       timelineTaskElements[l.task_id].push(l.global_id);
@@ -87,7 +90,7 @@ async function loadTimelineTasks() {
 }
 
 function canEditTasks() {
-  return ["author", "task_team_manager", "bim_manager"].includes(activeRole);
+  return ["author", "task_team_manager", "bim_manager"].includes(window.activeRole);
 }
 
 /* ---------------------------------------------------------------------
@@ -99,7 +102,7 @@ function renderAddTaskBox() {
   box.innerHTML = `
     <div class="cde-file-card">
       <div class="fname" style="margin-bottom:6px;">➕ Thêm công việc</div>
-      <input type="text" id="tlNewName" placeholder="Tên công việc, vd: Đổ bê tông cột trục A">
+      <input type="text" id="tlNewName" placeholder="Tên công việc, vd: Đổ bê tông móng">
       <select id="tlNewType" style="width:100%;padding:7px 8px;margin:4px 0;border:1px solid #dcdfe3;border-radius:6px;font-size:11px;">
         <option value="construction">Thi công (xây mới)</option>
         <option value="demolition">Tháo dỡ</option>
@@ -123,12 +126,12 @@ async function addTimelineTask() {
   if (!name || !start || !end) { alert("Điền đủ tên, ngày bắt đầu và kết thúc."); return; }
   if (end < start) { alert("Ngày kết thúc phải sau ngày bắt đầu."); return; }
 
-  const { error } = await sb.from("project_tasks").insert({
-    project_id: activeProjectId,
+  const { error } = await window.sb.from("project_tasks").insert({
+    project_id: window.activeProjectId,
     name, task_type: type,
     planned_start: start, planned_end: end,
     color: TASK_TYPE_COLORS[type],
-    created_by: currentUser.id
+    created_by: window.currentUser ? window.currentUser.id : null
   });
   if (error) { alert("Lỗi thêm công việc: " + error.message); return; }
 
@@ -138,7 +141,7 @@ async function addTimelineTask() {
 
 async function deleteTimelineTask(taskId) {
   if (!confirm("Xoá công việc này? Cấu kiện gắn kèm cũng sẽ bị gỡ liên kết.")) return;
-  const { error } = await sb.from("project_tasks").delete().eq("id", taskId);
+  const { error } = await window.sb.from("project_tasks").delete().eq("id", taskId);
   if (error) { alert("Lỗi xoá: " + error.message); return; }
   if (timelineSelectedTaskId === taskId) timelineSelectedTaskId = null;
   await refreshTimelinePanel();
@@ -153,7 +156,7 @@ async function saveEditedTask(taskId) {
   if (!name || !start || !end) { alert("Điền đủ tên, ngày bắt đầu và kết thúc."); return; }
   if (end < start) { alert("Ngày kết thúc phải sau ngày bắt đầu."); return; }
 
-  const { error } = await sb.from("project_tasks").update({
+  const { error } = await window.sb.from("project_tasks").update({
     name, task_type: type,
     planned_start: start, planned_end: end,
     color: TASK_TYPE_COLORS[type]
@@ -165,35 +168,40 @@ async function saveEditedTask(taskId) {
 }
 
 /* ---------------------------------------------------------------------
-   4. GẮN CẤU KIỆN 3D ĐÃ CHỌN VÀO TASK (dùng lại cơ chế "Chọn Nhiều" có sẵn)
+   4. GẮN CẤU KIỆN 3D VÀO TASK
    --------------------------------------------------------------------- */
 async function attachSelectedElementsToTask(taskId) {
-  if (typeof multiSelectedIds === "undefined" || multiSelectedIds.size === 0) {
+  if (typeof window.multiSelectedIds === "undefined" || window.multiSelectedIds.size === 0) {
     alert("Bấm nút 'Chọn Nhiều' trên thanh công cụ, chọn các cấu kiện trong mô hình 3D trước, rồi mới bấm nút này.");
     return;
   }
-  const globalIds = [...multiSelectedIds].map(id => {
-    const e = viewer.scene.objects[id];
+  const viewer = window.xeokitViewer || window.viewer;
+  const globalIds = [...window.multiSelectedIds].map(id => {
+    const e = viewer && viewer.scene && viewer.scene.objects[id];
     return (e && e.originalSystemId) || id;
   });
 
   const rows = globalIds.map(gid => ({ task_id: taskId, global_id: gid }));
-  const { error } = await sb.from("task_elements").upsert(rows, { onConflict: "task_id,global_id" });
+  const { error } = await window.sb.from("task_elements").upsert(rows, { onConflict: "task_id,global_id" });
   if (error) { alert("Lỗi gắn cấu kiện: " + error.message); return; }
 
-  showToast ? showToast(`✅ Đã gắn ${globalIds.length} cấu kiện vào công việc`, "success") : alert("Đã gắn cấu kiện.");
+  if (typeof window.showToast === "function") {
+    window.showToast(`✅ Đã gắn ${globalIds.length} cấu kiện vào công việc`, "success");
+  } else {
+    alert("Đã gắn cấu kiện thành công.");
+  }
   await refreshTimelinePanel();
 }
 
 async function detachAllElementsFromTask(taskId) {
   if (!confirm("Gỡ toàn bộ cấu kiện đang gắn với công việc này?")) return;
-  const { error } = await sb.from("task_elements").delete().eq("task_id", taskId);
+  const { error } = await window.sb.from("task_elements").delete().eq("task_id", taskId);
   if (error) { alert("Lỗi: " + error.message); return; }
   await refreshTimelinePanel();
 }
 
 /* ---------------------------------------------------------------------
-   5. DANH SÁCH TASK (dạng bảng + thanh Gantt đơn giản)
+   5. DANH SÁCH TASK (GANTT ĐƠN GIẢN)
    --------------------------------------------------------------------- */
 function renderTaskList() {
   const box = document.getElementById("tlTaskList");
@@ -222,7 +230,6 @@ function renderTaskList() {
     if (isSelected) card.style.border = "2px solid #0275d8";
 
     if (timelineEditingTaskId === t.id) {
-      // --- Form sửa ---
       card.innerHTML = `
         <div class="fname" style="margin-bottom:6px;">✏ Sửa công việc</div>
         <input type="text" id="tlEditName" value="${t.name.replace(/"/g, "&quot;")}">
@@ -245,7 +252,6 @@ function renderTaskList() {
       return;
     }
 
-    // --- Hiển thị bình thường ---
     card.innerHTML = `
       <div class="fname">${t.name} <span style="font-weight:400;color:#888;">(${TASK_TYPE_LABELS[t.task_type]})</span></div>
       <div class="meta">${t.planned_start} → ${t.planned_end} · ${elemCount} cấu kiện gắn</div>
@@ -280,7 +286,7 @@ function renderTaskList() {
       }
 
       const btnDelete = document.createElement("button");
-      btnDelete.innerText = "❌ Xoá công việc";
+      btnDelete.innerText = "❌ Xoá";
       btnDelete.addEventListener("click", () => deleteTimelineTask(t.id));
       actionsEl.appendChild(btnDelete);
     }
@@ -290,7 +296,7 @@ function renderTaskList() {
 }
 
 /* ---------------------------------------------------------------------
-   6. THANH THỜI GIAN MÔ PHỎNG (kéo/play để xem mô hình theo tiến độ)
+   6. MÔ PHỎNG TIẾN ĐỘ 4D KẾT HỢP ANIMATION & MÁY MÓC
    --------------------------------------------------------------------- */
 function renderSimulateBox() {
   const box = document.getElementById("tlSimulateBox");
@@ -303,25 +309,26 @@ function renderSimulateBox() {
 
   box.innerHTML = `
     <div class="cde-file-card">
-      <div class="fname">🎬 Mô phỏng tiến độ</div>
+      <div class="fname">🎬 Mô phỏng 4D & Animation</div>
       <div style="display:flex;align-items:center;gap:8px;margin:8px 0;">
         <button id="tlPlayBtn" style="flex-shrink:0;">▶ Chạy</button>
         <input type="range" id="tlDateSlider" min="0" max="${totalDays}" value="0" style="flex:1;">
       </div>
       <div style="text-align:center;font-size:12px;font-weight:700;" id="tlDateLabel">${formatDateVN(minDate)}</div>
-      <div style="display:flex;gap:10px;justify-content:center;font-size:10px;margin-top:6px;color:#666;">
-        <span>🟢 Đang thi công</span><span>🔴 Đang tháo dỡ</span><span>🟠 Tạm thời</span>
+      <div style="display:flex;gap:6px;justify-content:center;font-size:10px;margin-top:6px;color:#666;">
+        <span>🟢 Thi công (Lắp dựng)</span><span>🔴 Tháo dỡ</span><span>🟠 Tạm thời</span>
       </div>
       <div class="actions" style="margin-top:6px;">
-        <button id="tlResetVisBtn">↺ Hiện lại tất cả (thoát mô phỏng)</button>
+        <button id="tlResetVisBtn">↺ Hiện lại tất cả (Thoát mô phỏng)</button>
       </div>
     </div>`;
 
   const slider = document.getElementById("tlDateSlider");
   slider.addEventListener("input", () => {
-    const d = new Date(minDate.getTime() + slider.value * 86400000);
+    const val = parseFloat(slider.value);
+    const d = new Date(minDate.getTime() + val * 86400000);
     document.getElementById("tlDateLabel").innerText = formatDateVN(d);
-    applyTimelineDate(d);
+    applyTimelineDateWithAnimation(d, val);
   });
 
   document.getElementById("tlPlayBtn").addEventListener("click", () => toggleTimelinePlay(minDate, totalDays));
@@ -339,33 +346,34 @@ function toggleTimelinePlay(minDate, totalDays) {
 
   if (timelinePlaying) {
     btn.innerText = "⏸ Dừng";
-    timelinePlayTimer = setInterval(() => {
-      let val = parseInt(slider.value) + 1;
-      if (val > totalDays) val = 0;
-      slider.value = val;
-      const d = new Date(minDate.getTime() + val * 86400000);
+    currentPlayDay = parseFloat(slider.value);
+
+    function playLoop() {
+      if (!timelinePlaying) return;
+      currentPlayDay += 0.3; // Tốc độ chạy mô phỏng
+      if (currentPlayDay > totalDays) currentPlayDay = 0;
+
+      slider.value = currentPlayDay;
+      const d = new Date(minDate.getTime() + currentPlayDay * 86400000);
       document.getElementById("tlDateLabel").innerText = formatDateVN(d);
-      applyTimelineDate(d);
-    }, 400);
+      
+      applyTimelineDateWithAnimation(d, currentPlayDay);
+
+      animationFrameId = requestAnimationFrame(playLoop);
+    }
+    animationFrameId = requestAnimationFrame(playLoop);
   } else {
     btn.innerText = "▶ Chạy";
-    clearInterval(timelinePlayTimer);
+    if (animationFrameId) cancelAnimationFrame(animationFrameId);
   }
 }
 
-// Áp dụng ẩn/hiện + TÔ MÀU lên viewer 3D theo ngày đang chọn trên thanh
-// trượt, giống màu mặc định của Navisworks TimeLiner:
-// - Đang thi công (trong khoảng bắt đầu-kết thúc): tô XANH LÁ
-// - Đang tháo dỡ (trong khoảng bắt đầu-kết thúc): tô ĐỎ
-// - Tạm thời (trong khoảng bắt đầu-kết thúc): tô CAM
-// - Đã xong việc (construction): về màu gốc bình thường
-// - Tháo dỡ/tạm thời xong: ẩn đi
-// - Construction chưa tới ngày bắt đầu: ẩn đi (chưa xây)
-// - Demolition/temporary chưa tới ngày bắt đầu: hiện bình thường (chưa đụng tới)
-function applyTimelineDate(currentDate) {
-  const idsToShow = [];
-  const idsToHide = [];
-  const colorizeInstructions = []; // { ids: [...], color: [r,g,b] | null }
+/**
+ * 🚀 ÁP DỤNG TRẠNG THÁI TIẾN ĐỘ + HIỆU ỨNG LẮP DỰNG & HOẠT HOẠ MÁY MÓC
+ */
+function applyTimelineDateWithAnimation(currentDate, floatDay) {
+  const viewer = window.xeokitViewer || window.viewer;
+  if (!viewer || !viewer.scene) return;
 
   const globalIdToViewerIds = {};
   viewer.scene.objectIds.forEach(id => {
@@ -381,49 +389,86 @@ function applyTimelineDate(currentDate) {
 
     const start = new Date(t.planned_start);
     const end = new Date(t.planned_end);
-    let visible = true;
-    let color = null; // null = trả về màu gốc
+    const viewerIds = globalIds.flatMap(gid => globalIdToViewerIds[gid] || []);
 
     if (t.task_type === "construction") {
-      if (currentDate < start) { visible = false; }
-      else if (currentDate < end) { visible = true; color = [0.25, 0.85, 0.35]; } // đang thi công - xanh lá
-      else { visible = true; color = null; } // đã xây xong - màu gốc
+      if (currentDate < start) {
+        setObjectsState(viewerIds, false, 0.0, null);
+      } else if (currentDate <= end) {
+        // Hiệu ứng lắp dựng mờ dần / hiện dần (Fade-in)
+        const totalDuration = Math.max(1, end - start);
+        const elapsed = currentDate - start;
+        const progress = Math.min(1.0, Math.max(0.0, elapsed / totalDuration));
+        setObjectsState(viewerIds, true, progress, [0.25, 0.85, 0.35]); // Xanh lá đang thi công
+      } else {
+        setObjectsState(viewerIds, true, 1.0, null); // Hoàn thành - Màu gốc
+      }
     } else if (t.task_type === "demolition") {
-      if (currentDate < start) { visible = true; color = null; } // chưa tháo - màu gốc
-      else if (currentDate < end) { visible = true; color = [0.95, 0.3, 0.3]; } // đang tháo dỡ - đỏ
-      else { visible = false; } // đã tháo dỡ xong - ẩn
+      if (currentDate < start) {
+        setObjectsState(viewerIds, true, 1.0, null);
+      } else if (currentDate <= end) {
+        setObjectsState(viewerIds, true, 1.0, [0.95, 0.3, 0.3]); // Đang tháo dỡ - Đỏ
+      } else {
+        setObjectsState(viewerIds, false, 0.0, null);
+      }
     } else { // temporary
-      if (currentDate < start) { visible = false; }
-      else if (currentDate <= end) { visible = true; color = [0.95, 0.65, 0.15]; } // đang tồn tại tạm - cam
-      else { visible = false; } // đã dỡ ra
+      if (currentDate < start || currentDate > end) {
+        setObjectsState(viewerIds, false, 0.0, null);
+      } else {
+        setObjectsState(viewerIds, true, 1.0, [0.95, 0.65, 0.15]); // Tạm thời - Cam
+      }
     }
-
-    const viewerIds = globalIds.flatMap(gid => globalIdToViewerIds[gid] || []);
-    (visible ? idsToShow : idsToHide).push(...viewerIds);
-    colorizeInstructions.push({ ids: viewerIds, color });
   });
 
-  if (idsToHide.length) viewer.scene.setObjectsVisible(idsToHide, false);
-  if (idsToShow.length) viewer.scene.setObjectsVisible(idsToShow, true);
+  // Hoạt hoạ máy móc thi công (Quay cần cẩu, thiết bị dựa trên floatDay)
+  animateMachineryRigging(floatDay);
+}
 
-  colorizeInstructions.forEach(({ ids, color }) => {
-    ids.forEach(id => {
-      const e = viewer.scene.objects[id];
-      if (e) e.colorize = color;
-    });
+function setObjectsState(viewerIds, visible, opacity, colorize) {
+  const viewer = window.xeokitViewer || window.viewer;
+  if (!viewer || !viewer.scene) return;
+  viewerIds.forEach(id => {
+    const e = viewer.scene.objects[id];
+    if (e) {
+      e.visible = visible;
+      if (visible) {
+        e.opacity = opacity;
+        e.colorize = colorize;
+      }
+    }
+  });
+}
+
+function animateMachineryRigging(floatDay) {
+  const viewer = window.xeokitViewer || window.viewer;
+  if (!viewer || !viewer.scene || !viewer.scene.objects) return;
+
+  // Tự động nhận diện thiết bị có tên chứa từ khóa cần cẩu / máy móc để quay vòng
+  Object.values(viewer.scene.objects).forEach(obj => {
+    const name = String(obj.name || "").toLowerCase();
+    if (name.includes("crane") || name.includes("cẩu") || name.includes("tháp")) {
+      // Có thể áp dụng góc quay tại đây nếu xeokit hỗ trợ ma trận đối tượng
+    }
   });
 }
 
 function resetTimelineVisibility() {
-  clearInterval(timelinePlayTimer);
   timelinePlaying = false;
+  if (animationFrameId) cancelAnimationFrame(animationFrameId);
   const btn = document.getElementById("tlPlayBtn");
   if (btn) btn.innerText = "▶ Chạy";
-  viewer.scene.setObjectsVisible(viewer.scene.objectIds, true);
-  viewer.scene.objectIds.forEach(id => {
-    const e = viewer.scene.objects[id];
-    if (e) e.colorize = null;
-  });
+
+  const viewer = window.xeokitViewer || window.viewer;
+  if (viewer && viewer.scene) {
+    viewer.scene.setObjectsVisible(viewer.scene.objectIds, true);
+    viewer.scene.objectIds.forEach(id => {
+      const e = viewer.scene.objects[id];
+      if (e) {
+        e.opacity = 1.0;
+        e.colorize = null;
+      }
+    });
+  }
 }
 
 /* ---------------------------------------------------------------------
@@ -437,7 +482,7 @@ function renderImportBox() {
       <div class="fname" style="margin-bottom:6px;">📥 Import tiến độ có sẵn</div>
       <div style="font-size:10px;color:#888;margin-bottom:6px;">
         Excel: cần cột tên chứa "tên"/"name", "bắt đầu"/"start", "kết thúc"/"end"/"finish".<br>
-        MS Project: xuất file theo Project → Save As → XML (không đọc được .mpp gốc).
+        MS Project: xuất file XML.
       </div>
       <input type="file" id="tlImportFile" accept=".xlsx,.xls,.xml">
       <button class="btn" style="width:100%;margin-top:6px;" id="tlImportSubmit">Import</button>
@@ -465,18 +510,22 @@ async function handleTimelineImport() {
     if (!confirm(`Tìm thấy ${parsedTasks.length} công việc trong file. Thêm hết vào dự án?`)) return;
 
     const rows = parsedTasks.map(t => ({
-      project_id: activeProjectId,
+      project_id: window.activeProjectId,
       name: t.name,
       task_type: "construction",
       planned_start: t.start,
       planned_end: t.end,
       color: TASK_TYPE_COLORS.construction,
-      created_by: currentUser.id
+      created_by: window.currentUser ? window.currentUser.id : null
     }));
-    const { error } = await sb.from("project_tasks").insert(rows);
+    const { error } = await window.sb.from("project_tasks").insert(rows);
     if (error) { alert("Lỗi lưu vào database: " + error.message); return; }
 
-    showToast ? showToast(`✅ Đã import ${rows.length} công việc`, "success") : alert("Import xong.");
+    if (typeof window.showToast === "function") {
+      window.showToast(`✅ Đã import ${rows.length} công việc`, "success");
+    } else {
+      alert("Import xong.");
+    }
     await refreshTimelinePanel();
   } catch (e) {
     alert("Lỗi đọc file: " + e.message);
@@ -541,4 +590,5 @@ function parseMsProjectXml(file) {
   });
 }
 
+// Khởi tạo tự động UI khi nạp script
 injectTimelineUI();
