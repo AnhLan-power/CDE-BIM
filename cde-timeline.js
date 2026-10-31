@@ -2,10 +2,10 @@
    CDE TIMELINE MODULE — Tiến độ thi công 4D & Animation (Navisworks / Fuzor style)
    ===================================================================== */
 
-let timelineTasks = [];               // Cache danh sách task
-let timelineTaskElements = {};        // { task_id: [globalId, ...] }
-let timelineSelectedTaskId = null;    // Task đang chọn để gắn cấu kiện
-let timelineEditingTaskId = null;     // Task đang mở form sửa
+let timelineTasks = [];               
+let timelineTaskElements = {};        
+let timelineSelectedTaskId = null;    
+let timelineEditingTaskId = null;     
 let timelinePlaying = false;
 let animationFrameId = null;
 let currentPlayDay = 0;
@@ -105,7 +105,7 @@ function renderAddTaskBox() {
   box.innerHTML = `
     <div class="cde-file-card">
       <div class="fname" style="margin-bottom:6px;">➕ Thêm công việc & Cấu hình Animation</div>
-      <input type="text" id="tlNewName" placeholder="Tên công việc, vd: Lắp dầm / Cẩu tháp">
+      <input type="text" id="tlNewName" placeholder="Tên công việc, vd: Lắp dầm / Xe bê tông">
       
       <div style="display:flex;gap:6px;margin:4px 0;">
         <select id="tlNewType" style="flex:1;padding:6px;border:1px solid #dcdfe3;border-radius:6px;font-size:11px;">
@@ -405,7 +405,7 @@ function renderTaskList() {
 }
 
 /* ---------------------------------------------------------------------
-   6. MÔ PHỎNG 4D & XOAY QUANH TÂM CHÍNH MÔ HÌNH
+   6. MÔ PHỎNG 4D & XOAY AN TOÀN QUANH TÂM MÔ HÌNH (SAFE MATRIX ROTATION)
    --------------------------------------------------------------------- */
 function renderSimulateBox() {
   const box = document.getElementById("tlSimulateBox");
@@ -459,7 +459,7 @@ function toggleTimelinePlay(minDate, totalDays) {
 
     function playLoop() {
       if (!timelinePlaying) return;
-      currentPlayDay += 0.2; // Tốc độ chạy mô phỏng
+      currentPlayDay += 0.2; 
       if (currentPlayDay > totalDays) currentPlayDay = 0;
 
       slider.value = currentPlayDay;
@@ -477,9 +477,6 @@ function toggleTimelinePlay(minDate, totalDays) {
   }
 }
 
-/**
- * 🚀 ÁP DỤNG TRẠNG THÁI TIẾN ĐỘ & XOAY QUANH TÂM CHÍNH MÔ HÌNH (BBOX CENTER)
- */
 function applyTimelineDateWithAnimation(currentDate, floatDay) {
   const viewer = window.xeokitViewer || window.viewer;
   if (!viewer || !viewer.scene) return;
@@ -523,7 +520,7 @@ function applyTimelineDateWithAnimation(currentDate, floatDay) {
       } else {
         setObjectsStateAdvanced(viewerIds, false, 0.0, null, animType);
       }
-    } else { // temporary
+    } else { 
       if (currentDate < start || currentDate > end) {
         setObjectsStateAdvanced(viewerIds, false, 0.0, null, animType);
       } else {
@@ -532,12 +529,10 @@ function applyTimelineDateWithAnimation(currentDate, floatDay) {
     }
 
     if (machineMode !== "none") {
-      animateMachineryModelsAroundCenter(viewer, t, machineMode, floatDay);
+      animateMachinerySafely(viewer, t, machineMode, floatDay);
     }
   });
 
-  animateAutoMachineryModelsAroundCenter(viewer, floatDay);
-  
   viewer.scene._needUpdate = 1;
   if (typeof viewer.scene.render === "function") viewer.scene.render();
 }
@@ -564,9 +559,9 @@ function setObjectsStateAdvanced(viewerIds, visible, progress, colorize, animTyp
 }
 
 /**
- * 🔄 XOAY QUANH TÂM CHÍNH MÔ HÌNH (SỬ DỤNG BBOX CENTER ĐỂ TRÁNH BỊ VĂNG / CHỚP TẮT)
+ * 🔄 HÀM XOAY VÀ DI CHUYỂN AN TOÀN CHO MODEL (BẢO TOÀN MA TRẬN SCALE ĐỂ KHÔNG BỊ BẸT DẸT)
  */
-function animateMachineryModelsAroundCenter(viewer, task, mode, floatDay) {
+function animateMachinerySafely(viewer, task, mode, floatDay) {
   if (!viewer || !viewer.scene || !viewer.scene.models) return;
 
   const globalIds = timelineTaskElements[task.id] || [];
@@ -591,9 +586,8 @@ function animateMachineryModelsAroundCenter(viewer, task, mode, floatDay) {
 
       if (model.matrix && modelBaseMatrices[modelId]) {
         const baseMat = modelBaseMatrices[modelId];
-        const mat = Float32Array.from(baseMat);
-
-        // Lấy tâm chính của model từ AABB (Bounding Box) để quay đúng tâm nó
+        
+        // Lấy tâm AABB của model
         let cx = baseMat[12], cy = baseMat[13], cz = baseMat[14];
         if (model.aabb) {
           cx = (model.aabb[0] + model.aabb[3]) / 2;
@@ -606,13 +600,16 @@ function animateMachineryModelsAroundCenter(viewer, task, mode, floatDay) {
           const cos = Math.cos(angleRad);
           const sin = Math.sin(angleRad);
 
+          // Tạo ma trận xoay chuẩn giữ nguyên scale (không ghi đè bậy bạ các hệ số scale)
+          const mat = Float32Array.from(baseMat);
+
           if (axis === "Z") {
+            // Xoay quanh trục Z, giữ nguyên các cột scale cơ sở
             mat[0] = baseMat[0] * cos - baseMat[4] * sin;
             mat[1] = baseMat[1] * cos - baseMat[5] * sin;
             mat[4] = baseMat[0] * sin + baseMat[4] * cos;
             mat[5] = baseMat[1] * sin + baseMat[5] * cos;
 
-            // Dịch chuyển ma trận để giữ cố định tâm (cx, cy) khi quay
             mat[12] = cx + (baseMat[12] - cx) * cos - (baseMat[13] - cy) * sin;
             mat[13] = cy + (baseMat[12] - cx) * sin + (baseMat[13] - cy) * cos;
           } else if (axis === "X") {
@@ -632,7 +629,10 @@ function animateMachineryModelsAroundCenter(viewer, task, mode, floatDay) {
             mat[12] = cx + (baseMat[12] - cx) * cos + (baseMat[14] - cz) * sin;
             mat[14] = cz + (baseMat[14] - cz) * cos - (baseMat[12] - cx) * sin;
           }
+
+          model.matrix = mat;
         } else if (mode === "translate") {
+          const mat = Float32Array.from(baseMat);
           const offset = Math.sin(floatDay * 0.3) * distance;
 
           if (axis === "X") {
@@ -642,53 +642,9 @@ function animateMachineryModelsAroundCenter(viewer, task, mode, floatDay) {
           } else if (axis === "Z") {
             mat[14] = baseMat[14] + offset;
           }
+
+          model.matrix = mat;
         }
-
-        model.matrix = mat;
-      }
-    }
-  });
-}
-
-/**
- * 🏗️ XOAY TỰ ĐỘNG QUANH TÂM CHO CẨU THÁP
- */
-function animateAutoMachineryModelsAroundCenter(viewer, floatDay) {
-  if (!viewer || !viewer.scene || !viewer.scene.models) return;
-
-  const angleRad = (floatDay * 15) * (Math.PI / 180);
-
-  Object.keys(viewer.scene.models).forEach(modelId => {
-    const lowerId = modelId.toLowerCase();
-    if (lowerId.includes("crane") || lowerId.includes("cẩu") || lowerId.includes("tháp")) {
-      const model = viewer.scene.models[modelId];
-      if (!model) return;
-
-      if (!modelBaseMatrices[modelId]) {
-        modelBaseMatrices[modelId] = model.matrix ? Float32Array.from(model.matrix) : null;
-      }
-
-      if (model.matrix && modelBaseMatrices[modelId]) {
-        const baseMat = modelBaseMatrices[modelId];
-        const mat = Float32Array.from(baseMat);
-        const cos = Math.cos(angleRad);
-        const sin = Math.sin(angleRad);
-
-        let cx = baseMat[12], cy = baseMat[13];
-        if (model.aabb) {
-          cx = (model.aabb[0] + model.aabb[3]) / 2;
-          cy = (model.aabb[1] + model.aabb[4]) / 2;
-        }
-
-        mat[0] = baseMat[0] * cos - baseMat[4] * sin;
-        mat[1] = baseMat[1] * cos - baseMat[5] * sin;
-        mat[4] = baseMat[0] * sin + baseMat[4] * cos;
-        mat[5] = baseMat[1] * sin + baseMat[5] * cos;
-
-        mat[12] = cx + (baseMat[12] - cx) * cos - (baseMat[13] - cy) * sin;
-        mat[13] = cy + (baseMat[12] - cx) * sin + (baseMat[13] - cy) * cos;
-
-        model.matrix = mat;
       }
     }
   });
