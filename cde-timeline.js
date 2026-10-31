@@ -120,9 +120,9 @@ function renderAddTaskBox() {
 
       <div style="margin:4px 0;">
         <select id="tlNewMachine" style="width:100%;padding:6px;border:1px solid #dcdfe3;border-radius:6px;font-size:11px;" onchange="toggleMachineConfigFields('New')">
-          <option value="none">🚜 Máy móc: Không có / Bình thường</option>
-          <option value="rotate">🔄 Máy móc: Xoay vòng quanh tâm</option>
-          <option value="translate">🚚 Máy móc: Di chuyển tịnh tiến</option>
+          <option value="none">🚜 Máy móc: Không có (Dùng hiệu ứng Fade/Slide)</option>
+          <option value="rotate">🔄 Máy móc: Xoay vòng quanh tâm (Không mờ/trượt)</option>
+          <option value="translate">🚚 Máy móc: Di chuyển tịnh tiến (Không mờ/trượt)</option>
         </select>
       </div>
 
@@ -203,7 +203,7 @@ async function addTimelineTask() {
 }
 
 async function deleteTimelineTask(taskId) {
-  if (!confirm("Xoá công việc này? Cấu kiện gắn kèm cũng sẽ bị gỡ liên kết.")) return;
+  if (!confirm("Xoá công việc này?")) return;
   const { error } = await window.sb.from("project_tasks").delete().eq("id", taskId);
   if (error) { alert("Lỗi xoá: " + error.message); return; }
   if (timelineSelectedTaskId === taskId) timelineSelectedTaskId = null;
@@ -220,7 +220,7 @@ async function saveEditedTask(taskId) {
   const start = document.getElementById("tlEditStart").value;
   const end = document.getElementById("tlEditEnd").value;
 
-  if (!name || !start || !end) { alert("Điền đủ tên, ngày bắt đầu và kết thúc."); return; }
+  if (!name || !start || !end) { alert("Điền đủ thông tin."); return; }
   if (end < start) { alert("Ngày kết thúc phải sau ngày bắt đầu."); return; }
 
   const { error } = await window.sb.from("project_tasks").update({
@@ -235,18 +235,15 @@ async function saveEditedTask(taskId) {
     planned_end: end,
     color: TASK_TYPE_COLORS[type]
   }).eq("id", taskId);
-  if (error) { alert("Lỗi lưu chỉnh sửa: " + error.message); return; }
+  if (error) { alert("Lỗi lưu: " + error.message); return; }
 
   timelineEditingTaskId = null;
   await refreshTimelinePanel();
 }
 
-/* ---------------------------------------------------------------------
-   4. GẮN CẤU KIỆN 3D VÀO TASK
-   --------------------------------------------------------------------- */
 async function attachSelectedElementsToTask(taskId) {
   if (typeof window.multiSelectedIds === "undefined" || window.multiSelectedIds.size === 0) {
-    alert("Bấm nút 'Chọn Nhiều' trên thanh công cụ, chọn các cấu kiện trong mô hình 3D trước, rồi mới bấm nút này.");
+    alert("Bấm nút 'Chọn Nhiều' trên thanh công cụ, chọn các cấu kiện trong mô hình 3D trước.");
     return;
   }
   const viewer = window.xeokitViewer || window.viewer;
@@ -268,15 +265,11 @@ async function attachSelectedElementsToTask(taskId) {
 }
 
 async function detachAllElementsFromTask(taskId) {
-  if (!confirm("Gỡ toàn bộ cấu kiện đang gắn với công việc này?")) return;
-  const { error } = await window.sb.from("task_elements").delete().eq("task_id", taskId);
-  if (error) { alert("Lỗi: " + error.message); return; }
+  if (!confirm("Gỡ toàn bộ cấu kiện?")) return;
+  await window.sb.from("task_elements").delete().eq("task_id", taskId);
   await refreshTimelinePanel();
 }
 
-/* ---------------------------------------------------------------------
-   5. DANH SÁCH TASK
-   --------------------------------------------------------------------- */
 function renderTaskList() {
   const box = document.getElementById("tlTaskList");
   if (timelineTasks.length === 0) {
@@ -357,11 +350,10 @@ function renderTaskList() {
       return;
     }
 
-    const animLabel = t.animation_type === "slide" ? "📦 Trượt" : "✨ Mờ";
-    const machLabel = t.machine_mode === "rotate" ? ` · 🔄 Xoay (${t.machine_axis || 'Z'})` : (t.machine_mode === "translate" ? ` · 🚚 Di chuyển (${t.machine_axis || 'X'})` : "");
+    const machLabel = t.machine_mode === "rotate" ? ` · 🔄 Xoay (${t.machine_axis || 'Z'})` : (t.machine_mode === "translate" ? ` · 🚚 Di chuyển (${t.machine_axis || 'X'})` : ` · ${t.animation_type === 'slide' ? '📦 Trượt' : '✨ Mờ'}`);
 
     card.innerHTML = `
-      <div class="fname">${t.name} <span style="font-weight:400;color:#888;">(${TASK_TYPE_LABELS[t.task_type]} · ${animLabel}${machLabel})</span></div>
+      <div class="fname">${t.name} <span style="font-weight:400;color:#888;">(${TASK_TYPE_LABELS[t.task_type]}${machLabel})</span></div>
       <div class="meta">${t.planned_start} → ${t.planned_end} · ${elemCount} cấu kiện gắn</div>
       <div style="background:#eee;border-radius:4px;height:8px;margin:6px 0;position:relative;">
         <div style="position:absolute;left:${leftPct}%;width:${widthPct}%;height:100%;background:${t.color || "#3B82F6"};border-radius:4px;"></div>
@@ -403,9 +395,6 @@ function renderTaskList() {
   });
 }
 
-/* ---------------------------------------------------------------------
-   6. MÔ PHỎNG 4D & TỰ ĐỘNG DÒ TÌM MODEL CHỨA CẤU KIỆN ĐỂ XOAY QUANH TÂM
-   --------------------------------------------------------------------- */
 function renderSimulateBox() {
   const box = document.getElementById("tlSimulateBox");
   if (timelineTasks.length === 0) { box.innerHTML = ""; return; }
@@ -498,37 +487,52 @@ function applyTimelineDateWithAnimation(currentDate, floatDay) {
     const animType = t.animation_type || "fade";
     const machineMode = t.machine_mode || "none";
 
-    if (t.task_type === "construction") {
-      if (currentDate < start) {
-        setObjectsStateAdvanced(viewerIds, false, 0.0, null, animType);
-      } else if (currentDate <= end) {
-        const totalDuration = Math.max(1, end - start);
-        const elapsed = currentDate - start;
-        const progress = Math.min(1.0, Math.max(0.0, elapsed / totalDuration));
-        
-        const activeColor = animType === "slide" ? [1.0, 0.75, 0.0] : [0.25, 0.85, 0.35];
-        setObjectsStateAdvanced(viewerIds, true, progress, activeColor, animType);
-      } else {
-        setObjectsStateAdvanced(viewerIds, true, 1.0, null, animType);
-      }
-    } else if (t.task_type === "demolition") {
-      if (currentDate < start) {
-        setObjectsStateAdvanced(viewerIds, true, 1.0, null, animType);
-      } else if (currentDate <= end) {
-        setObjectsStateAdvanced(viewerIds, true, 1.0, [0.95, 0.3, 0.3], animType);
-      } else {
-        setObjectsStateAdvanced(viewerIds, false, 0.0, null, animType);
-      }
-    } else { 
-      if (currentDate < start || currentDate > end) {
-        setObjectsStateAdvanced(viewerIds, false, 0.0, null, animType);
-      } else {
-        setObjectsStateAdvanced(viewerIds, true, 1.0, [0.95, 0.65, 0.15], animType);
-      }
-    }
-
+    // Xử lý hiển thị cấu kiện
     if (machineMode !== "none") {
-      animateMachineryByAttachedElements(viewer, t, machineMode, floatDay, viewerIds);
+      // 🚜 Chế độ MÁY MÓC: Không có hiệu ứng mờ hay trượt. Máy hiển thị hoàn toàn bình thường (solid) trong suốt khoảng thời gian task diễn ra.
+      const isActive = (currentDate >= start && currentDate <= end);
+      viewerIds.forEach(id => {
+        const e = viewer.scene.objects[id];
+        if (!e) return;
+        e.visible = isActive;
+        if (isActive) {
+          e.opacity = 1.0;
+          e.colorize = null; // Không đổi màu, giữ nguyên vật liệu gốc
+        }
+      });
+
+      if (isActive) {
+        animateMachineryByAttachedElements(viewer, t, machineMode, floatDay, viewerIds);
+      }
+    } else {
+      // 🏗️ Chế độ XÂY DỰNG / THÁO DỠ thông thường (Fade / Slide)
+      if (t.task_type === "construction") {
+        if (currentDate < start) {
+          setObjectsStateAdvanced(viewerIds, false, 0.0, null, animType);
+        } else if (currentDate <= end) {
+          const totalDuration = Math.max(1, end - start);
+          const elapsed = currentDate - start;
+          const progress = Math.min(1.0, Math.max(0.0, elapsed / totalDuration));
+          const activeColor = animType === "slide" ? [1.0, 0.75, 0.0] : [0.25, 0.85, 0.35];
+          setObjectsStateAdvanced(viewerIds, true, progress, activeColor, animType);
+        } else {
+          setObjectsStateAdvanced(viewerIds, true, 1.0, null, animType);
+        }
+      } else if (t.task_type === "demolition") {
+        if (currentDate < start) {
+          setObjectsStateAdvanced(viewerIds, true, 1.0, null, animType);
+        } else if (currentDate <= end) {
+          setObjectsStateAdvanced(viewerIds, true, 1.0, [0.95, 0.3, 0.3], animType);
+        } else {
+          setObjectsStateAdvanced(viewerIds, false, 0.0, null, animType);
+        }
+      } else { // temporary
+        if (currentDate < start || currentDate > end) {
+          setObjectsStateAdvanced(viewerIds, false, 0.0, null, animType);
+        } else {
+          setObjectsStateAdvanced(viewerIds, true, 1.0, [0.95, 0.65, 0.15], animType);
+        }
+      }
     }
   });
 
@@ -558,7 +562,7 @@ function setObjectsStateAdvanced(viewerIds, visible, progress, colorize, animTyp
 }
 
 /**
- * 🔄 TỰ ĐỘNG DÒ TÌM MODEL CHỨA CẤU KIỆN ĐỂ XOAY QUANH TÂM MỘT CÁCH CHUẨN XÁC
+ * 🔄 CẢI TIẾN: HỖ TRỢ XOAY / DI CHUYỂN CẢ MODEL HOẶC CÁC OBJECT TRONG MODEL
  */
 function animateMachineryByAttachedElements(viewer, task, mode, floatDay, viewerIds) {
   if (!viewer || !viewer.scene || !viewer.scene.models) return;
@@ -567,7 +571,7 @@ function animateMachineryByAttachedElements(viewer, task, mode, floatDay, viewer
   const speed = task.machine_speed || 1.0;
   const distance = task.machine_distance || 10.0;
 
-  // Lấy ra các ModelId chứa các cấu kiện đang được gắn vào task này
+  // Lấy ra tất cả các modelId chứa các cấu kiện được gắn vào task
   const targetModelIds = new Set();
   viewerIds.forEach(id => {
     const obj = viewer.scene.objects[id];
@@ -575,6 +579,11 @@ function animateMachineryByAttachedElements(viewer, task, mode, floatDay, viewer
       targetModelIds.add(obj.modelId);
     }
   });
+
+  // Nếu không tìm thấy qua obj.modelId, thử quét toàn bộ models trong scene
+  if (targetModelIds.size === 0) {
+    Object.keys(viewer.scene.models).forEach(mId => targetModelIds.add(mId));
+  }
 
   targetModelIds.forEach(modelId => {
     const model = viewer.scene.models[modelId];
@@ -587,7 +596,6 @@ function animateMachineryByAttachedElements(viewer, task, mode, floatDay, viewer
     if (model.matrix && modelBaseMatrices[modelId]) {
       const baseMat = modelBaseMatrices[modelId];
       
-      // Lấy tâm AABB chính xác của mô hình xe
       let cx = baseMat[12], cy = baseMat[13], cz = baseMat[14];
       if (model.aabb) {
         cx = (model.aabb[0] + model.aabb[3]) / 2;
@@ -595,12 +603,12 @@ function animateMachineryByAttachedElements(viewer, task, mode, floatDay, viewer
         cz = (model.aabb[2] + model.aabb[5]) / 2;
       }
 
+      const mat = Float32Array.from(baseMat);
+
       if (mode === "rotate") {
         const angleRad = (floatDay * speed * 360) * (Math.PI / 180);
         const cos = Math.cos(angleRad);
         const sin = Math.sin(angleRad);
-
-        const mat = Float32Array.from(baseMat);
 
         if (axis === "Z") {
           mat[0] = baseMat[0] * cos - baseMat[4] * sin;
@@ -630,7 +638,6 @@ function animateMachineryByAttachedElements(viewer, task, mode, floatDay, viewer
 
         model.matrix = mat;
       } else if (mode === "translate") {
-        const mat = Float32Array.from(baseMat);
         const offset = Math.sin(floatDay * 0.3) * distance;
 
         if (axis === "X") {
@@ -678,9 +685,6 @@ function resetTimelineVisibility() {
   }
 }
 
-/* ---------------------------------------------------------------------
-   7. IMPORT EXCEL / MS PROJECT XML
-   --------------------------------------------------------------------- */
 function renderImportBox() {
   const box = document.getElementById("tlImportBox");
   if (!canEditTasks()) { box.innerHTML = ""; return; }
@@ -799,5 +803,4 @@ function parseMsProjectXml(file) {
   });
 }
 
-// Khởi tạo tự động UI khi nạp script
 injectTimelineUI();
