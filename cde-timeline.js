@@ -1,11 +1,10 @@
 /* =====================================================================
    CDE TIMELINE MODULE — Tiến độ thi công 4D & Animation (Navisworks / Fuzor style)
-   Yêu cầu: chạy SAU cde-auth.js và SAU phần khởi tạo viewer xeokit trong index.html.
    ===================================================================== */
 
-let timelineTasks = [];               // Cache danh sách task của dự án đang chọn
+let timelineTasks = [];               // Cache danh sách task
 let timelineTaskElements = {};        // { task_id: [globalId, ...] }
-let timelineSelectedTaskId = null;    // Task đang được chọn để gắn cấu kiện
+let timelineSelectedTaskId = null;    // Task đang chọn để gắn cấu kiện
 let timelineEditingTaskId = null;     // Task đang mở form sửa
 let timelinePlaying = false;
 let animationFrameId = null;
@@ -98,7 +97,7 @@ function canEditTasks() {
 }
 
 /* ---------------------------------------------------------------------
-   3. THÊM / SỬA / XOÁ TASK
+   3. THÊM / SỬA / XOÁ TASK (CÓ CẤU HÌNH MÁY MÓC CHI TIẾT)
    --------------------------------------------------------------------- */
 function renderAddTaskBox() {
   const box = document.getElementById("tlAddTaskBox");
@@ -121,11 +120,28 @@ function renderAddTaskBox() {
       </div>
 
       <div style="margin:4px 0;">
-        <select id="tlNewMachine" style="width:100%;padding:6px;border:1px solid #dcdfe3;border-radius:6px;font-size:11px;">
+        <select id="tlNewMachine" style="width:100%;padding:6px;border:1px solid #dcdfe3;border-radius:6px;font-size:11px;" onchange="toggleMachineConfigFields('New')">
           <option value="none">🚜 Máy móc: Không có / Bình thường</option>
-          <option value="rotate">🔄 Máy móc: Xoay vòng (Cẩu tháp, quạt...)</option>
-          <option value="translate">🚚 Máy móc: Di chuyển tịnh tiến (Xe chạy...)</option>
+          <option value="rotate">🔄 Máy móc: Xoay vòng (Cẩu tháp...)</option>
+          <option value="translate">🚚 Máy móc: Di chuyển tịnh tiến (Xe...)</option>
         </select>
+      </div>
+
+      <div id="tlNewMachineConfig" style="display:none;background:#f8f9fa;padding:6px;border-radius:6px;margin:4px 0;font-size:11px;">
+        <div style="display:flex;gap:6px;margin-bottom:4px;">
+          <div style="flex:1;">
+            <label style="font-size:10px;color:#666;">Trục hoạt động:</label>
+            <select id="tlNewAxis" style="width:100%;padding:4px;border:1px solid #dcdfe3;border-radius:4px;font-size:11px;">
+              <option value="Z">Trục Z (Đứng/Quay vòng)</option>
+              <option value="X">Trục X (Ngang)</option>
+              <option value="Y">Trục Y (Dọc)</option>
+            </select>
+          </div>
+          <div style="flex:1;">
+            <label style="font-size:10px;color:#666;" id="tlNewValLabel">Tốc độ / Biên độ:</label>
+            <input type="number" id="tlNewVal" value="10" step="0.5" style="width:100%;padding:4px;border:1px solid #dcdfe3;border-radius:4px;font-size:11px;">
+          </div>
+        </div>
       </div>
 
       <div style="display:flex;gap:6px;margin-top:4px;">
@@ -137,11 +153,30 @@ function renderAddTaskBox() {
   document.getElementById("tlAddTaskSubmit").addEventListener("click", addTimelineTask);
 }
 
+window.toggleMachineConfigFields = function(prefix) {
+  const mode = document.getElementById(`tl${prefix}Machine`).value;
+  const configBox = document.getElementById(`tl${prefix}MachineConfig`);
+  const valLabel = document.getElementById(`tl${prefix}ValLabel`);
+  
+  if (mode === "none") {
+    configBox.style.display = "none";
+  } else {
+    configBox.style.display = "block";
+    if (mode === "rotate") {
+      valLabel.innerText = "Tốc độ quay (vòng/ngày):";
+    } else {
+      valLabel.innerText = "Quãng đường (mét):";
+    }
+  }
+};
+
 async function addTimelineTask() {
   const name = document.getElementById("tlNewName").value.trim();
   const type = document.getElementById("tlNewType").value;
   const anim = document.getElementById("tlNewAnim").value;
   const machine = document.getElementById("tlNewMachine").value;
+  const axis = document.getElementById("tlNewAxis") ? document.getElementById("tlNewAxis").value : "Z";
+  const val = document.getElementById("tlNewVal") ? parseFloat(document.getElementById("tlNewVal").value) || 5.0 : 5.0;
   const start = document.getElementById("tlNewStart").value;
   const end = document.getElementById("tlNewEnd").value;
 
@@ -154,6 +189,9 @@ async function addTimelineTask() {
     task_type: type,
     animation_type: anim,
     machine_mode: machine,
+    machine_axis: axis,
+    machine_speed: machine === "rotate" ? val : 1.0,
+    machine_distance: machine === "translate" ? val : 10.0,
     planned_start: start, 
     planned_end: end,
     color: TASK_TYPE_COLORS[type],
@@ -178,6 +216,8 @@ async function saveEditedTask(taskId) {
   const type = document.getElementById("tlEditType").value;
   const anim = document.getElementById("tlEditAnim").value;
   const machine = document.getElementById("tlEditMachine").value;
+  const axis = document.getElementById("tlEditAxis") ? document.getElementById("tlEditAxis").value : "Z";
+  const val = document.getElementById("tlEditVal") ? parseFloat(document.getElementById("tlEditVal").value) || 5.0 : 5.0;
   const start = document.getElementById("tlEditStart").value;
   const end = document.getElementById("tlEditEnd").value;
 
@@ -189,6 +229,9 @@ async function saveEditedTask(taskId) {
     task_type: type,
     animation_type: anim,
     machine_mode: machine,
+    machine_axis: axis,
+    machine_speed: machine === "rotate" ? val : 1.0,
+    machine_distance: machine === "translate" ? val : 10.0,
     planned_start: start, 
     planned_end: end,
     color: TASK_TYPE_COLORS[type]
@@ -262,6 +305,8 @@ function renderTaskList() {
     if (isSelected) card.style.border = "2px solid #0275d8";
 
     if (timelineEditingTaskId === t.id) {
+      const isRot = t.machine_mode === "rotate";
+      const isTrans = t.machine_mode === "translate";
       card.innerHTML = `
         <div class="fname" style="margin-bottom:6px;">✏ Sửa công việc</div>
         <input type="text" id="tlEditName" value="${t.name.replace(/"/g, "&quot;")}">
@@ -277,11 +322,27 @@ function renderTaskList() {
           </select>
         </div>
         <div style="margin:4px 0;">
-          <select id="tlEditMachine" style="width:100%;padding:6px;border:1px solid #dcdfe3;border-radius:6px;font-size:11px;">
+          <select id="tlEditMachine" style="width:100%;padding:6px;border:1px solid #dcdfe3;border-radius:6px;font-size:11px;" onchange="toggleMachineConfigFields('Edit')">
             <option value="none" ${t.machine_mode === "none" ? "selected" : ""}>🚜 Máy móc: Không</option>
-            <option value="rotate" ${t.machine_mode === "rotate" ? "selected" : ""}>🔄 Máy móc: Xoay vòng</option>
-            <option value="translate" ${t.machine_mode === "translate" ? "selected" : ""}>🚚 Máy móc: Di chuyển</option>
+            <option value="rotate" ${isRot ? "selected" : ""}>🔄 Máy móc: Xoay vòng</option>
+            <option value="translate" ${isTrans ? "selected" : ""}>🚚 Máy móc: Di chuyển</option>
           </select>
+        </div>
+        <div id="tlEditMachineConfig" style="display:${t.machine_mode !== 'none' ? 'block' : 'none'};background:#f8f9fa;padding:6px;border-radius:6px;margin:4px 0;font-size:11px;">
+          <div style="display:flex;gap:6px;margin-bottom:4px;">
+            <div style="flex:1;">
+              <label style="font-size:10px;color:#666;">Trục hoạt động:</label>
+              <select id="tlEditAxis" style="width:100%;padding:4px;border:1px solid #dcdfe3;border-radius:4px;font-size:11px;">
+                <option value="Z" ${t.machine_axis === 'Z' ? 'selected' : ''}>Trục Z (Đứng)</option>
+                <option value="X" ${t.machine_axis === 'X' ? 'selected' : ''}>Trục X (Ngang)</option>
+                <option value="Y" ${t.machine_axis === 'Y' ? 'selected' : ''}>Trục Y (Dọc)</option>
+              </select>
+            </div>
+            <div style="flex:1;">
+              <label style="font-size:10px;color:#666;" id="tlEditValLabel">${isRot ? 'Tốc độ quay (vòng/ngày):' : 'Quãng đường (mét):'}</label>
+              <input type="number" id="tlEditVal" value="${isRot ? (t.machine_speed || 1.0) : (t.machine_distance || 10.0)}" step="0.5" style="width:100%;padding:4px;border:1px solid #dcdfe3;border-radius:4px;font-size:11px;">
+            </div>
+          </div>
         </div>
         <div style="display:flex;gap:6px;">
           <input type="date" id="tlEditStart" value="${t.planned_start}" style="flex:1;">
@@ -298,7 +359,7 @@ function renderTaskList() {
     }
 
     const animLabel = t.animation_type === "slide" ? "📦 Trượt" : "✨ Mờ";
-    const machLabel = t.machine_mode === "rotate" ? " · 🔄 Xoay" : (t.machine_mode === "translate" ? " · 🚚 Di chuyển" : "");
+    const machLabel = t.machine_mode === "rotate" ? ` · 🔄 Xoay (${t.machine_axis || 'Z'})` : (t.machine_mode === "translate" ? ` · 🚚 Di chuyển (${t.machine_axis || 'X'})` : "");
 
     card.innerHTML = `
       <div class="fname">${t.name} <span style="font-weight:400;color:#888;">(${TASK_TYPE_LABELS[t.task_type]} · ${animLabel}${machLabel})</span></div>
@@ -344,7 +405,7 @@ function renderTaskList() {
 }
 
 /* ---------------------------------------------------------------------
-   6. MÔ PHỎNG 4D VỚI HIỆU ỨNG NÂNG CAO & MÁY MÓC (XEIKOT MODEL MATRIX)
+   6. MÔ PHỎNG 4D VỚI HIỆU ỨNG & MÁY MÓC CHUẨN XÁC
    --------------------------------------------------------------------- */
 function renderSimulateBox() {
   const box = document.getElementById("tlSimulateBox");
@@ -398,7 +459,7 @@ function toggleTimelinePlay(minDate, totalDays) {
 
     function playLoop() {
       if (!timelinePlaying) return;
-      currentPlayDay += 0.3; // Tốc độ chạy mô phỏng
+      currentPlayDay += 0.2; // Tốc độ chạy mô phỏng mượt mà
       if (currentPlayDay > totalDays) currentPlayDay = 0;
 
       slider.value = currentPlayDay;
@@ -417,7 +478,7 @@ function toggleTimelinePlay(minDate, totalDays) {
 }
 
 /**
- * 🚀 ÁP DỤNG TRẠNG THÁI TIẾN ĐỘ & HOẠT HOẠ MODEL MÁY MÓC TRONG XEIKOT
+ * 🚀 ÁP DỤNG TRẠNG THÁI TIẾN ĐỘ & HOẠT HOẠ XOAY / DI CHUYỂN THỰC TẾ
  */
 function applyTimelineDateWithAnimation(currentDate, floatDay) {
   const viewer = window.xeokitViewer || window.viewer;
@@ -470,13 +531,13 @@ function applyTimelineDateWithAnimation(currentDate, floatDay) {
       }
     }
 
-    // HOẠT HOẠ MÁY MÓC TRÊN MODEL (Xoay vòng hoặc Di chuyển tịnh tiến)
+    // HOẠT HOẠ MÁY MÓC (XOAY HOẶC DI CHUYỂN CHUẨN XÁC THEO CẤU HÌNH)
     if (machineMode !== "none") {
       animateMachineryModels(viewer, t, machineMode, floatDay);
     }
   });
 
-  // Tự động quét các model có tên chứa từ khóa máy móc (Crane, cẩu, tháp...)
+  // Quét tự động cẩu tháp nếu có
   animateAutoMachineryModels(viewer, floatDay);
   
   viewer.scene._needUpdate = 1;
@@ -505,18 +566,20 @@ function setObjectsStateAdvanced(viewerIds, visible, progress, colorize, animTyp
 }
 
 /**
- * 🔄 CAN THIỆP TRỰC TIẾP VÀO MODEL MATRIX CỦA XEIKOT ĐỂ XOAY HOẶC DI CHUYỂN MÁY MÓC
+ * 🔄 THỰC THI XOAY VÒNG HOẶC DI CHUYỂN TỊNH TIẾN TRÊN MODEL MATRIX
  */
 function animateMachineryModels(viewer, task, mode, floatDay) {
   if (!viewer || !viewer.scene || !viewer.scene.models) return;
 
   const globalIds = timelineTaskElements[task.id] || [];
+  const axis = task.machine_axis || "Z";
+  const speed = task.machine_speed || 1.0;
+  const distance = task.machine_distance || 10.0;
 
   Object.keys(viewer.scene.models).forEach(modelId => {
     const model = viewer.scene.models[modelId];
     if (!model) return;
 
-    // Kiểm tra nếu model khớp với công việc hoặc tên chứa từ khóa máy móc
     const isMatch = globalIds.some(gid => modelId.includes(gid) || gid.includes(modelId)) ||
                     modelId.toLowerCase().includes("crane") || 
                     modelId.toLowerCase().includes("cẩu") ||
@@ -533,19 +596,38 @@ function animateMachineryModels(viewer, task, mode, floatDay) {
         const mat = Float32Array.from(baseMat);
 
         if (mode === "rotate") {
-          // Xoay vòng tròn quanh trục Z (trục đứng)
-          const angleRad = (floatDay * 15) * (Math.PI / 180);
+          // Tính góc quay dựa theo tốc độ (vòng/ngày)
+          const angleRad = (floatDay * speed * 360) * (Math.PI / 180);
           const cos = Math.cos(angleRad);
           const sin = Math.sin(angleRad);
 
-          mat[0] = baseMat[0] * cos - baseMat[4] * sin;
-          mat[1] = baseMat[1] * cos - baseMat[5] * sin;
-          mat[4] = baseMat[0] * sin + baseMat[4] * cos;
-          mat[5] = baseMat[1] * sin + baseMat[5] * cos;
+          if (axis === "Z") {
+            mat[0] = baseMat[0] * cos - baseMat[4] * sin;
+            mat[1] = baseMat[1] * cos - baseMat[5] * sin;
+            mat[4] = baseMat[0] * sin + baseMat[4] * cos;
+            mat[5] = baseMat[1] * sin + baseMat[5] * cos;
+          } else if (axis === "X") {
+            mat[5] = baseMat[5] * cos - baseMat[9] * sin;
+            mat[6] = baseMat[6] * cos - baseMat[10] * sin;
+            mat[9] = baseMat[5] * sin + baseMat[9] * cos;
+            mat[10] = baseMat[6] * sin + baseMat[10] * cos;
+          } else if (axis === "Y") {
+            mat[0] = baseMat[0] * cos + baseMat[8] * sin;
+            mat[2] = baseMat[2] * cos - baseMat[10] * sin;
+            mat[8] = baseMat[8] * cos - baseMat[0] * sin;
+            mat[10] = baseMat[10] * cos + baseMat[2] * sin;
+          }
         } else if (mode === "translate") {
-          // Di chuyển tịnh tiến theo trục X
-          const offset = Math.sin(floatDay * 0.5) * 8.0;
-          mat[12] = baseMat[12] + offset;
+          // Di chuyển tịnh tiến qua lại mượt mà với biên độ quãng đường (mét)
+          const offset = Math.sin(floatDay * 0.3) * distance;
+
+          if (axis === "X") {
+            mat[12] = baseMat[12] + offset;
+          } else if (axis === "Y") {
+            mat[13] = baseMat[13] + offset;
+          } else if (axis === "Z") {
+            mat[14] = baseMat[14] + offset;
+          }
         }
 
         model.matrix = mat;
@@ -555,12 +637,12 @@ function animateMachineryModels(viewer, task, mode, floatDay) {
 }
 
 /**
- * 🏗️ XOAY TỰ ĐỘNG CÁC MODEL CẨU THÁP TRONG SCENE
+ * 🏗️ XOAY MẶC ĐỊNH CHO CẨU THÁP
  */
 function animateAutoMachineryModels(viewer, floatDay) {
   if (!viewer || !viewer.scene || !viewer.scene.models) return;
 
-  const angleRad = (floatDay * 12) * (Math.PI / 180);
+  const angleRad = (floatDay * 15) * (Math.PI / 180);
 
   Object.keys(viewer.scene.models).forEach(modelId => {
     const lowerId = modelId.toLowerCase();
@@ -606,7 +688,7 @@ function resetTimelineVisibility() {
       }
     });
 
-    // Khôi phục ma trận gốc của các model máy móc
+    // Khôi phục ma trận gốc của máy móc
     if (viewer.scene.models) {
       Object.keys(viewer.scene.models).forEach(modelId => {
         const model = viewer.scene.models[modelId];
@@ -719,9 +801,6 @@ function parseExcelTasks(file) {
   });
 }
 
-/* ---------------------------------------------------------------------
-   8. PARSE MS PROJECT XML
-   --------------------------------------------------------------------- */
 function parseMsProjectXml(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
