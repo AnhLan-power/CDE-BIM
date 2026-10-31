@@ -11,8 +11,8 @@ let timelinePlaying = false;
 let animationFrameId = null;
 let currentPlayDay = 0;
 
-// Cache lưu ma trận gốc của máy móc / cấu kiện
-const objectBaseMatrices = {};
+// Cache lưu ma trận gốc của các Model máy móc trong scene
+const modelBaseMatrices = {};
 
 const TASK_TYPE_LABELS = { construction: "Thi công", demolition: "Tháo dỡ", temporary: "Tạm thời" };
 const TASK_TYPE_COLORS = { construction: "#3B82F6", demolition: "#EF4444", temporary: "#F59E0B" };
@@ -106,7 +106,7 @@ function renderAddTaskBox() {
   box.innerHTML = `
     <div class="cde-file-card">
       <div class="fname" style="margin-bottom:6px;">➕ Thêm công việc & Cấu hình Animation</div>
-      <input type="text" id="tlNewName" placeholder="Tên công việc, vd: Lắp dầm cầu / Cẩu tháp">
+      <input type="text" id="tlNewName" placeholder="Tên công việc, vd: Lắp dầm / Cẩu tháp">
       
       <div style="display:flex;gap:6px;margin:4px 0;">
         <select id="tlNewType" style="flex:1;padding:6px;border:1px solid #dcdfe3;border-radius:6px;font-size:11px;">
@@ -123,8 +123,8 @@ function renderAddTaskBox() {
       <div style="margin:4px 0;">
         <select id="tlNewMachine" style="width:100%;padding:6px;border:1px solid #dcdfe3;border-radius:6px;font-size:11px;">
           <option value="none">🚜 Máy móc: Không có / Bình thường</option>
-          <option value="rotate">🔄 Máy móc: Xoay vòng (Cẩu tháp...)</option>
-          <option value="translate">🚚 Máy móc: Di chuyển tịnh tiến (Xe...)</option>
+          <option value="rotate">🔄 Máy móc: Xoay vòng (Cẩu tháp, quạt...)</option>
+          <option value="translate">🚚 Máy móc: Di chuyển tịnh tiến (Xe chạy...)</option>
         </select>
       </div>
 
@@ -344,7 +344,7 @@ function renderTaskList() {
 }
 
 /* ---------------------------------------------------------------------
-   6. MÔ PHỎNG 4D VỚI HIỆU ỨNG NÂNG CAO & MÁY MÓC
+   6. MÔ PHỎNG 4D VỚI HIỆU ỨNG NÂNG CAO & MÁY MÓC (XEIKOT MODEL MATRIX)
    --------------------------------------------------------------------- */
 function renderSimulateBox() {
   const box = document.getElementById("tlSimulateBox");
@@ -417,7 +417,7 @@ function toggleTimelinePlay(minDate, totalDays) {
 }
 
 /**
- * 🚀 ÁP DỤNG TRẠNG THÁI TIẾN ĐỘ THEO CẤU HÌNH TỪNG TASK
+ * 🚀 ÁP DỤNG TRẠNG THÁI TIẾN ĐỘ & HOẠT HOẠ MODEL MÁY MÓC TRONG XEIKOT
  */
 function applyTimelineDateWithAnimation(currentDate, floatDay) {
   const viewer = window.xeokitViewer || window.viewer;
@@ -438,8 +438,8 @@ function applyTimelineDateWithAnimation(currentDate, floatDay) {
     const start = new Date(t.planned_start);
     const end = new Date(t.planned_end);
     const viewerIds = globalIds.flatMap(gid => globalIdToViewerIds[gid] || []);
-    const animType = t.animation_type || "fade"; // 'fade' hoặc 'slide'
-    const machineMode = t.machine_mode || "none"; // 'none', 'rotate', 'translate'
+    const animType = t.animation_type || "fade";
+    const machineMode = t.machine_mode || "none";
 
     if (t.task_type === "construction") {
       if (currentDate < start) {
@@ -449,7 +449,6 @@ function applyTimelineDateWithAnimation(currentDate, floatDay) {
         const elapsed = currentDate - start;
         const progress = Math.min(1.0, Math.max(0.0, elapsed / totalDuration));
         
-        // Nếu chọn slide, ta dùng hiệu ứng nổi bật (highlight vàng/xanh chạy tiến độ) kết hợp mờ dần
         const activeColor = animType === "slide" ? [1.0, 0.75, 0.0] : [0.25, 0.85, 0.35];
         setObjectsStateAdvanced(viewerIds, true, progress, activeColor, animType);
       } else {
@@ -471,22 +470,19 @@ function applyTimelineDateWithAnimation(currentDate, floatDay) {
       }
     }
 
-    // Hoạt hoạ máy móc (đối với các cấu kiện được gán chế độ máy móc)
+    // HOẠT HOẠ MÁY MÓC TRÊN MODEL (Xoay vòng hoặc Di chuyển tịnh tiến)
     if (machineMode !== "none") {
-      animateAssignedMachinery(viewerIds, machineMode, floatDay);
+      animateMachineryModels(viewer, t, machineMode, floatDay);
     }
   });
 
-  // Tự động quét và xoay các cẩu tháp trong mô hình
-  animateAutoMachineryRigging(floatDay);
+  // Tự động quét các model có tên chứa từ khóa máy móc (Crane, cẩu, tháp...)
+  animateAutoMachineryModels(viewer, floatDay);
   
   viewer.scene._needUpdate = 1;
   if (typeof viewer.scene.render === "function") viewer.scene.render();
 }
 
-/**
- * 📦 XỬ LÝ HIỆU ỨNG MỜ HOẶC TRƯỢT/NỔI BẬT THEO TIẾN ĐỘ
- */
 function setObjectsStateAdvanced(viewerIds, visible, progress, colorize, animType) {
   const viewer = window.xeokitViewer || window.viewer;
   if (!viewer || !viewer.scene) return;
@@ -499,10 +495,9 @@ function setObjectsStateAdvanced(viewerIds, visible, progress, colorize, animTyp
     if (!visible) return;
 
     if (animType === "slide") {
-      // Hiệu ứng trượt/nổi bật: tăng độ đậm và giữ màu chỉ báo rõ nét khi đang thi công
-      e.opacity = Math.max(0.4, progress);
+      e.opacity = Math.max(0.5, progress);
     } else {
-      e.opacity = progress; // Mờ dần tiêu chuẩn
+      e.opacity = progress;
     }
 
     e.colorize = colorize;
@@ -510,38 +505,86 @@ function setObjectsStateAdvanced(viewerIds, visible, progress, colorize, animTyp
 }
 
 /**
- * 🚜 HOẠT HOẠ MÁY MÓC ĐƯỢC GÁN TRONG TASK
+ * 🔄 CAN THIỆP TRỰC TIẾP VÀO MODEL MATRIX CỦA XEIKOT ĐỂ XOAY HOẶC DI CHUYỂN MÁY MÓC
  */
-function animateAssignedMachinery(viewerIds, mode, floatDay) {
-  const viewer = window.xeokitViewer || window.viewer;
-  if (!viewer || !viewer.scene) return;
+function animateMachineryModels(viewer, task, mode, floatDay) {
+  if (!viewer || !viewer.scene || !viewer.scene.models) return;
 
-  viewerIds.forEach(id => {
-    const obj = viewer.scene.objects[id];
-    if (!obj) return;
+  const globalIds = timelineTaskElements[task.id] || [];
 
-    // Hiệu ứng dao động nhẹ hoặc đổi màu nhấp nháy cho máy móc đang hoạt động
-    if (mode === "rotate") {
-      obj.colorize = [0.1, 0.8 + Math.sin(floatDay) * 0.2, 0.3];
-    } else if (mode === "translate") {
-      obj.colorize = [0.9, 0.5 + Math.cos(floatDay) * 0.3, 0.1];
+  Object.keys(viewer.scene.models).forEach(modelId => {
+    const model = viewer.scene.models[modelId];
+    if (!model) return;
+
+    // Kiểm tra nếu model khớp với công việc hoặc tên chứa từ khóa máy móc
+    const isMatch = globalIds.some(gid => modelId.includes(gid) || gid.includes(modelId)) ||
+                    modelId.toLowerCase().includes("crane") || 
+                    modelId.toLowerCase().includes("cẩu") ||
+                    modelId.toLowerCase().includes("may") ||
+                    modelId.toLowerCase().includes("xe");
+
+    if (isMatch) {
+      if (!modelBaseMatrices[modelId]) {
+        modelBaseMatrices[modelId] = model.matrix ? Float32Array.from(model.matrix) : null;
+      }
+
+      if (model.matrix && modelBaseMatrices[modelId]) {
+        const baseMat = modelBaseMatrices[modelId];
+        const mat = Float32Array.from(baseMat);
+
+        if (mode === "rotate") {
+          // Xoay vòng tròn quanh trục Z (trục đứng)
+          const angleRad = (floatDay * 15) * (Math.PI / 180);
+          const cos = Math.cos(angleRad);
+          const sin = Math.sin(angleRad);
+
+          mat[0] = baseMat[0] * cos - baseMat[4] * sin;
+          mat[1] = baseMat[1] * cos - baseMat[5] * sin;
+          mat[4] = baseMat[0] * sin + baseMat[4] * cos;
+          mat[5] = baseMat[1] * sin + baseMat[5] * cos;
+        } else if (mode === "translate") {
+          // Di chuyển tịnh tiến theo trục X
+          const offset = Math.sin(floatDay * 0.5) * 8.0;
+          mat[12] = baseMat[12] + offset;
+        }
+
+        model.matrix = mat;
+      }
     }
   });
 }
 
 /**
- * 🏗️ XOAY TỰ ĐỘNG CẦN CẨU THÁP DỰA TRÊN TÊN
+ * 🏗️ XOAY TỰ ĐỘNG CÁC MODEL CẨU THÁP TRONG SCENE
  */
-function animateAutoMachineryRigging(floatDay) {
-  const viewer = window.xeokitViewer || window.viewer;
-  if (!viewer || !viewer.scene || !viewer.scene.objects) return;
+function animateAutoMachineryModels(viewer, floatDay) {
+  if (!viewer || !viewer.scene || !viewer.scene.models) return;
 
-  Object.values(viewer.scene.objects).forEach(obj => {
-    const name = String(obj.name || "").toLowerCase();
-    if (name.includes("crane") || name.includes("cẩu") || name.includes("tháp")) {
-      // Nhấp nháy / báo hiệu trạng thái cần cẩu đang hoạt động trong tiến độ
-      const pulse = (Math.sin(floatDay * 2) + 1) / 2;
-      obj.colorize = [0.2, 0.6 + pulse * 0.4, 1.0];
+  const angleRad = (floatDay * 12) * (Math.PI / 180);
+
+  Object.keys(viewer.scene.models).forEach(modelId => {
+    const lowerId = modelId.toLowerCase();
+    if (lowerId.includes("crane") || lowerId.includes("cẩu") || lowerId.includes("tháp")) {
+      const model = viewer.scene.models[modelId];
+      if (!model) return;
+
+      if (!modelBaseMatrices[modelId]) {
+        modelBaseMatrices[modelId] = model.matrix ? Float32Array.from(model.matrix) : null;
+      }
+
+      if (model.matrix && modelBaseMatrices[modelId]) {
+        const baseMat = modelBaseMatrices[modelId];
+        const mat = Float32Array.from(baseMat);
+        const cos = Math.cos(angleRad);
+        const sin = Math.sin(angleRad);
+
+        mat[0] = baseMat[0] * cos - baseMat[4] * sin;
+        mat[1] = baseMat[1] * cos - baseMat[5] * sin;
+        mat[4] = baseMat[0] * sin + baseMat[4] * cos;
+        mat[5] = baseMat[1] * sin + baseMat[5] * cos;
+
+        model.matrix = mat;
+      }
     }
   });
 }
@@ -562,6 +605,17 @@ function resetTimelineVisibility() {
         e.colorize = null;
       }
     });
+
+    // Khôi phục ma trận gốc của các model máy móc
+    if (viewer.scene.models) {
+      Object.keys(viewer.scene.models).forEach(modelId => {
+        const model = viewer.scene.models[modelId];
+        if (model && modelBaseMatrices[modelId]) {
+          model.matrix = modelBaseMatrices[modelId];
+        }
+      });
+    }
+
     viewer.scene._needUpdate = 1;
     if (typeof viewer.scene.render === "function") viewer.scene.render();
   }
@@ -665,6 +719,9 @@ function parseExcelTasks(file) {
   });
 }
 
+/* ---------------------------------------------------------------------
+   8. PARSE MS PROJECT XML
+   --------------------------------------------------------------------- */
 function parseMsProjectXml(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
