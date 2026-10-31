@@ -121,7 +121,7 @@ function renderAddTaskBox() {
       <div style="margin:4px 0;">
         <select id="tlNewMachine" style="width:100%;padding:6px;border:1px solid #dcdfe3;border-radius:6px;font-size:11px;" onchange="toggleMachineConfigFields('New')">
           <option value="none">🚜 Máy móc: Không có (Dùng hiệu ứng Fade/Slide)</option>
-          <option value="rotate">🔄 Máy móc: Xoay vòng quanh tâm (Không mờ/trượt)</option>
+          <option value="rotate">🔄 Máy móc: Xoay vòng quanh tâm model (Không mờ/trượt)</option>
           <option value="translate">🚚 Máy móc: Di chuyển tịnh tiến (Không mờ/trượt)</option>
         </select>
       </div>
@@ -489,7 +489,7 @@ function applyTimelineDateWithAnimation(currentDate, floatDay) {
 
     // Xử lý hiển thị cấu kiện
     if (machineMode !== "none") {
-      // 🚜 Chế độ MÁY MÓC: Không có hiệu ứng mờ hay trượt. Máy hiển thị hoàn toàn bình thường (solid) trong suốt khoảng thời gian task diễn ra.
+      // 🚜 Chế độ MÁY MÓC: Hiển thị rõ nét (solid), KHÔNG mờ dần, KHÔNG trượt
       const isActive = (currentDate >= start && currentDate <= end);
       viewerIds.forEach(id => {
         const e = viewer.scene.objects[id];
@@ -497,12 +497,12 @@ function applyTimelineDateWithAnimation(currentDate, floatDay) {
         e.visible = isActive;
         if (isActive) {
           e.opacity = 1.0;
-          e.colorize = null; // Không đổi màu, giữ nguyên vật liệu gốc
+          e.colorize = null;
         }
       });
 
       if (isActive) {
-        animateMachineryByAttachedElements(viewer, t, machineMode, floatDay, viewerIds);
+        animateMachineryModelOnly(viewer, t, machineMode, floatDay, viewerIds);
       }
     } else {
       // 🏗️ Chế độ XÂY DỰNG / THÁO DỠ thông thường (Fade / Slide)
@@ -562,16 +562,16 @@ function setObjectsStateAdvanced(viewerIds, visible, progress, colorize, animTyp
 }
 
 /**
- * 🔄 CẢI TIẾN: HỖ TRỢ XOAY / DI CHUYỂN CẢ MODEL HOẶC CÁC OBJECT TRONG MODEL
+ * 🔄 CHỈ TÁC ĐỘNG VÀ XOAY/DI CHUYỂN ĐÚNG MODEL CỦA MÁY MÓC (DỰA TRÊN CẤU KIỆN ĐƯỢC GẮN)
  */
-function animateMachineryByAttachedElements(viewer, task, mode, floatDay, viewerIds) {
+function animateMachineryModelOnly(viewer, task, mode, floatDay, viewerIds) {
   if (!viewer || !viewer.scene || !viewer.scene.models) return;
 
   const axis = task.machine_axis || "Z";
   const speed = task.machine_speed || 1.0;
   const distance = task.machine_distance || 10.0;
 
-  // Lấy ra tất cả các modelId chứa các cấu kiện được gắn vào task
+  // Lấy chính xác modelId của các cấu kiện được gắn vào task (TUYỆT ĐỐI KHÔNG QUÉT TOÀN BỘ SCENE)
   const targetModelIds = new Set();
   viewerIds.forEach(id => {
     const obj = viewer.scene.objects[id];
@@ -580,29 +580,26 @@ function animateMachineryByAttachedElements(viewer, task, mode, floatDay, viewer
     }
   });
 
-  // Nếu không tìm thấy qua obj.modelId, thử quét toàn bộ models trong scene
-  if (targetModelIds.size === 0) {
-    Object.keys(viewer.scene.models).forEach(mId => targetModelIds.add(mId));
-  }
-
   targetModelIds.forEach(modelId => {
     const model = viewer.scene.models[modelId];
     if (!model) return;
 
     if (!modelBaseMatrices[modelId]) {
-      modelBaseMatrices[modelId] = model.matrix ? Float32Array.from(model.matrix) : null;
+      modelBaseMatrices[modelId] = {
+        matrix: model.matrix ? Float32Array.from(model.matrix) : Float32Array.from([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]),
+        center: model.aabb ? [
+          (model.aabb[0] + model.aabb[3]) / 2,
+          (model.aabb[1] + model.aabb[4]) / 2,
+          (model.aabb[2] + model.aabb[5]) / 2
+        ] : [0, 0, 0]
+      };
     }
 
-    if (model.matrix && modelBaseMatrices[modelId]) {
-      const baseMat = modelBaseMatrices[modelId];
-      
-      let cx = baseMat[12], cy = baseMat[13], cz = baseMat[14];
-      if (model.aabb) {
-        cx = (model.aabb[0] + model.aabb[3]) / 2;
-        cy = (model.aabb[1] + model.aabb[4]) / 2;
-        cz = (model.aabb[2] + model.aabb[5]) / 2;
-      }
+    const baseData = modelBaseMatrices[modelId];
+    const baseMat = baseData.matrix;
+    const [cx, cy, cz] = baseData.center;
 
+    if (model.matrix) {
       const mat = Float32Array.from(baseMat);
 
       if (mode === "rotate") {
@@ -675,7 +672,7 @@ function resetTimelineVisibility() {
       Object.keys(viewer.scene.models).forEach(modelId => {
         const model = viewer.scene.models[modelId];
         if (model && modelBaseMatrices[modelId]) {
-          model.matrix = modelBaseMatrices[modelId];
+          model.matrix = modelBaseMatrices[modelId].matrix;
         }
       });
     }
