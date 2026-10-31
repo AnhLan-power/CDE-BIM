@@ -10,7 +10,6 @@ let timelinePlaying = false;
 let animationFrameId = null;
 let currentPlayDay = 0;
 
-// Cache lưu ma trận gốc của các Model máy móc trong scene
 const modelBaseMatrices = {};
 
 const TASK_TYPE_LABELS = { construction: "Thi công", demolition: "Tháo dỡ", temporary: "Tạm thời" };
@@ -405,7 +404,7 @@ function renderTaskList() {
 }
 
 /* ---------------------------------------------------------------------
-   6. MÔ PHỎNG 4D & XOAY AN TOÀN QUANH TÂM MÔ HÌNH (SAFE MATRIX ROTATION)
+   6. MÔ PHỎNG 4D & TỰ ĐỘNG DÒ TÌM MODEL CHỨA CẤU KIỆN ĐỂ XOAY QUANH TÂM
    --------------------------------------------------------------------- */
 function renderSimulateBox() {
   const box = document.getElementById("tlSimulateBox");
@@ -529,7 +528,7 @@ function applyTimelineDateWithAnimation(currentDate, floatDay) {
     }
 
     if (machineMode !== "none") {
-      animateMachinerySafely(viewer, t, machineMode, floatDay);
+      animateMachineryByAttachedElements(viewer, t, machineMode, floatDay, viewerIds);
     }
   });
 
@@ -559,92 +558,90 @@ function setObjectsStateAdvanced(viewerIds, visible, progress, colorize, animTyp
 }
 
 /**
- * 🔄 HÀM XOAY VÀ DI CHUYỂN AN TOÀN CHO MODEL (BẢO TOÀN MA TRẬN SCALE ĐỂ KHÔNG BỊ BẸT DẸT)
+ * 🔄 TỰ ĐỘNG DÒ TÌM MODEL CHỨA CẤU KIỆN ĐỂ XOAY QUANH TÂM MỘT CÁCH CHUẨN XÁC
  */
-function animateMachinerySafely(viewer, task, mode, floatDay) {
+function animateMachineryByAttachedElements(viewer, task, mode, floatDay, viewerIds) {
   if (!viewer || !viewer.scene || !viewer.scene.models) return;
 
-  const globalIds = timelineTaskElements[task.id] || [];
   const axis = task.machine_axis || "Z";
   const speed = task.machine_speed || 1.0;
   const distance = task.machine_distance || 10.0;
 
-  Object.keys(viewer.scene.models).forEach(modelId => {
+  // Lấy ra các ModelId chứa các cấu kiện đang được gắn vào task này
+  const targetModelIds = new Set();
+  viewerIds.forEach(id => {
+    const obj = viewer.scene.objects[id];
+    if (obj && obj.modelId) {
+      targetModelIds.add(obj.modelId);
+    }
+  });
+
+  targetModelIds.forEach(modelId => {
     const model = viewer.scene.models[modelId];
     if (!model) return;
 
-    const isMatch = globalIds.some(gid => modelId.includes(gid) || gid.includes(modelId)) ||
-                    modelId.toLowerCase().includes("crane") || 
-                    modelId.toLowerCase().includes("cẩu") ||
-                    modelId.toLowerCase().includes("may") ||
-                    modelId.toLowerCase().includes("xe");
+    if (!modelBaseMatrices[modelId]) {
+      modelBaseMatrices[modelId] = model.matrix ? Float32Array.from(model.matrix) : null;
+    }
 
-    if (isMatch) {
-      if (!modelBaseMatrices[modelId]) {
-        modelBaseMatrices[modelId] = model.matrix ? Float32Array.from(model.matrix) : null;
+    if (model.matrix && modelBaseMatrices[modelId]) {
+      const baseMat = modelBaseMatrices[modelId];
+      
+      // Lấy tâm AABB chính xác của mô hình xe
+      let cx = baseMat[12], cy = baseMat[13], cz = baseMat[14];
+      if (model.aabb) {
+        cx = (model.aabb[0] + model.aabb[3]) / 2;
+        cy = (model.aabb[1] + model.aabb[4]) / 2;
+        cz = (model.aabb[2] + model.aabb[5]) / 2;
       }
 
-      if (model.matrix && modelBaseMatrices[modelId]) {
-        const baseMat = modelBaseMatrices[modelId];
-        
-        // Lấy tâm AABB của model
-        let cx = baseMat[12], cy = baseMat[13], cz = baseMat[14];
-        if (model.aabb) {
-          cx = (model.aabb[0] + model.aabb[3]) / 2;
-          cy = (model.aabb[1] + model.aabb[4]) / 2;
-          cz = (model.aabb[2] + model.aabb[5]) / 2;
+      if (mode === "rotate") {
+        const angleRad = (floatDay * speed * 360) * (Math.PI / 180);
+        const cos = Math.cos(angleRad);
+        const sin = Math.sin(angleRad);
+
+        const mat = Float32Array.from(baseMat);
+
+        if (axis === "Z") {
+          mat[0] = baseMat[0] * cos - baseMat[4] * sin;
+          mat[1] = baseMat[1] * cos - baseMat[5] * sin;
+          mat[4] = baseMat[0] * sin + baseMat[4] * cos;
+          mat[5] = baseMat[1] * sin + baseMat[5] * cos;
+
+          mat[12] = cx + (baseMat[12] - cx) * cos - (baseMat[13] - cy) * sin;
+          mat[13] = cy + (baseMat[12] - cx) * sin + (baseMat[13] - cy) * cos;
+        } else if (axis === "X") {
+          mat[5] = baseMat[5] * cos - baseMat[9] * sin;
+          mat[6] = baseMat[6] * cos - baseMat[10] * sin;
+          mat[9] = baseMat[5] * sin + baseMat[9] * cos;
+          mat[10] = baseMat[6] * sin + baseMat[10] * cos;
+
+          mat[13] = cy + (baseMat[13] - cy) * cos - (baseMat[14] - cz) * sin;
+          mat[14] = cz + (baseMat[13] - cy) * sin + (baseMat[14] - cz) * cos;
+        } else if (axis === "Y") {
+          mat[0] = baseMat[0] * cos + baseMat[8] * sin;
+          mat[2] = baseMat[2] * cos - baseMat[10] * sin;
+          mat[8] = baseMat[8] * cos - baseMat[0] * sin;
+          mat[10] = baseMat[10] * cos + baseMat[2] * sin;
+
+          mat[12] = cx + (baseMat[12] - cx) * cos + (baseMat[14] - cz) * sin;
+          mat[14] = cz + (baseMat[14] - cz) * cos - (baseMat[12] - cx) * sin;
         }
 
-        if (mode === "rotate") {
-          const angleRad = (floatDay * speed * 360) * (Math.PI / 180);
-          const cos = Math.cos(angleRad);
-          const sin = Math.sin(angleRad);
+        model.matrix = mat;
+      } else if (mode === "translate") {
+        const mat = Float32Array.from(baseMat);
+        const offset = Math.sin(floatDay * 0.3) * distance;
 
-          // Tạo ma trận xoay chuẩn giữ nguyên scale (không ghi đè bậy bạ các hệ số scale)
-          const mat = Float32Array.from(baseMat);
-
-          if (axis === "Z") {
-            // Xoay quanh trục Z, giữ nguyên các cột scale cơ sở
-            mat[0] = baseMat[0] * cos - baseMat[4] * sin;
-            mat[1] = baseMat[1] * cos - baseMat[5] * sin;
-            mat[4] = baseMat[0] * sin + baseMat[4] * cos;
-            mat[5] = baseMat[1] * sin + baseMat[5] * cos;
-
-            mat[12] = cx + (baseMat[12] - cx) * cos - (baseMat[13] - cy) * sin;
-            mat[13] = cy + (baseMat[12] - cx) * sin + (baseMat[13] - cy) * cos;
-          } else if (axis === "X") {
-            mat[5] = baseMat[5] * cos - baseMat[9] * sin;
-            mat[6] = baseMat[6] * cos - baseMat[10] * sin;
-            mat[9] = baseMat[5] * sin + baseMat[9] * cos;
-            mat[10] = baseMat[6] * sin + baseMat[10] * cos;
-
-            mat[13] = cy + (baseMat[13] - cy) * cos - (baseMat[14] - cz) * sin;
-            mat[14] = cz + (baseMat[13] - cy) * sin + (baseMat[14] - cz) * cos;
-          } else if (axis === "Y") {
-            mat[0] = baseMat[0] * cos + baseMat[8] * sin;
-            mat[2] = baseMat[2] * cos - baseMat[10] * sin;
-            mat[8] = baseMat[8] * cos - baseMat[0] * sin;
-            mat[10] = baseMat[10] * cos + baseMat[2] * sin;
-
-            mat[12] = cx + (baseMat[12] - cx) * cos + (baseMat[14] - cz) * sin;
-            mat[14] = cz + (baseMat[14] - cz) * cos - (baseMat[12] - cx) * sin;
-          }
-
-          model.matrix = mat;
-        } else if (mode === "translate") {
-          const mat = Float32Array.from(baseMat);
-          const offset = Math.sin(floatDay * 0.3) * distance;
-
-          if (axis === "X") {
-            mat[12] = baseMat[12] + offset;
-          } else if (axis === "Y") {
-            mat[13] = baseMat[13] + offset;
-          } else if (axis === "Z") {
-            mat[14] = baseMat[14] + offset;
-          }
-
-          model.matrix = mat;
+        if (axis === "X") {
+          mat[12] = baseMat[12] + offset;
+        } else if (axis === "Y") {
+          mat[13] = baseMat[13] + offset;
+        } else if (axis === "Z") {
+          mat[14] = baseMat[14] + offset;
         }
+
+        model.matrix = mat;
       }
     }
   });
