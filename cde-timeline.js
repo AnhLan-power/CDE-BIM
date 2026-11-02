@@ -563,7 +563,7 @@ function setObjectsStateAdvanced(viewerIds, visible, progress, colorize, animTyp
 }
 
 /* ---------------------------------------------------------------------
-   HÀM NHÂN MA TRẬN 4X4 & XỬ LÝ ANIMATION CHUẨN XÁC CHO RIÊNG MODEL MÁY MÓC
+   HÀM NHÂN MA TRẬN 4X4 & NHẬN DIỆN MODEL THÔNG QUA MODEL.OBJECTIDS
    --------------------------------------------------------------------- */
 function multiplyMatrices4x4(a, b) {
   const out = new Float32Array(16);
@@ -586,18 +586,33 @@ function animateMachineryModelLevel(viewer, task, mode, floatDay, viewerIds) {
   const speed = task.machine_speed || 1.0;
   const distance = task.machine_distance || 10.0;
 
-  // 1. CHỈ LẤY modelId của riêng chiếc xe từ các cấu kiện gắn vào task (TUYỆT ĐỐI KHÔNG FALLBACK LẤY TOÀN BỘ SCENE)
+  // 1. TÌM CHÍNH XÁC MODEL ID BẰNG CÁCH QUÉT QUA MODEL.OBJECTIDS (CHUẨN XÁC TUYỆT ĐỐI CHO MỌI FILE XKT/IFC RIÊNG LẺ)
   const targetModelIds = new Set();
-  viewerIds.forEach(id => {
-    const obj = viewer.scene.objects[id];
-    if (obj && obj.modelId) {
-      targetModelIds.add(obj.modelId);
-    }
-  });
+  if (viewer.scene.models) {
+    Object.keys(viewer.scene.models).forEach(modelId => {
+      const model = viewer.scene.models[modelId];
+      if (model && model.objectIds) {
+        const hasMatch = viewerIds.some(id => model.objectIds.includes(id));
+        if (hasMatch) {
+          targetModelIds.add(modelId);
+        }
+      }
+    });
+  }
+
+  // Fallback phụ qua obj.modelId nếu cần
+  if (targetModelIds.size === 0) {
+    viewerIds.forEach(id => {
+      const obj = viewer.scene.objects[id];
+      if (obj && obj.modelId) {
+        targetModelIds.add(obj.modelId);
+      }
+    });
+  }
 
   if (targetModelIds.size === 0) return;
 
-  // 2. Lấy tâm AABB chính xác của xe dựa trên các viewerIds được gắn
+  // 2. Lấy tâm AABB chính xác của xe
   let cx = 0, cy = 0, cz = 0;
   if (typeof viewer.scene.getAABB === "function" && viewerIds.length > 0) {
     const aabb = viewer.scene.getAABB({ objectIds: viewerIds });
