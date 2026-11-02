@@ -10,7 +10,7 @@ let timelinePlaying = false;
 let animationFrameId = null;
 let currentPlayDay = 0;
 
-// Cache lưu ma trận gốc của từng cấu kiện máy móc
+// Cache lưu ma trận gốc của từng cấu kiện
 const objectBaseMatrices = {};
 
 const TASK_TYPE_LABELS = { construction: "Thi công", demolition: "Tháo dỡ", temporary: "Tạm thời" };
@@ -563,8 +563,7 @@ function setObjectsStateAdvanced(viewerIds, visible, progress, colorize, animTyp
 }
 
 /**
- * 🔄 XOAY HOẶC DI CHUYỂN MÁY MÓC THEO CƠ CHẾ RIGID BODY (VẬT RẮN TUYỆT ĐỐI)
- * Tác động trực tiếp vào từng cấu kiện của xe dựa trên tâm chung (Center Pivot)
+ * 🔄 XOAY HOẶC DI CHUYỂN MÁY MÓC TÁC ĐỘNG TRỰC TIẾP VÀO TỪNG CẤU KIỆN CỦA MODEL RIÊNG BIỆT
  */
 function animateMachineryRigidBody(viewer, task, mode, floatDay, viewerIds) {
   if (!viewer || !viewer.scene || !viewerIds || viewerIds.length === 0) return;
@@ -573,11 +572,34 @@ function animateMachineryRigidBody(viewer, task, mode, floatDay, viewerIds) {
   const speed = task.machine_speed || 1.0;
   const distance = task.machine_distance || 10.0;
 
-  // 1. Lưu ma trận gốc của từng cấu kiện nếu chưa có và tính tâm chung (Center Pivot) của xe
+  // Lấy ra tất cả các objectIds thuộc riêng model của máy móc (thông qua modelId của các cấu kiện được gắn)
+  const targetModelIds = new Set();
+  viewerIds.forEach(id => {
+    const obj = viewer.scene.objects[id];
+    if (obj && obj.modelId) {
+      targetModelIds.add(obj.modelId);
+    }
+  });
+
+  // Gom toàn bộ objectIds thuộc các model máy móc này
+  const machineryObjectIds = [];
+  viewer.scene.objectIds.forEach(id => {
+    const obj = viewer.scene.objects[id];
+    if (obj && obj.modelId && targetModelIds.has(obj.modelId)) {
+      machineryObjectIds.push(id);
+    }
+  });
+
+  if (machineryObjectIds.length === 0) {
+    // Fallback: nếu không bắt được modelId, dùng trực tiếp viewerIds truyền vào
+    viewerIds.forEach(id => machineryObjectIds.push(id));
+  }
+
+  // 1. Lưu ma trận gốc và tính tâm chung (Center Pivot) của xe
   let sumX = 0, sumY = 0, sumZ = 0;
   let validCount = 0;
 
-  viewerIds.forEach(id => {
+  machineryObjectIds.forEach(id => {
     const obj = viewer.scene.objects[id];
     if (!obj) return;
     if (!objectBaseMatrices[id]) {
@@ -602,7 +624,7 @@ function animateMachineryRigidBody(viewer, task, mode, floatDay, viewerIds) {
   const offset = mode === "translate" ? Math.sin(floatDay * 0.3) * distance : 0;
 
   // 3. Cập nhật ma trận cho từng cấu kiện của máy móc
-  viewerIds.forEach(id => {
+  machineryObjectIds.forEach(id => {
     const obj = viewer.scene.objects[id];
     if (!obj) return;
 
@@ -610,30 +632,34 @@ function animateMachineryRigidBody(viewer, task, mode, floatDay, viewerIds) {
     const mat = Float32Array.from(baseMat);
 
     if (mode === "rotate") {
+      const rx = baseMat[12] - cx;
+      const ry = baseMat[13] - cy;
+      const rz = baseMat[14] - cz;
+
       if (axis === "Z") {
         mat[0] = baseMat[0] * cos - baseMat[4] * sin;
         mat[1] = baseMat[1] * cos - baseMat[5] * sin;
         mat[4] = baseMat[0] * sin + baseMat[4] * cos;
         mat[5] = baseMat[1] * sin + baseMat[5] * cos;
 
-        mat[12] = cx + (baseMat[12] - cx) * cos - (baseMat[13] - cy) * sin;
-        mat[13] = cy + (baseMat[12] - cx) * sin + (baseMat[13] - cy) * cos;
+        mat[12] = cx + (rx * cos - ry * sin);
+        mat[13] = cy + (rx * sin + ry * cos);
       } else if (axis === "X") {
         mat[5] = baseMat[5] * cos - baseMat[9] * sin;
         mat[6] = baseMat[6] * cos - baseMat[10] * sin;
         mat[9] = baseMat[5] * sin + baseMat[9] * cos;
         mat[10] = baseMat[6] * sin + baseMat[10] * cos;
 
-        mat[13] = cy + (baseMat[13] - cy) * cos - (baseMat[14] - cz) * sin;
-        mat[14] = cz + (baseMat[13] - cy) * sin + (baseMat[14] - cz) * cos;
+        mat[13] = cy + (ry * cos - rz * sin);
+        mat[14] = cz + (ry * sin + rz * cos);
       } else if (axis === "Y") {
         mat[0] = baseMat[0] * cos + baseMat[8] * sin;
         mat[2] = baseMat[2] * cos - baseMat[10] * sin;
         mat[8] = baseMat[8] * cos - baseMat[0] * sin;
         mat[10] = baseMat[10] * cos + baseMat[2] * sin;
 
-        mat[12] = cx + (baseMat[12] - cx) * cos + (baseMat[14] - cz) * sin;
-        mat[14] = cz + (baseMat[14] - cz) * cos - (baseMat[12] - cx) * sin;
+        mat[12] = cx + (rx * cos + rz * sin);
+        mat[14] = cz + (rz * cos - rx * sin);
       }
     } else if (mode === "translate") {
       if (axis === "X") {
