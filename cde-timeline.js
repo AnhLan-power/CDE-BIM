@@ -202,8 +202,10 @@ window.captureCustomPivot = function(prefix, taskId = null) {
     tempNewPivot = { x: px, y: py, z: pz };
   } else if (taskId) {
     taskCustomPivots[taskId] = { x: px, y: py, z: pz };
-    if (modelBaseMatrices[taskId]) delete modelBaseMatrices[taskId]; // Reset cache để nhận tâm mới
   }
+
+  // Xóa toàn bộ cache ma trận để hệ thống cập nhật tâm xoay mới ngay lập tức
+  Object.keys(modelBaseMatrices).forEach(k => delete modelBaseMatrices[k]);
 
   document.getElementById(`tl${prefix}PivotLabel`).innerText = `🎯 Tâm xoay: Tùy chỉnh (${px.toFixed(1)}, ${py.toFixed(1)}, ${pz.toFixed(1)})`;
 
@@ -293,7 +295,7 @@ async function saveEditedTask(taskId) {
   if (error) { alert("Lỗi lưu: " + error.message); return; }
 
   timelineEditingTaskId = null;
-  delete modelBaseMatrices[taskId];
+  Object.keys(modelBaseMatrices).forEach(k => delete modelBaseMatrices[k]);
   await refreshTimelinePanel();
 }
 
@@ -625,7 +627,7 @@ function setObjectsStateAdvanced(viewerIds, visible, progress, colorize, animTyp
 }
 
 /* ---------------------------------------------------------------------
-   HÀM NHÂN MA TRẬN 4X4 & HỖ TRỢ TÂM XOAY TÙY CHỈNH
+   HÀM NHÂN MA TRẬN 4X4 & CẬP NHẬT TÂM XOAY LINH HOẠT THEO TASK
    --------------------------------------------------------------------- */
 function multiplyMatrices4x4(a, b) {
   const out = new Float32Array(16);
@@ -678,10 +680,11 @@ function animateMachineryModelLevel(viewer, task, mode, floatDay, viewerIds) {
     const model = viewer.scene.models[modelId];
     if (!model) return;
 
-    // 2. KHỞI TẠO VÀ CỐ ĐỊNH TÂM XOAY (Ưu tiên tâm tùy chỉnh từ bộ nhớ, nếu không có lấy tâm xe)
+    const customPivot = taskCustomPivots[task.id];
+
+    // 2. KHỞI TẠO VÀ CỐ ĐỊNH MA TRẬN GỐC
     if (!modelBaseMatrices[modelId]) {
       let initialCx = 0, initialCy = 0, initialCz = 0;
-      const customPivot = taskCustomPivots[task.id];
 
       if (customPivot) {
         initialCx = customPivot.x;
@@ -710,7 +713,7 @@ function animateMachineryModelLevel(viewer, task, mode, floatDay, viewerIds) {
     const baseMat = baseData.matrix;
     let [lcx, lcy, lcz] = baseData.center;
 
-    const customPivot = taskCustomPivots[task.id];
+    // Ưu tiên tuyệt đối tâm tùy chỉnh mới nhất (ví dụ khi chọn trục tháp)
     if (customPivot) {
       lcx = customPivot.x;
       lcy = customPivot.y;
@@ -910,7 +913,6 @@ function parseExcelTasks(file) {
 }
 
 function parseMsProjectXml(file) {
-  return new Promise((reader => {})); // safe placeholder
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (e) => {
