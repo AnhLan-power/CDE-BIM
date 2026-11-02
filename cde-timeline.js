@@ -10,7 +10,7 @@ let timelinePlaying = false;
 let animationFrameId = null;
 let currentPlayDay = 0;
 
-// Cache lưu ma trận gốc của từng Model máy móc
+// Cache lưu ma trận gốc và tâm cố định của từng Model máy móc
 const modelBaseMatrices = {};
 
 const TASK_TYPE_LABELS = { construction: "Thi công", demolition: "Tháo dỡ", temporary: "Tạm thời" };
@@ -563,7 +563,7 @@ function setObjectsStateAdvanced(viewerIds, visible, progress, colorize, animTyp
 }
 
 /* ---------------------------------------------------------------------
-   HÀM NHÂN MA TRẬN 4X4 & NHẬN DIỆN MODEL THÔNG QUA XEOKIT SCENE.MODELS
+   HÀM NHÂN MA TRẬN 4X4 & CỐ ĐỊNH TÂM XOAY TRỌN ĐỜI CHO MODEL
    --------------------------------------------------------------------- */
 function multiplyMatrices4x4(a, b) {
   const out = new Float32Array(16);
@@ -586,10 +586,8 @@ function animateMachineryModelLevel(viewer, task, mode, floatDay, viewerIds) {
   const speed = task.machine_speed || 1.0;
   const distance = task.machine_distance || 10.0;
 
-  // 1. NHẬN DIỆN MODEL ĐA TẦNG CHO XEOKIT
+  // 1. Nhận diện chính xác modelId của máy móc
   const targetModelIds = new Set();
-
-  // Thử match qua model.objectIds
   Object.keys(viewer.scene.models).forEach(modelId => {
     const model = viewer.scene.models[modelId];
     if (model && model.objectIds) {
@@ -598,7 +596,6 @@ function animateMachineryModelLevel(viewer, task, mode, floatDay, viewerIds) {
     }
   });
 
-  // Thử match qua obj.modelId
   if (targetModelIds.size === 0) {
     viewerIds.forEach(id => {
       const obj = viewer.scene.objects[id];
@@ -606,7 +603,6 @@ function animateMachineryModelLevel(viewer, task, mode, floatDay, viewerIds) {
     });
   }
 
-  // Fallback tối thượng: Nếu vẫn không tìm thấy, lấy model cuối cùng trong scene (thường là file máy móc nạp sau cùng)
   if (targetModelIds.size === 0) {
     const allModelIds = Object.keys(viewer.scene.models);
     if (allModelIds.length > 0) {
@@ -616,28 +612,36 @@ function animateMachineryModelLevel(viewer, task, mode, floatDay, viewerIds) {
 
   if (targetModelIds.size === 0) return;
 
-  // 2. Lấy tâm AABB chính xác của xe
-  let cx = 0, cy = 0, cz = 0;
-  if (typeof viewer.scene.getAABB === "function" && viewerIds.length > 0) {
-    const aabb = viewer.scene.getAABB({ objectIds: viewerIds });
-    if (aabb && !isNaN(aabb[0])) {
-      cx = (aabb[0] + aabb[3]) / 2;
-      cy = (aabb[1] + aabb[4]) / 2;
-      cz = (aabb[2] + aabb[5]) / 2;
-    }
-  }
-
   targetModelIds.forEach(modelId => {
     const model = viewer.scene.models[modelId];
     if (!model) return;
 
+    // 2. KHỞI TẠO VÀ CỐ ĐỊNH TÂM XOAY (CHỈ TÍNH MỘT LẦN DUY NHẤT LÚC BAN ĐẦU)
     if (!modelBaseMatrices[modelId]) {
-      modelBaseMatrices[modelId] = model.matrix ? Float32Array.from(model.matrix) : Float32Array.from([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]);
+      let initialCx = 0, initialCy = 0, initialCz = 0;
+      if (model.aabb) {
+        initialCx = (model.aabb[0] + model.aabb[3]) / 2;
+        initialCy = (model.aabb[1] + model.aabb[4]) / 2;
+        initialCz = (model.aabb[2] + model.aabb[5]) / 2;
+      } else if (viewerIds.length > 0 && typeof viewer.scene.getAABB === "function") {
+        const aabb = viewer.scene.getAABB({ objectIds: viewerIds });
+        if (aabb && !isNaN(aabb[0])) {
+          initialCx = (aabb[0] + aabb[3]) / 2;
+          initialCy = (aabb[1] + aabb[4]) / 2;
+          initialCz = (aabb[2] + aabb[5]) / 2;
+        }
+      }
+
+      modelBaseMatrices[modelId] = {
+        matrix: model.matrix ? Float32Array.from(model.matrix) : Float32Array.from([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]),
+        center: [initialCx, initialCy, initialCz]
+      };
     }
 
-    const baseMat = modelBaseMatrices[modelId];
+    const baseData = modelBaseMatrices[modelId];
+    const baseMat = baseData.matrix;
+    let [lcx, lcy, lcz] = baseData.center;
 
-    let lcx = cx, lcy = cy, lcz = cz;
     if (lcx === 0 && lcy === 0 && lcz === 0) {
       lcx = baseMat[12];
       lcy = baseMat[13];
@@ -731,7 +735,7 @@ function resetTimelineVisibility() {
       Object.keys(viewer.scene.models).forEach(modelId => {
         const model = viewer.scene.models[modelId];
         if (model && modelBaseMatrices[modelId]) {
-          model.matrix = modelBaseMatrices[modelId];
+          model.matrix = modelBaseMatrices[modelId].matrix;
         }
       });
     }
