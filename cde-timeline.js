@@ -10,7 +10,7 @@ let timelinePlaying = false;
 let animationFrameId = null;
 let currentPlayDay = 0;
 
-// Cache lưu ma trận gốc và tâm cố định của từng Model máy móc
+// Cache lưu ma trận gốc của từng Model máy móc
 const modelBaseMatrices = {};
 
 const TASK_TYPE_LABELS = { construction: "Thi công", demolition: "Tháo dỡ", temporary: "Tạm thời" };
@@ -142,6 +142,13 @@ function renderAddTaskBox() {
             <input type="number" id="tlNewVal" value="1.0" step="0.2" style="width:100%;padding:4px;border:1px solid #dcdfe3;border-radius:4px;font-size:11px;">
           </div>
         </div>
+        <div style="margin-top:6px;border-top:1px dashed #ddd;padding-top:6px;">
+          <label style="font-size:10px;color:#666;display:block;margin-bottom:2px;" id="tlNewPivotLabel">🎯 Tâm xoay: Mặc định (Tâm xe)</label>
+          <button type="button" class="btn" style="width:100%;font-size:10px;padding:4px;" onclick="captureCustomPivot('New')">📍 Lấy cấu kiện đang chọn làm tâm xoay</button>
+          <input type="hidden" id="tlNewPivotX" value="">
+          <input type="hidden" id="tlNewPivotY" value="">
+          <input type="hidden" id="tlNewPivotZ" value="">
+        </div>
       </div>
 
       <div style="display:flex;gap:6px;margin-top:4px;">
@@ -170,6 +177,40 @@ window.toggleMachineConfigFields = function(prefix) {
   }
 };
 
+window.captureCustomPivot = function(prefix) {
+  if (typeof window.multiSelectedIds === "undefined" || window.multiSelectedIds.size === 0) {
+    alert("⚠️ Cậu chưa chọn cấu kiện nào trong 3D!\nBấm nút 'Chọn Nhiều' trên thanh công cụ và click chọn cấu kiện muốn làm tâm xoay trước.");
+    return;
+  }
+  const viewer = window.xeokitViewer || window.viewer;
+  if (!viewer || !viewer.scene || typeof viewer.scene.getAABB !== "function") {
+    alert("Không tìm thấy viewer.");
+    return;
+  }
+
+  const viewerIds = [...window.multiSelectedIds];
+  const aabb = viewer.scene.getAABB({ objectIds: viewerIds });
+  if (!aabb || isNaN(aabb[0])) {
+    alert("Không tính được bounding box của cấu kiện đã chọn.");
+    return;
+  }
+
+  const px = (aabb[0] + aabb[3]) / 2;
+  const py = (aabb[1] + aabb[4]) / 2;
+  const pz = (aabb[2] + aabb[5]) / 2;
+
+  document.getElementById(`tl${prefix}PivotX`).value = px;
+  document.getElementById(`tl${prefix}PivotY`).value = py;
+  document.getElementById(`tl${prefix}PivotZ`).value = pz;
+  document.getElementById(`tl${prefix}PivotLabel`).innerText = `🎯 Tâm xoay: Tùy chỉnh (${px.toFixed(1)}, ${py.toFixed(1)}, ${pz.toFixed(1)})`;
+
+  if (typeof window.showToast === "function") {
+    window.showToast("✅ Đã ghi nhận tâm xoay tùy chỉnh!", "success");
+  } else {
+    alert("Đã ghi nhận tâm xoay tùy chỉnh thành công!");
+  }
+};
+
 async function addTimelineTask() {
   const name = document.getElementById("tlNewName").value.trim();
   const type = document.getElementById("tlNewType").value;
@@ -179,6 +220,9 @@ async function addTimelineTask() {
   const val = document.getElementById("tlNewVal") ? parseFloat(document.getElementById("tlNewVal").value) || 1.0 : 1.0;
   const start = document.getElementById("tlNewStart").value;
   const end = document.getElementById("tlNewEnd").value;
+  const pX = document.getElementById("tlNewPivotX").value;
+  const pY = document.getElementById("tlNewPivotY").value;
+  const pZ = document.getElementById("tlNewPivotZ").value;
 
   if (!name || !start || !end) { alert("Điền đủ tên, ngày bắt đầu và kết thúc."); return; }
   if (end < start) { alert("Ngày kết thúc phải sau ngày bắt đầu."); return; }
@@ -192,6 +236,9 @@ async function addTimelineTask() {
     machine_axis: axis,
     machine_speed: machine === "rotate" ? val : 1.0,
     machine_distance: machine === "translate" ? val : 10.0,
+    pivot_x: pX !== "" ? parseFloat(pX) : null,
+    pivot_y: pY !== "" ? parseFloat(pY) : null,
+    pivot_z: pZ !== "" ? parseFloat(pZ) : null,
     planned_start: start, 
     planned_end: end,
     color: TASK_TYPE_COLORS[type],
@@ -220,11 +267,14 @@ async function saveEditedTask(taskId) {
   const val = document.getElementById("tlEditVal") ? parseFloat(document.getElementById("tlEditVal").value) || 1.0 : 1.0;
   const start = document.getElementById("tlEditStart").value;
   const end = document.getElementById("tlEditEnd").value;
+  const pX = document.getElementById("tlEditPivotX").value;
+  const pY = document.getElementById("tlEditPivotY").value;
+  const pZ = document.getElementById("tlEditPivotZ").value;
 
   if (!name || !start || !end) { alert("Điền đủ thông tin."); return; }
   if (end < start) { alert("Ngày kết thúc phải sau ngày bắt đầu."); return; }
 
-  const { error } = await window.sb.from("project_tasks").update({
+  const updateData = {
     name, 
     task_type: type,
     animation_type: anim,
@@ -235,7 +285,15 @@ async function saveEditedTask(taskId) {
     planned_start: start, 
     planned_end: end,
     color: TASK_TYPE_COLORS[type]
-  }).eq("id", taskId);
+  };
+
+  if (pX !== "") {
+    updateData.pivot_x = parseFloat(pX);
+    updateData.pivot_y = parseFloat(pY);
+    updateData.pivot_z = parseFloat(pZ);
+  }
+
+  const { error } = await window.sb.from("project_tasks").update(updateData).eq("id", taskId);
   if (error) { alert("Lỗi lưu: " + error.message); return; }
 
   timelineEditingTaskId = null;
@@ -300,6 +358,9 @@ function renderTaskList() {
     if (timelineEditingTaskId === t.id) {
       const isRot = t.machine_mode === "rotate";
       const isTrans = t.machine_mode === "translate";
+      const hasCustomPivot = t.pivot_x !== null && t.pivot_y !== null && t.pivot_z !== null;
+      const pivotText = hasCustomPivot ? `Tùy chỉnh (${t.pivot_x.toFixed(1)}, ${t.pivot_y.toFixed(1)}, ${t.pivot_z.toFixed(1)})` : "Mặc định (Tâm xe)";
+
       card.innerHTML = `
         <div class="fname" style="margin-bottom:6px;">✏ Sửa công việc</div>
         <input type="text" id="tlEditName" value="${t.name.replace(/"/g, "&quot;")}">
@@ -335,6 +396,13 @@ function renderTaskList() {
               <label style="font-size:10px;color:#666;" id="tlEditValLabel">${isRot ? 'Tốc độ quay (vòng/ngày):' : 'Quãng đường (mét):'}</label>
               <input type="number" id="tlEditVal" value="${isRot ? (t.machine_speed || 1.0) : (t.machine_distance || 10.0)}" step="0.2" style="width:100%;padding:4px;border:1px solid #dcdfe3;border-radius:4px;font-size:11px;">
             </div>
+          </div>
+          <div style="margin-top:6px;border-top:1px dashed #ddd;padding-top:6px;">
+            <label style="font-size:10px;color:#666;display:block;margin-bottom:2px;" id="tlEditPivotLabel">🎯 Tâm xoay: ${pivotText}</label>
+            <button type="button" class="btn" style="width:100%;font-size:10px;padding:4px;" onclick="captureCustomPivot('Edit')">📍 Lấy cấu kiện đang chọn làm tâm xoay</button>
+            <input type="hidden" id="tlEditPivotX" value="${hasCustomPivot ? t.pivot_x : ''}">
+            <input type="hidden" id="tlEditPivotY" value="${hasCustomPivot ? t.pivot_y : ''}">
+            <input type="hidden" id="tlEditPivotZ" value="${hasCustomPivot ? t.pivot_z : ''}">
           </div>
         </div>
         <div style="display:flex;gap:6px;">
@@ -563,7 +631,7 @@ function setObjectsStateAdvanced(viewerIds, visible, progress, colorize, animTyp
 }
 
 /* ---------------------------------------------------------------------
-   HÀM NHÂN MA TRẬN 4X4 & CỐ ĐỊNH TÂM XOAY TRỌN ĐỜI CHO MODEL
+   HÀM NHÂN MA TRẬN 4X4 & HỖ TRỢ TÂM XOAY TÙY CHỈNH (CUSTOM PIVOT)
    --------------------------------------------------------------------- */
 function multiplyMatrices4x4(a, b) {
   const out = new Float32Array(16);
@@ -616,10 +684,15 @@ function animateMachineryModelLevel(viewer, task, mode, floatDay, viewerIds) {
     const model = viewer.scene.models[modelId];
     if (!model) return;
 
-    // 2. KHỞI TẠO VÀ CỐ ĐỊNH TÂM XOAY (CHỈ TÍNH MỘT LẦN DUY NHẤT LÚC BAN ĐẦU)
+    // 2. KHỞI TẠO VÀ CỐ ĐỊNH TÂM XOAY (Ưu tiên tâm tùy chỉnh nếu task có lưu, nếu không lấy tâm xe)
     if (!modelBaseMatrices[modelId]) {
       let initialCx = 0, initialCy = 0, initialCz = 0;
-      if (model.aabb) {
+
+      if (task.pivot_x !== null && task.pivot_y !== null && task.pivot_z !== null && !isNaN(task.pivot_x)) {
+        initialCx = task.pivot_x;
+        initialCy = task.pivot_y;
+        initialCz = task.pivot_z;
+      } else if (model.aabb) {
         initialCx = (model.aabb[0] + model.aabb[3]) / 2;
         initialCy = (model.aabb[1] + model.aabb[4]) / 2;
         initialCz = (model.aabb[2] + model.aabb[5]) / 2;
@@ -642,10 +715,10 @@ function animateMachineryModelLevel(viewer, task, mode, floatDay, viewerIds) {
     const baseMat = baseData.matrix;
     let [lcx, lcy, lcz] = baseData.center;
 
-    if (lcx === 0 && lcy === 0 && lcz === 0) {
-      lcx = baseMat[12];
-      lcy = baseMat[13];
-      lcz = baseMat[14];
+    if (task.pivot_x !== null && task.pivot_y !== null && task.pivot_z !== null && !isNaN(task.pivot_x)) {
+      lcx = task.pivot_x;
+      lcy = task.pivot_y;
+      lcz = task.pivot_z;
     }
 
     let transformMat = Float32Array.from(baseMat);
