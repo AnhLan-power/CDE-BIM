@@ -563,7 +563,7 @@ function setObjectsStateAdvanced(viewerIds, visible, progress, colorize, animTyp
 }
 
 /* ---------------------------------------------------------------------
-   HÀM NHÂN MA TRẬN 4X4 & NHẬN DIỆN MODEL THÔNG QUA MODEL.OBJECTIDS
+   HÀM NHÂN MA TRẬN 4X4 & NHẬN DIỆN MODEL THÔNG QUA XEOKIT SCENE.MODELS
    --------------------------------------------------------------------- */
 function multiplyMatrices4x4(a, b) {
   const out = new Float32Array(16);
@@ -586,28 +586,32 @@ function animateMachineryModelLevel(viewer, task, mode, floatDay, viewerIds) {
   const speed = task.machine_speed || 1.0;
   const distance = task.machine_distance || 10.0;
 
-  // 1. TÌM CHÍNH XÁC MODEL ID BẰNG CÁCH QUÉT QUA MODEL.OBJECTIDS (CHUẨN XÁC TUYỆT ĐỐI CHO MỌI FILE XKT/IFC RIÊNG LẺ)
+  // 1. NHẬN DIỆN MODEL ĐA TẦNG CHO XEOKIT
   const targetModelIds = new Set();
-  if (viewer.scene.models) {
-    Object.keys(viewer.scene.models).forEach(modelId => {
-      const model = viewer.scene.models[modelId];
-      if (model && model.objectIds) {
-        const hasMatch = viewerIds.some(id => model.objectIds.includes(id));
-        if (hasMatch) {
-          targetModelIds.add(modelId);
-        }
-      }
-    });
-  }
 
-  // Fallback phụ qua obj.modelId nếu cần
+  // Thử match qua model.objectIds
+  Object.keys(viewer.scene.models).forEach(modelId => {
+    const model = viewer.scene.models[modelId];
+    if (model && model.objectIds) {
+      const hasMatch = viewerIds.some(id => model.objectIds.includes(id));
+      if (hasMatch) targetModelIds.add(modelId);
+    }
+  });
+
+  // Thử match qua obj.modelId
   if (targetModelIds.size === 0) {
     viewerIds.forEach(id => {
       const obj = viewer.scene.objects[id];
-      if (obj && obj.modelId) {
-        targetModelIds.add(obj.modelId);
-      }
+      if (obj && obj.modelId) targetModelIds.add(obj.modelId);
     });
+  }
+
+  // Fallback tối thượng: Nếu vẫn không tìm thấy, lấy model cuối cùng trong scene (thường là file máy móc nạp sau cùng)
+  if (targetModelIds.size === 0) {
+    const allModelIds = Object.keys(viewer.scene.models);
+    if (allModelIds.length > 0) {
+      targetModelIds.add(allModelIds[allModelIds.length - 1]);
+    }
   }
 
   if (targetModelIds.size === 0) return;
