@@ -563,7 +563,7 @@ function setObjectsStateAdvanced(viewerIds, visible, progress, colorize, animTyp
 }
 
 /* ---------------------------------------------------------------------
-   HÀM NHÂN MA TRẬN 4X4 & LẤY TÂM CHÍNH XÁC QUA AABB CỦA CẤU KIỆN ĐƯỢC CHỌN
+   HÀM NHÂN MA TRẬN 4X4 & XỬ LÝ ANIMATION CHUẨN XÁC CHO RIÊNG MODEL MÁY MÓC
    --------------------------------------------------------------------- */
 function multiplyMatrices4x4(a, b) {
   const out = new Float32Array(16);
@@ -586,7 +586,7 @@ function animateMachineryModelLevel(viewer, task, mode, floatDay, viewerIds) {
   const speed = task.machine_speed || 1.0;
   const distance = task.machine_distance || 10.0;
 
-  // 1. Lấy ra modelId của chiếc xe từ các cấu kiện được gắn
+  // 1. CHỈ LẤY modelId của riêng chiếc xe từ các cấu kiện gắn vào task (TUYỆT ĐỐI KHÔNG FALLBACK LẤY TOÀN BỘ SCENE)
   const targetModelIds = new Set();
   viewerIds.forEach(id => {
     const obj = viewer.scene.objects[id];
@@ -595,11 +595,9 @@ function animateMachineryModelLevel(viewer, task, mode, floatDay, viewerIds) {
     }
   });
 
-  if (targetModelIds.size === 0) {
-    Object.keys(viewer.scene.models).forEach(mId => targetModelIds.add(mId));
-  }
+  if (targetModelIds.size === 0) return;
 
-  // 2. Lấy tâm AABB chính xác nhất của xe dựa trên các cấu kiện được chọn (viewerIds)
+  // 2. Lấy tâm AABB chính xác của xe dựa trên các viewerIds được gắn
   let cx = 0, cy = 0, cz = 0;
   if (typeof viewer.scene.getAABB === "function" && viewerIds.length > 0) {
     const aabb = viewer.scene.getAABB({ objectIds: viewerIds });
@@ -620,7 +618,6 @@ function animateMachineryModelLevel(viewer, task, mode, floatDay, viewerIds) {
 
     const baseMat = modelBaseMatrices[modelId];
 
-    // Fallback tâm nếu chưa lấy được AABB qua viewer
     let lcx = cx, lcy = cy, lcz = cz;
     if (lcx === 0 && lcy === 0 && lcz === 0) {
       lcx = baseMat[12];
@@ -635,39 +632,59 @@ function animateMachineryModelLevel(viewer, task, mode, floatDay, viewerIds) {
       const c = Math.cos(angleRad);
       const s = Math.sin(angleRad);
 
-      let rotMat = Float32Array.from([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]);
+      const T_origin = Float32Array.from([
+        1, 0, 0, 0,
+        0, 1, 0, 0,
+        0, 0, 1, 0,
+        -lcx, -lcy, -lcz, 1
+      ]);
+
+      let R = Float32Array.from([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]);
       if (axis === "Z") {
-        rotMat = Float32Array.from([
+        R = Float32Array.from([
           c, s, 0, 0,
           -s, c, 0, 0,
           0, 0, 1, 0,
-          lcx - lcx*c + lcy*s, lcy - lcx*s - lcy*c, 0, 1
+          0, 0, 0, 1
         ]);
       } else if (axis === "X") {
-        rotMat = Float32Array.from([
+        R = Float32Array.from([
           1, 0, 0, 0,
           0, c, s, 0,
           0, -s, c, 0,
-          0, lcy - lcy*c + lcz*s, lcz - lcy*s - lcz*c, 1
+          0, 0, 0, 1
         ]);
       } else if (axis === "Y") {
-        rotMat = Float32Array.from([
+        R = Float32Array.from([
           c, 0, -s, 0,
           0, 1, 0, 0,
           s, 0, c, 0,
-          lcx - lcx*c - lcz*s, 0, lcz + lcx*s - lcz*c, 1
+          0, 0, 0, 1
         ]);
       }
-      transformMat = multiplyMatrices4x4(baseMat, rotMat);
+
+      const T_back = Float32Array.from([
+        1, 0, 0, 0,
+        0, 1, 0, 0,
+        0, 0, 1, 0,
+        lcx, lcy, lcz, 1
+      ]);
+
+      const rotCombined = multiplyMatrices4x4(T_back, multiplyMatrices4x4(R, T_origin));
+      transformMat = multiplyMatrices4x4(baseMat, rotCombined);
 
     } else if (mode === "translate") {
       const offset = Math.sin(floatDay * 0.3) * distance;
-      let transMat = Float32Array.from([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]);
-      if (axis === "X") transMat[12] = offset;
-      else if (axis === "Y") transMat[13] = offset;
-      else if (axis === "Z") transMat[14] = offset;
-
-      transformMat = multiplyMatrices4x4(baseMat, transMat);
+      const T_trans = Float32Array.from([
+        1, 0, 0, 0,
+        0, 1, 0, 0,
+        0, 0, 1, 0,
+        axis === "X" ? offset : 0,
+        axis === "Y" ? offset : 0,
+        axis === "Z" ? offset : 0,
+        1
+      ]);
+      transformMat = multiplyMatrices4x4(baseMat, T_trans);
     }
 
     model.matrix = transformMat;
