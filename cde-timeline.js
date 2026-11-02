@@ -563,7 +563,7 @@ function setObjectsStateAdvanced(viewerIds, visible, progress, colorize, animTyp
 }
 
 /* ---------------------------------------------------------------------
-   HÀM NHÂN MA TRẬN 4X4 & BIẾN ĐỔI MODEL CẤP ĐỘ MODEL TRONG XEOKIT
+   HÀM NHÂN MA TRẬN 4X4 & LẤY TÂM CHÍNH XÁC QUA AABB CỦA CẤU KIỆN ĐƯỢC CHỌN
    --------------------------------------------------------------------- */
 function multiplyMatrices4x4(a, b) {
   const out = new Float32Array(16);
@@ -586,7 +586,7 @@ function animateMachineryModelLevel(viewer, task, mode, floatDay, viewerIds) {
   const speed = task.machine_speed || 1.0;
   const distance = task.machine_distance || 10.0;
 
-  // Lấy ra chính xác modelId của chiếc xe từ các cấu kiện được gắn
+  // 1. Lấy ra modelId của chiếc xe từ các cấu kiện được gắn
   const targetModelIds = new Set();
   viewerIds.forEach(id => {
     const obj = viewer.scene.objects[id];
@@ -595,25 +595,38 @@ function animateMachineryModelLevel(viewer, task, mode, floatDay, viewerIds) {
     }
   });
 
+  if (targetModelIds.size === 0) {
+    Object.keys(viewer.scene.models).forEach(mId => targetModelIds.add(mId));
+  }
+
+  // 2. Lấy tâm AABB chính xác nhất của xe dựa trên các cấu kiện được chọn (viewerIds)
+  let cx = 0, cy = 0, cz = 0;
+  if (typeof viewer.scene.getAABB === "function" && viewerIds.length > 0) {
+    const aabb = viewer.scene.getAABB({ objectIds: viewerIds });
+    if (aabb && !isNaN(aabb[0])) {
+      cx = (aabb[0] + aabb[3]) / 2;
+      cy = (aabb[1] + aabb[4]) / 2;
+      cz = (aabb[2] + aabb[5]) / 2;
+    }
+  }
+
   targetModelIds.forEach(modelId => {
     const model = viewer.scene.models[modelId];
     if (!model) return;
 
-    // Lưu ma trận gốc và tâm AABB của model xe
     if (!modelBaseMatrices[modelId]) {
-      modelBaseMatrices[modelId] = {
-        matrix: model.matrix ? Float32Array.from(model.matrix) : Float32Array.from([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]),
-        center: model.aabb ? [
-          (model.aabb[0] + model.aabb[3]) / 2,
-          (model.aabb[1] + model.aabb[4]) / 2,
-          (model.aabb[2] + model.aabb[5]) / 2
-        ] : [0, 0, 0]
-      };
+      modelBaseMatrices[modelId] = model.matrix ? Float32Array.from(model.matrix) : Float32Array.from([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]);
     }
 
-    const baseData = modelBaseMatrices[modelId];
-    const baseMat = baseData.matrix;
-    const [cx, cy, cz] = baseData.center;
+    const baseMat = modelBaseMatrices[modelId];
+
+    // Fallback tâm nếu chưa lấy được AABB qua viewer
+    let lcx = cx, lcy = cy, lcz = cz;
+    if (lcx === 0 && lcy === 0 && lcz === 0) {
+      lcx = baseMat[12];
+      lcy = baseMat[13];
+      lcz = baseMat[14];
+    }
 
     let transformMat = Float32Array.from(baseMat);
 
@@ -622,29 +635,27 @@ function animateMachineryModelLevel(viewer, task, mode, floatDay, viewerIds) {
       const c = Math.cos(angleRad);
       const s = Math.sin(angleRad);
 
-      // Tạo ma trận xoay quanh trục tương ứng tại tâm (cx, cy, cz)
-      // Chuyển về gốc toạ độ, xoay, rồi dịch chuyển trở lại
       let rotMat = Float32Array.from([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]);
       if (axis === "Z") {
         rotMat = Float32Array.from([
           c, s, 0, 0,
           -s, c, 0, 0,
           0, 0, 1, 0,
-          cx - cx*c + cy*s, cy - cx*s - cy*c, 0, 1
+          lcx - lcx*c + lcy*s, lcy - lcx*s - lcy*c, 0, 1
         ]);
       } else if (axis === "X") {
         rotMat = Float32Array.from([
           1, 0, 0, 0,
           0, c, s, 0,
           0, -s, c, 0,
-          0, cy - cy*c + cz*s, cz - cy*s - cz*c, 1
+          0, lcy - lcy*c + lcz*s, lcz - lcy*s - lcz*c, 1
         ]);
       } else if (axis === "Y") {
         rotMat = Float32Array.from([
           c, 0, -s, 0,
           0, 1, 0, 0,
           s, 0, c, 0,
-          cx - cx*c - cz*s, 0, cz + cx*s - cz*c, 1
+          lcx - lcx*c - lcz*s, 0, lcz + lcx*s - lcz*c, 1
         ]);
       }
       transformMat = multiplyMatrices4x4(baseMat, rotMat);
@@ -684,7 +695,7 @@ function resetTimelineVisibility() {
       Object.keys(viewer.scene.models).forEach(modelId => {
         const model = viewer.scene.models[modelId];
         if (model && modelBaseMatrices[modelId]) {
-          model.matrix = modelBaseMatrices[modelId].matrix;
+          model.matrix = modelBaseMatrices[modelId];
         }
       });
     }
