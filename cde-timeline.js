@@ -10,8 +10,8 @@ let timelinePlaying = false;
 let animationFrameId = null;
 let currentPlayDay = 0;
 
-// Cache lưu ma trận gốc của từng cấu kiện
-const objectBaseMatrices = {};
+// Cache lưu ma trận gốc của từng Model máy móc
+const modelBaseMatrices = {};
 
 const TASK_TYPE_LABELS = { construction: "Thi công", demolition: "Tháo dỡ", temporary: "Tạm thời" };
 const TASK_TYPE_COLORS = { construction: "#3B82F6", demolition: "#EF4444", temporary: "#F59E0B" };
@@ -503,7 +503,7 @@ function applyTimelineDateWithAnimation(currentDate, floatDay) {
       });
 
       if (isActive) {
-        animateMachineryRigidBody(viewer, t, machineMode, floatDay, viewerIds);
+        animateMachineryModelLevel(viewer, t, machineMode, floatDay, viewerIds);
       }
     } else {
       // 🏗️ Chế độ XÂY DỰNG / THÁO DỠ thông thường (Fade / Slide)
@@ -562,17 +562,31 @@ function setObjectsStateAdvanced(viewerIds, visible, progress, colorize, animTyp
   });
 }
 
-/**
- * 🔄 XOAY HOẶC DI CHUYỂN MÁY MÓC TÁC ĐỘNG TRỰC TIẾP VÀO TỪNG CẤU KIỆN CỦA MODEL RIÊNG BIỆT
- */
-function animateMachineryRigidBody(viewer, task, mode, floatDay, viewerIds) {
-  if (!viewer || !viewer.scene || !viewerIds || viewerIds.length === 0) return;
+/* ---------------------------------------------------------------------
+   HÀM NHÂN MA TRẬN 4X4 & BIẾN ĐỔI MODEL CẤP ĐỘ MODEL TRONG XEOKIT
+   --------------------------------------------------------------------- */
+function multiplyMatrices4x4(a, b) {
+  const out = new Float32Array(16);
+  for (let i = 0; i < 4; i++) {
+    for (let j = 0; j < 4; j++) {
+      out[j * 4 + i] = 
+        a[0 * 4 + i] * b[j * 4 + 0] +
+        a[1 * 4 + i] * b[j * 4 + 1] +
+        a[2 * 4 + i] * b[j * 4 + 2] +
+        a[3 * 4 + i] * b[j * 4 + 3];
+    }
+  }
+  return out;
+}
+
+function animateMachineryModelLevel(viewer, task, mode, floatDay, viewerIds) {
+  if (!viewer || !viewer.scene || !viewer.scene.models) return;
 
   const axis = task.machine_axis || "Z";
   const speed = task.machine_speed || 1.0;
   const distance = task.machine_distance || 10.0;
 
-  // Lấy ra tất cả các objectIds thuộc riêng model của máy móc (thông qua modelId của các cấu kiện được gắn)
+  // Lấy ra chính xác modelId của chiếc xe từ các cấu kiện được gắn
   const targetModelIds = new Set();
   viewerIds.forEach(id => {
     const obj = viewer.scene.objects[id];
@@ -581,97 +595,71 @@ function animateMachineryRigidBody(viewer, task, mode, floatDay, viewerIds) {
     }
   });
 
-  // Gom toàn bộ objectIds thuộc các model máy móc này
-  const machineryObjectIds = [];
-  viewer.scene.objectIds.forEach(id => {
-    const obj = viewer.scene.objects[id];
-    if (obj && obj.modelId && targetModelIds.has(obj.modelId)) {
-      machineryObjectIds.push(id);
+  targetModelIds.forEach(modelId => {
+    const model = viewer.scene.models[modelId];
+    if (!model) return;
+
+    // Lưu ma trận gốc và tâm AABB của model xe
+    if (!modelBaseMatrices[modelId]) {
+      modelBaseMatrices[modelId] = {
+        matrix: model.matrix ? Float32Array.from(model.matrix) : Float32Array.from([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]),
+        center: model.aabb ? [
+          (model.aabb[0] + model.aabb[3]) / 2,
+          (model.aabb[1] + model.aabb[4]) / 2,
+          (model.aabb[2] + model.aabb[5]) / 2
+        ] : [0, 0, 0]
+      };
     }
-  });
 
-  if (machineryObjectIds.length === 0) {
-    // Fallback: nếu không bắt được modelId, dùng trực tiếp viewerIds truyền vào
-    viewerIds.forEach(id => machineryObjectIds.push(id));
-  }
+    const baseData = modelBaseMatrices[modelId];
+    const baseMat = baseData.matrix;
+    const [cx, cy, cz] = baseData.center;
 
-  // 1. Lưu ma trận gốc và tính tâm chung (Center Pivot) của xe
-  let sumX = 0, sumY = 0, sumZ = 0;
-  let validCount = 0;
-
-  machineryObjectIds.forEach(id => {
-    const obj = viewer.scene.objects[id];
-    if (!obj) return;
-    if (!objectBaseMatrices[id]) {
-      objectBaseMatrices[id] = obj.matrix ? Float32Array.from(obj.matrix) : Float32Array.from([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]);
-    }
-    const bm = objectBaseMatrices[id];
-    sumX += bm[12];
-    sumY += bm[13];
-    sumZ += bm[14];
-    validCount++;
-  });
-
-  if (validCount === 0) return;
-  const cx = sumX / validCount;
-  const cy = sumY / validCount;
-  const cz = sumZ / validCount;
-
-  // 2. Tính toán góc quay hoặc khoảng cách dịch chuyển
-  const angleRad = mode === "rotate" ? (floatDay * speed * 360) * (Math.PI / 180) : 0;
-  const cos = Math.cos(angleRad);
-  const sin = Math.sin(angleRad);
-  const offset = mode === "translate" ? Math.sin(floatDay * 0.3) * distance : 0;
-
-  // 3. Cập nhật ma trận cho từng cấu kiện của máy móc
-  machineryObjectIds.forEach(id => {
-    const obj = viewer.scene.objects[id];
-    if (!obj) return;
-
-    const baseMat = objectBaseMatrices[id];
-    const mat = Float32Array.from(baseMat);
+    let transformMat = Float32Array.from(baseMat);
 
     if (mode === "rotate") {
-      const rx = baseMat[12] - cx;
-      const ry = baseMat[13] - cy;
-      const rz = baseMat[14] - cz;
+      const angleRad = (floatDay * speed * 360) * (Math.PI / 180);
+      const c = Math.cos(angleRad);
+      const s = Math.sin(angleRad);
 
+      // Tạo ma trận xoay quanh trục tương ứng tại tâm (cx, cy, cz)
+      // Chuyển về gốc toạ độ, xoay, rồi dịch chuyển trở lại
+      let rotMat = Float32Array.from([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]);
       if (axis === "Z") {
-        mat[0] = baseMat[0] * cos - baseMat[4] * sin;
-        mat[1] = baseMat[1] * cos - baseMat[5] * sin;
-        mat[4] = baseMat[0] * sin + baseMat[4] * cos;
-        mat[5] = baseMat[1] * sin + baseMat[5] * cos;
-
-        mat[12] = cx + (rx * cos - ry * sin);
-        mat[13] = cy + (rx * sin + ry * cos);
+        rotMat = Float32Array.from([
+          c, s, 0, 0,
+          -s, c, 0, 0,
+          0, 0, 1, 0,
+          cx - cx*c + cy*s, cy - cx*s - cy*c, 0, 1
+        ]);
       } else if (axis === "X") {
-        mat[5] = baseMat[5] * cos - baseMat[9] * sin;
-        mat[6] = baseMat[6] * cos - baseMat[10] * sin;
-        mat[9] = baseMat[5] * sin + baseMat[9] * cos;
-        mat[10] = baseMat[6] * sin + baseMat[10] * cos;
-
-        mat[13] = cy + (ry * cos - rz * sin);
-        mat[14] = cz + (ry * sin + rz * cos);
+        rotMat = Float32Array.from([
+          1, 0, 0, 0,
+          0, c, s, 0,
+          0, -s, c, 0,
+          0, cy - cy*c + cz*s, cz - cy*s - cz*c, 1
+        ]);
       } else if (axis === "Y") {
-        mat[0] = baseMat[0] * cos + baseMat[8] * sin;
-        mat[2] = baseMat[2] * cos - baseMat[10] * sin;
-        mat[8] = baseMat[8] * cos - baseMat[0] * sin;
-        mat[10] = baseMat[10] * cos + baseMat[2] * sin;
-
-        mat[12] = cx + (rx * cos + rz * sin);
-        mat[14] = cz + (rz * cos - rx * sin);
+        rotMat = Float32Array.from([
+          c, 0, -s, 0,
+          0, 1, 0, 0,
+          s, 0, c, 0,
+          cx - cx*c - cz*s, 0, cz + cx*s - cz*c, 1
+        ]);
       }
+      transformMat = multiplyMatrices4x4(baseMat, rotMat);
+
     } else if (mode === "translate") {
-      if (axis === "X") {
-        mat[12] = baseMat[12] + offset;
-      } else if (axis === "Y") {
-        mat[13] = baseMat[13] + offset;
-      } else if (axis === "Z") {
-        mat[14] = baseMat[14] + offset;
-      }
+      const offset = Math.sin(floatDay * 0.3) * distance;
+      let transMat = Float32Array.from([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]);
+      if (axis === "X") transMat[12] = offset;
+      else if (axis === "Y") transMat[13] = offset;
+      else if (axis === "Z") transMat[14] = offset;
+
+      transformMat = multiplyMatrices4x4(baseMat, transMat);
     }
 
-    obj.matrix = mat;
+    model.matrix = transformMat;
   });
 }
 
@@ -689,11 +677,17 @@ function resetTimelineVisibility() {
       if (e) {
         e.opacity = 1.0;
         e.colorize = null;
-        if (objectBaseMatrices[id]) {
-          e.matrix = objectBaseMatrices[id];
-        }
       }
     });
+
+    if (viewer.scene.models) {
+      Object.keys(viewer.scene.models).forEach(modelId => {
+        const model = viewer.scene.models[modelId];
+        if (model && modelBaseMatrices[modelId]) {
+          model.matrix = modelBaseMatrices[modelId].matrix;
+        }
+      });
+    }
 
     viewer.scene._needUpdate = 1;
     if (typeof viewer.scene.render === "function") viewer.scene.render();
