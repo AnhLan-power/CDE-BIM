@@ -291,6 +291,10 @@ async function saveEditedTask(taskId) {
     updateData.pivot_x = parseFloat(pX);
     updateData.pivot_y = parseFloat(pY);
     updateData.pivot_z = parseFloat(pZ);
+  } else {
+    updateData.pivot_x = null;
+    updateData.pivot_y = null;
+    updateData.pivot_z = null;
   }
 
   const { error } = await window.sb.from("project_tasks").update(updateData).eq("id", taskId);
@@ -358,8 +362,8 @@ function renderTaskList() {
     if (timelineEditingTaskId === t.id) {
       const isRot = t.machine_mode === "rotate";
       const isTrans = t.machine_mode === "translate";
-      const hasCustomPivot = t.pivot_x !== null && t.pivot_y !== null && t.pivot_z !== null;
-      const pivotText = hasCustomPivot ? `Tùy chỉnh (${t.pivot_x.toFixed(1)}, ${t.pivot_y.toFixed(1)}, ${t.pivot_z.toFixed(1)})` : "Mặc định (Tâm xe)";
+      const hasCustomPivot = t.pivot_x != null && t.pivot_y != null && t.pivot_z != null && !isNaN(t.pivot_x);
+      const pivotText = hasCustomPivot ? `Tùy chỉnh (${Number(t.pivot_x).toFixed(1)}, ${Number(t.pivot_y).toFixed(1)}, ${Number(t.pivot_z).toFixed(1)})` : "Mặc định (Tâm xe)";
 
       card.innerHTML = `
         <div class="fname" style="margin-bottom:6px;">✏ Sửa công việc</div>
@@ -684,14 +688,14 @@ function animateMachineryModelLevel(viewer, task, mode, floatDay, viewerIds) {
     const model = viewer.scene.models[modelId];
     if (!model) return;
 
-    // 2. KHỞI TẠO VÀ CỐ ĐỊNH TÂM XOAY (Ưu tiên tâm tùy chỉnh nếu task có lưu, nếu không lấy tâm xe)
+    // 2. KHỞI TẠO VÀ CỐ ĐỊNH TÂM XOAY
     if (!modelBaseMatrices[modelId]) {
       let initialCx = 0, initialCy = 0, initialCz = 0;
 
-      if (task.pivot_x !== null && task.pivot_y !== null && task.pivot_z !== null && !isNaN(task.pivot_x)) {
-        initialCx = task.pivot_x;
-        initialCy = task.pivot_y;
-        initialCz = task.pivot_z;
+      if (task.pivot_x != null && task.pivot_y != null && task.pivot_z != null && !isNaN(task.pivot_x)) {
+        initialCx = Number(task.pivot_x);
+        initialCy = Number(task.pivot_y);
+        initialCz = Number(task.pivot_z);
       } else if (model.aabb) {
         initialCx = (model.aabb[0] + model.aabb[3]) / 2;
         initialCy = (model.aabb[1] + model.aabb[4]) / 2;
@@ -715,10 +719,10 @@ function animateMachineryModelLevel(viewer, task, mode, floatDay, viewerIds) {
     const baseMat = baseData.matrix;
     let [lcx, lcy, lcz] = baseData.center;
 
-    if (task.pivot_x !== null && task.pivot_y !== null && task.pivot_z !== null && !isNaN(task.pivot_x)) {
-      lcx = task.pivot_x;
-      lcy = task.pivot_y;
-      lcz = task.pivot_z;
+    if (task.pivot_x != null && task.pivot_y != null && task.pivot_z != null && !isNaN(task.pivot_x)) {
+      lcx = Number(task.pivot_x);
+      lcy = Number(task.pivot_y);
+      lcz = Number(task.pivot_z);
     }
 
     let transformMat = Float32Array.from(baseMat);
