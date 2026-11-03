@@ -627,7 +627,7 @@ function setObjectsStateAdvanced(viewerIds, visible, progress, colorize, animTyp
 }
 
 /* ---------------------------------------------------------------------
-   HÀM NHÂN MA TRẬN 4X4 & CẬP NHẬT TÂM XOAY LINH HOẠT THEO TASK
+   HÀM NHÂN MA TRẬN 4X4 & XOAY QUANH TÂM THẾ GIỚI (WORLD PIVOT FIX)
    --------------------------------------------------------------------- */
 function multiplyMatrices4x4(a, b) {
   const out = new Float32Array(16);
@@ -713,7 +713,6 @@ function animateMachineryModelLevel(viewer, task, mode, floatDay, viewerIds) {
     const baseMat = baseData.matrix;
     let [lcx, lcy, lcz] = baseData.center;
 
-    // Ưu tiên tuyệt đối tâm tùy chỉnh mới nhất (ví dụ khi chọn trục tháp)
     if (customPivot) {
       lcx = customPivot.x;
       lcy = customPivot.y;
@@ -765,8 +764,9 @@ function animateMachineryModelLevel(viewer, task, mode, floatDay, viewerIds) {
         lcx, lcy, lcz, 1
       ]);
 
+      // QUAN TRỌNG: Đảo thứ tự nhân ma trận thành (rotCombined * baseMat) để xoay đúng quanh tâm thế giới
       const rotCombined = multiplyMatrices4x4(T_back, multiplyMatrices4x4(R, T_origin));
-      transformMat = multiplyMatrices4x4(baseMat, rotCombined);
+      transformMat = multiplyMatrices4x4(rotCombined, baseMat);
 
     } else if (mode === "translate") {
       const offset = Math.sin(floatDay * 0.3) * distance;
@@ -779,7 +779,7 @@ function animateMachineryModelLevel(viewer, task, mode, floatDay, viewerIds) {
         axis === "Z" ? offset : 0,
         1
       ]);
-      transformMat = multiplyMatrices4x4(baseMat, T_trans);
+      transformMat = multiplyMatrices4x4(T_trans, baseMat);
     }
 
     model.matrix = transformMat;
