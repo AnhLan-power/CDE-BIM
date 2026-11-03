@@ -627,7 +627,7 @@ function setObjectsStateAdvanced(viewerIds, visible, progress, colorize, animTyp
 }
 
 /* ---------------------------------------------------------------------
-   HÀM NHÂN MA TRẬN 4X4 & XOAY QUANH TÂM THẾ GIỚI (WORLD PIVOT FIX)
+   HÀM NHÂN MA TRẬN 4X4 & NHẬN DIỆN MODEL CHÍNH XÁC TUYỆT ĐỐI (LOẠI BỎ FALLBACK SAI MODEL)
    --------------------------------------------------------------------- */
 function multiplyMatrices4x4(a, b) {
   const out = new Float32Array(16);
@@ -650,7 +650,7 @@ function animateMachineryModelLevel(viewer, task, mode, floatDay, viewerIds) {
   const speed = task.machine_speed || 1.0;
   const distance = task.machine_distance || 10.0;
 
-  // 1. Nhận diện chính xác modelId của máy móc
+  // 1. Nhận diện CHÍNH XÁC modelId của model chứa các cấu kiện gắn trong viewerIds
   const targetModelIds = new Set();
   Object.keys(viewer.scene.models).forEach(modelId => {
     const model = viewer.scene.models[modelId];
@@ -667,13 +667,7 @@ function animateMachineryModelLevel(viewer, task, mode, floatDay, viewerIds) {
     });
   }
 
-  if (targetModelIds.size === 0) {
-    const allModelIds = Object.keys(viewer.scene.models);
-    if (allModelIds.length > 0) {
-      targetModelIds.add(allModelIds[allModelIds.length - 1]);
-    }
-  }
-
+  // KHÔNG DÙNG FALLBACK LẤY MODEL CUỐI CÙNG NỮA TRÁNH NHẦM LẪN VỚI FILE CẦN CẨU NẠP SAU
   if (targetModelIds.size === 0) return;
 
   targetModelIds.forEach(modelId => {
@@ -682,7 +676,7 @@ function animateMachineryModelLevel(viewer, task, mode, floatDay, viewerIds) {
 
     const customPivot = taskCustomPivots[task.id];
 
-    // 2. KHỞI TẠO VÀ CỐ ĐỊNH MA TRẬN GỐC
+    // 2. KHỞI TẠO VÀ CỐ ĐỊNH MA TRẬN GỐC CỦA MODEL TRỤC THÁP
     if (!modelBaseMatrices[modelId]) {
       let initialCx = 0, initialCy = 0, initialCz = 0;
 
@@ -764,7 +758,6 @@ function animateMachineryModelLevel(viewer, task, mode, floatDay, viewerIds) {
         lcx, lcy, lcz, 1
       ]);
 
-      // QUAN TRỌNG: Đảo thứ tự nhân ma trận thành (rotCombined * baseMat) để xoay đúng quanh tâm thế giới
       const rotCombined = multiplyMatrices4x4(T_back, multiplyMatrices4x4(R, T_origin));
       transformMat = multiplyMatrices4x4(rotCombined, baseMat);
 
