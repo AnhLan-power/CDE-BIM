@@ -204,7 +204,6 @@ window.captureCustomPivot = function(prefix, taskId = null) {
     taskCustomPivots[taskId] = { x: px, y: py, z: pz };
   }
 
-  // Xóa toàn bộ cache ma trận để hệ thống cập nhật tâm xoay mới ngay lập tức
   Object.keys(modelBaseMatrices).forEach(k => delete modelBaseMatrices[k]);
 
   document.getElementById(`tl${prefix}PivotLabel`).innerText = `🎯 Tâm xoay: Tùy chỉnh (${px.toFixed(1)}, ${py.toFixed(1)}, ${pz.toFixed(1)})`;
@@ -554,7 +553,6 @@ function applyTimelineDateWithAnimation(currentDate, floatDay) {
 
     // Xử lý hiển thị cấu kiện
     if (machineMode !== "none") {
-      // 🚜 Chế độ MÁY MÓC: Hiển thị rõ nét (solid), KHÔNG mờ dần, KHÔNG trượt
       const isActive = (currentDate >= start && currentDate <= end);
       viewerIds.forEach(id => {
         const e = viewer.scene.objects[id];
@@ -570,7 +568,6 @@ function applyTimelineDateWithAnimation(currentDate, floatDay) {
         animateMachineryModelLevel(viewer, t, machineMode, floatDay, viewerIds);
       }
     } else {
-      // 🏗️ Chế độ XÂY DỰNG / THÁO DỠ thông thường (Fade / Slide)
       if (t.task_type === "construction") {
         if (currentDate < start) {
           setObjectsStateAdvanced(viewerIds, false, 0.0, null, animType);
@@ -627,7 +624,7 @@ function setObjectsStateAdvanced(viewerIds, visible, progress, colorize, animTyp
 }
 
 /* ---------------------------------------------------------------------
-   HÀM NHÂN MA TRẬN 4X4 & NHẬN DIỆN MODEL CHÍNH XÁC TUYỆT ĐỐI (LOẠI BỎ FALLBACK SAI MODEL)
+   HÀM NHÂN MA TRẬN 4X4 & NHẬN DIỆN MODEL AN TOÀN TUYỆT ĐỐI (ROBUST FALLBACK)
    --------------------------------------------------------------------- */
 function multiplyMatrices4x4(a, b) {
   const out = new Float32Array(16);
@@ -650,24 +647,48 @@ function animateMachineryModelLevel(viewer, task, mode, floatDay, viewerIds) {
   const speed = task.machine_speed || 1.0;
   const distance = task.machine_distance || 10.0;
 
-  // 1. Nhận diện CHÍNH XÁC modelId của model chứa các cấu kiện gắn trong viewerIds
   const targetModelIds = new Set();
+
+  // 1. Tìm theo model.objectIds
   Object.keys(viewer.scene.models).forEach(modelId => {
     const model = viewer.scene.models[modelId];
-    if (model && model.objectIds) {
+    if (model && Array.isArray(model.objectIds)) {
       const hasMatch = viewerIds.some(id => model.objectIds.includes(id));
       if (hasMatch) targetModelIds.add(modelId);
     }
   });
 
-  if (targetModelIds.size === 0) {
+  // 2. Tìm theo thuộc tính modelId của từng object
+  if (targetModelIds.size === 0 && viewerIds && viewerIds.length > 0) {
     viewerIds.forEach(id => {
       const obj = viewer.scene.objects[id];
       if (obj && obj.modelId) targetModelIds.add(obj.modelId);
     });
   }
 
-  // KHÔNG DÙNG FALLBACK LẤY MODEL CUỐI CÙNG NỮA TRÁNH NHẦM LẪN VỚI FILE CẦN CẨU NẠP SAU
+  // 3. Fallback thông minh: Tìm model gần nhất với tâm xoay tùy chỉnh (customPivot)
+  if (targetModelIds.size === 0 && taskCustomPivots[task.id]) {
+    const cp = taskCustomPivots[task.id];
+    let closestId = null;
+    let minD = Infinity;
+    Object.keys(viewer.scene.models).forEach(modelId => {
+      const m = viewer.scene.models[modelId];
+      if (m && m.aabb) {
+        const cx = (m.aabb[0] + m.aabb[3]) / 2;
+        const cy = (m.aabb[1] + m.aabb[4]) / 2;
+        const cz = (m.aabb[2] + m.aabb[5]) / 2;
+        const d = Math.hypot(cx - cp.x, cy - cp.y, cz - cp.z);
+        if (d < minD) { minD = d; closestId = modelId; }
+      }
+    });
+    if (closestId) targetModelIds.add(closestId);
+  }
+
+  // 4. Fallback an toàn cuối cùng: Lấy toàn bộ model nếu vẫn trống
+  if (targetModelIds.size === 0) {
+    Object.keys(viewer.scene.models).forEach(id => targetModelIds.add(id));
+  }
+
   if (targetModelIds.size === 0) return;
 
   targetModelIds.forEach(modelId => {
@@ -676,7 +697,6 @@ function animateMachineryModelLevel(viewer, task, mode, floatDay, viewerIds) {
 
     const customPivot = taskCustomPivots[task.id];
 
-    // 2. KHỞI TẠO VÀ CỐ ĐỊNH MA TRẬN GỐC CỦA MODEL TRỤC THÁP
     if (!modelBaseMatrices[modelId]) {
       let initialCx = 0, initialCy = 0, initialCz = 0;
 
