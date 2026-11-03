@@ -145,7 +145,7 @@ function renderAddTaskBox() {
           </div>
         </div>
         <div style="margin-top:6px;border-top:1px dashed #ddd;padding-top:6px;">
-          <label style="font-size:10px;color:#666;display:block;margin-bottom:2px;" id="tlNewPivotLabel">🎯 Tâm xoay: Mặc định (Tâm xe)</label>
+          <label style="font-size:10px;color:#666;display:block;margin-bottom:2px;" id="tlNewPivotLabel">🎯 Tâm xoay: Mặc định (Tâm cấu kiện)</label>
           <button type="button" class="btn" style="width:100%;font-size:10px;padding:4px;" onclick="captureCustomPivot('New')">📍 Lấy cấu kiện đang chọn làm tâm xoay</button>
         </div>
       </div>
@@ -357,7 +357,7 @@ function renderTaskList() {
       const isRot = t.machine_mode === "rotate";
       const isTrans = t.machine_mode === "translate";
       const customPivot = taskCustomPivots[t.id];
-      const pivotText = customPivot ? `Tùy chỉnh (${customPivot.x.toFixed(1)}, ${customPivot.y.toFixed(1)}, ${customPivot.z.toFixed(1)})` : "Mặc định (Tâm xe)";
+      const pivotText = customPivot ? `Tùy chỉnh (${customPivot.x.toFixed(1)}, ${customPivot.y.toFixed(1)}, ${customPivot.z.toFixed(1)})` : "Mặc định (Tâm cấu kiện)";
 
       card.innerHTML = `
         <div class="fname" style="margin-bottom:6px;">✏ Sửa công việc</div>
@@ -551,7 +551,6 @@ function applyTimelineDateWithAnimation(currentDate, floatDay) {
     const animType = t.animation_type || "fade";
     const machineMode = t.machine_mode || "none";
 
-    // Xử lý hiển thị cấu kiện
     if (machineMode !== "none") {
       const isActive = (currentDate >= start && currentDate <= end);
       viewerIds.forEach(id => {
@@ -624,7 +623,7 @@ function setObjectsStateAdvanced(viewerIds, visible, progress, colorize, animTyp
 }
 
 /* ---------------------------------------------------------------------
-   HÀM NHÂN MA TRẬN 4X4 & NHẬN DIỆN MODEL AN TOÀN TUYỆT ĐỐI (ROBUST FALLBACK)
+   HÀM NHÂN MA TRẬN 4X4 & CHỈ XOAY ĐÚNG MODEL ĐƯỢC GẮN CẤU KIỆN
    --------------------------------------------------------------------- */
 function multiplyMatrices4x4(a, b) {
   const out = new Float32Array(16);
@@ -649,46 +648,25 @@ function animateMachineryModelLevel(viewer, task, mode, floatDay, viewerIds) {
 
   const targetModelIds = new Set();
 
-  // 1. Tìm theo model.objectIds
-  Object.keys(viewer.scene.models).forEach(modelId => {
-    const model = viewer.scene.models[modelId];
-    if (model && Array.isArray(model.objectIds)) {
-      const hasMatch = viewerIds.some(id => model.objectIds.includes(id));
-      if (hasMatch) targetModelIds.add(modelId);
-    }
-  });
-
-  // 2. Tìm theo thuộc tính modelId của từng object
-  if (targetModelIds.size === 0 && viewerIds && viewerIds.length > 0) {
-    viewerIds.forEach(id => {
-      const obj = viewer.scene.objects[id];
-      if (obj && obj.modelId) targetModelIds.add(obj.modelId);
-    });
-  }
-
-  // 3. Fallback thông minh: Tìm model gần nhất với tâm xoay tùy chỉnh (customPivot)
-  if (targetModelIds.size === 0 && taskCustomPivots[task.id]) {
-    const cp = taskCustomPivots[task.id];
-    let closestId = null;
-    let minD = Infinity;
+  // CHỈ tìm model chứa đúng các cấu kiện THỰC TẾ được gắn vào task (viewerIds)
+  if (viewerIds && viewerIds.length > 0) {
     Object.keys(viewer.scene.models).forEach(modelId => {
-      const m = viewer.scene.models[modelId];
-      if (m && m.aabb) {
-        const cx = (m.aabb[0] + m.aabb[3]) / 2;
-        const cy = (m.aabb[1] + m.aabb[4]) / 2;
-        const cz = (m.aabb[2] + m.aabb[5]) / 2;
-        const d = Math.hypot(cx - cp.x, cy - cp.y, cz - cp.z);
-        if (d < minD) { minD = d; closestId = modelId; }
+      const model = viewer.scene.models[modelId];
+      if (model && Array.isArray(model.objectIds)) {
+        const hasMatch = viewerIds.some(id => model.objectIds.includes(id));
+        if (hasMatch) targetModelIds.add(modelId);
       }
     });
-    if (closestId) targetModelIds.add(closestId);
+
+    if (targetModelIds.size === 0) {
+      viewerIds.forEach(id => {
+        const obj = viewer.scene.objects[id];
+        if (obj && obj.modelId) targetModelIds.add(obj.modelId);
+      });
+    }
   }
 
-  // 4. Fallback an toàn cuối cùng: Lấy toàn bộ model nếu vẫn trống
-  if (targetModelIds.size === 0) {
-    Object.keys(viewer.scene.models).forEach(id => targetModelIds.add(id));
-  }
-
+  // Nếu không tìm thấy model khớp cấu kiện gắn, không thực hiện xoay nhầm model khác
   if (targetModelIds.size === 0) return;
 
   targetModelIds.forEach(modelId => {
@@ -727,6 +705,7 @@ function animateMachineryModelLevel(viewer, task, mode, floatDay, viewerIds) {
     const baseMat = baseData.matrix;
     let [lcx, lcy, lcz] = baseData.center;
 
+    // Ưu tiên tuyệt đối tâm tùy chỉnh (tâm trục tháp do cậu chọn)
     if (customPivot) {
       lcx = customPivot.x;
       lcy = customPivot.y;
