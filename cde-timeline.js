@@ -10,7 +10,7 @@ let timelinePlaying = false;
 let animationFrameId = null;
 let currentPlayDay = 0;
 
-// Cache lưu ma trận gốc nguyên bản (Pristine Base Matrix) & tâm xoay tùy chỉnh
+// Cache lưu ma trận gốc ban đầu & tâm xoay tùy chỉnh
 const modelBaseMatrices = {};
 const taskCustomPivots = {}; 
 let tempNewPivot = null;     
@@ -538,10 +538,8 @@ function applyTimelineDateWithAnimation(currentDate, floatDay) {
     globalIdToViewerIds[gid].push(id);
   });
 
-  timelineTasks.forEach(t => {
+  timelineTasks.forEach((t, taskIdx) => {
     const globalIds = timelineTaskElements[t.id] || [];
-    if (globalIds.length === 0) return;
-
     const start = new Date(t.planned_start);
     const end = new Date(t.planned_end);
     const viewerIds = globalIds.flatMap(gid => globalIdToViewerIds[gid] || []);
@@ -550,45 +548,49 @@ function applyTimelineDateWithAnimation(currentDate, floatDay) {
 
     if (machineMode !== "none") {
       const isActive = (currentDate >= start && currentDate <= end);
-      viewerIds.forEach(id => {
-        const e = viewer.scene.objects[id];
-        if (!e) return;
-        e.visible = isActive;
-        if (isActive) {
-          e.opacity = 1.0;
-          e.colorize = null;
-        }
-      });
+      if (viewerIds.length > 0) {
+        viewerIds.forEach(id => {
+          const e = viewer.scene.objects[id];
+          if (!e) return;
+          e.visible = isActive;
+          if (isActive) {
+            e.opacity = 1.0;
+            e.colorize = null;
+          }
+        });
+      }
 
       if (isActive) {
-        animateMachineryModelLevel(viewer, t, machineMode, floatDay, viewerIds);
+        animateMachineryModelLevel(viewer, t, machineMode, floatDay, viewerIds, taskIdx);
       }
     } else {
-      if (t.task_type === "construction") {
-        if (currentDate < start) {
-          setObjectsStateAdvanced(viewerIds, false, 0.0, null, animType);
-        } else if (currentDate <= end) {
-          const totalDuration = Math.max(1, end - start);
-          const elapsed = currentDate - start;
-          const progress = Math.min(1.0, Math.max(0.0, elapsed / totalDuration));
-          const activeColor = animType === "slide" ? [1.0, 0.75, 0.0] : [0.25, 0.85, 0.35];
-          setObjectsStateAdvanced(viewerIds, true, progress, activeColor, animType);
-        } else {
-          setObjectsStateAdvanced(viewerIds, true, 1.0, null, animType);
-        }
-      } else if (t.task_type === "demolition") {
-        if (currentDate < start) {
-          setObjectsStateAdvanced(viewerIds, true, 1.0, null, animType);
-        } else if (currentDate <= end) {
-          setObjectsStateAdvanced(viewerIds, true, 1.0, [0.95, 0.3, 0.3], animType);
-        } else {
-          setObjectsStateAdvanced(viewerIds, false, 0.0, null, animType);
-        }
-      } else { // temporary
-        if (currentDate < start || currentDate > end) {
-          setObjectsStateAdvanced(viewerIds, false, 0.0, null, animType);
-        } else {
-          setObjectsStateAdvanced(viewerIds, true, 1.0, [0.95, 0.65, 0.15], animType);
+      if (viewerIds.length > 0) {
+        if (t.task_type === "construction") {
+          if (currentDate < start) {
+            setObjectsStateAdvanced(viewerIds, false, 0.0, null, animType);
+          } else if (currentDate <= end) {
+            const totalDuration = Math.max(1, end - start);
+            const elapsed = currentDate - start;
+            const progress = Math.min(1.0, Math.max(0.0, elapsed / totalDuration));
+            const activeColor = animType === "slide" ? [1.0, 0.75, 0.0] : [0.25, 0.85, 0.35];
+            setObjectsStateAdvanced(viewerIds, true, progress, activeColor, animType);
+          } else {
+            setObjectsStateAdvanced(viewerIds, true, 1.0, null, animType);
+          }
+        } else if (t.task_type === "demolition") {
+          if (currentDate < start) {
+            setObjectsStateAdvanced(viewerIds, true, 1.0, null, animType);
+          } else if (currentDate <= end) {
+            setObjectsStateAdvanced(viewerIds, true, 1.0, [0.95, 0.3, 0.3], animType);
+          } else {
+            setObjectsStateAdvanced(viewerIds, false, 0.0, null, animType);
+          }
+        } else { // temporary
+          if (currentDate < start || currentDate > end) {
+            setObjectsStateAdvanced(viewerIds, false, 0.0, null, animType);
+          } else {
+            setObjectsStateAdvanced(viewerIds, true, 1.0, [0.95, 0.65, 0.15], animType);
+          }
         }
       }
     }
@@ -620,7 +622,7 @@ function setObjectsStateAdvanced(viewerIds, visible, progress, colorize, animTyp
 }
 
 /* ---------------------------------------------------------------------
-   HÀM NHÂN MA TRẬN 4X4 & ĐỊNH VỊ MODEL ĐỘC LẬP CHÍNH XÁC TUYỆT ĐỐI
+   HÀM NHÂN MA TRẬN 4X4 & ĐỊNH VỊ MODEL ĐỘC LẬP (ROBUST INDEX FALLBACK)
    --------------------------------------------------------------------- */
 function multiplyMatrices4x4(a, b) {
   const out = new Float32Array(16);
@@ -636,7 +638,7 @@ function multiplyMatrices4x4(a, b) {
   return out;
 }
 
-function animateMachineryModelLevel(viewer, task, mode, floatDay, viewerIds) {
+function animateMachineryModelLevel(viewer, task, mode, floatDay, viewerIds, taskIndex = 0) {
   if (!viewer || !viewer.scene || !viewer.scene.models) return;
 
   const axis = task.machine_axis || "Z";
@@ -645,7 +647,7 @@ function animateMachineryModelLevel(viewer, task, mode, floatDay, viewerIds) {
 
   const targetModelIds = new Set();
 
-  // 1. Tìm chính xác model chứa các cấu kiện gắn vào task này
+  // 1. Tìm theo model.objectIds chứa cấu kiện gắn
   if (viewerIds && viewerIds.length > 0) {
     Object.keys(viewer.scene.models).forEach(modelId => {
       const model = viewer.scene.models[modelId];
@@ -663,14 +665,21 @@ function animateMachineryModelLevel(viewer, task, mode, floatDay, viewerIds) {
     }
   }
 
-  // Nếu không tìm thấy model khớp cấu kiện, bỏ qua tuyệt đối (không dùng fallback bừa bãi)
+  // 2. Fallback thông minh: Ánh xạ theo thứ tự taskIndex vào danh sách model đã nạp (rất phù hợp với nhiều model file .XKT)
+  if (targetModelIds.size === 0) {
+    const allModels = Object.keys(viewer.scene.models);
+    if (allModels.length > 0) {
+      const safeIndex = Math.min(taskIndex, allModels.length - 1);
+      targetModelIds.add(allModels[safeIndex]);
+    }
+  }
+
   if (targetModelIds.size === 0) return;
 
   targetModelIds.forEach(modelId => {
     const model = viewer.scene.models[modelId];
     if (!model) return;
 
-    // Lưu ma trận gốc ban đầu nguyên bản đúng 1 lần duy nhất (chống lỗi trôi/lệch tọa độ)
     if (!modelBaseMatrices[modelId]) {
       modelBaseMatrices[modelId] = {
         matrix: model.matrix ? Float32Array.from(model.matrix) : Float32Array.from([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1])
@@ -680,7 +689,6 @@ function animateMachineryModelLevel(viewer, task, mode, floatDay, viewerIds) {
     const baseMat = modelBaseMatrices[modelId].matrix;
     const customPivot = taskCustomPivots[task.id];
 
-    // Xác định tâm xoay
     let lcx = 0, lcy = 0, lcz = 0;
     if (customPivot) {
       lcx = customPivot.x;
@@ -695,7 +703,6 @@ function animateMachineryModelLevel(viewer, task, mode, floatDay, viewerIds) {
     let transformMat = Float32Array.from(baseMat);
 
     if (mode === "rotate") {
-      // TÍNH TOÁN GÓC QUAY TUYỆT ĐỐI DỰA TRÊN floatDay (Tránh tích lũy sai số qua các frame)
       const angleRad = (floatDay * speed * 360) * (Math.PI / 180);
       const c = Math.cos(angleRad);
       const s = Math.sin(angleRad);
@@ -776,7 +783,6 @@ function resetTimelineVisibility() {
       }
     });
 
-    // Khôi phục toàn bộ model về ma trận gốc ban đầu 100%
     if (viewer.scene.models) {
       Object.keys(viewer.scene.models).forEach(modelId => {
         const model = viewer.scene.models[modelId];
