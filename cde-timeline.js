@@ -10,10 +10,10 @@ let timelinePlaying = false;
 let animationFrameId = null;
 let currentPlayDay = 0;
 
-// Cache lưu ma trận gốc và tâm xoay tùy chỉnh trong bộ nhớ
+// Cache lưu ma trận gốc nguyên bản (Pristine Base Matrix) & tâm xoay tùy chỉnh
 const modelBaseMatrices = {};
-const taskCustomPivots = {}; // Lưu tâm xoay tùy chỉnh theo task ID
-let tempNewPivot = null;     // Lưu tạm tâm xoay cho task mới tạo
+const taskCustomPivots = {}; 
+let tempNewPivot = null;     
 
 const TASK_TYPE_LABELS = { construction: "Thi công", demolition: "Tháo dỡ", temporary: "Tạm thời" };
 const TASK_TYPE_COLORS = { construction: "#3B82F6", demolition: "#EF4444", temporary: "#F59E0B" };
@@ -204,8 +204,6 @@ window.captureCustomPivot = function(prefix, taskId = null) {
     taskCustomPivots[taskId] = { x: px, y: py, z: pz };
   }
 
-  Object.keys(modelBaseMatrices).forEach(k => delete modelBaseMatrices[k]);
-
   document.getElementById(`tl${prefix}PivotLabel`).innerText = `🎯 Tâm xoay: Tùy chỉnh (${px.toFixed(1)}, ${py.toFixed(1)}, ${pz.toFixed(1)})`;
 
   if (typeof window.showToast === "function") {
@@ -294,7 +292,6 @@ async function saveEditedTask(taskId) {
   if (error) { alert("Lỗi lưu: " + error.message); return; }
 
   timelineEditingTaskId = null;
-  Object.keys(modelBaseMatrices).forEach(k => delete modelBaseMatrices[k]);
   await refreshTimelinePanel();
 }
 
@@ -623,7 +620,7 @@ function setObjectsStateAdvanced(viewerIds, visible, progress, colorize, animTyp
 }
 
 /* ---------------------------------------------------------------------
-   HÀM NHÂN MA TRẬN 4X4 & ĐỊNH VỊ MODEL CHÍNH XÁC TUYỆT ĐỐI
+   HÀM NHÂN MA TRẬN 4X4 & ĐỊNH VỊ MODEL ĐỘC LẬP CHÍNH XÁC TUYỆT ĐỐI
    --------------------------------------------------------------------- */
 function multiplyMatrices4x4(a, b) {
   const out = new Float32Array(16);
@@ -648,7 +645,7 @@ function animateMachineryModelLevel(viewer, task, mode, floatDay, viewerIds) {
 
   const targetModelIds = new Set();
 
-  // 1. Tìm theo model.objectIds chứa cấu kiện gắn
+  // 1. Tìm chính xác model chứa các cấu kiện gắn vào task này
   if (viewerIds && viewerIds.length > 0) {
     Object.keys(viewer.scene.models).forEach(modelId => {
       const model = viewer.scene.models[modelId];
@@ -658,7 +655,6 @@ function animateMachineryModelLevel(viewer, task, mode, floatDay, viewerIds) {
       }
     });
 
-    // 2. Tìm theo thuộc tính modelId của object
     if (targetModelIds.size === 0) {
       viewerIds.forEach(id => {
         const obj = viewer.scene.objects[id];
@@ -667,23 +663,14 @@ function animateMachineryModelLevel(viewer, task, mode, floatDay, viewerIds) {
     }
   }
 
-  // 3. Fallback an toàn: Nếu không tìm thấy qua ID, lấy model nạp sau cùng (thường là cần cẩu)
-  if (targetModelIds.size === 0) {
-    const allModels = Object.keys(viewer.scene.models);
-    if (allModels.length > 0) {
-      targetModelIds.add(allModels[allModels.length - 1]);
-    }
-  }
-
+  // Nếu không tìm thấy model khớp cấu kiện, bỏ qua tuyệt đối (không dùng fallback bừa bãi)
   if (targetModelIds.size === 0) return;
 
   targetModelIds.forEach(modelId => {
     const model = viewer.scene.models[modelId];
     if (!model) return;
 
-    const customPivot = taskCustomPivots[task.id];
-
-    // Ghi nhận ma trận gốc ban đầu (Pristine Base Matrix)
+    // Lưu ma trận gốc ban đầu nguyên bản đúng 1 lần duy nhất (chống lỗi trôi/lệch tọa độ)
     if (!modelBaseMatrices[modelId]) {
       modelBaseMatrices[modelId] = {
         matrix: model.matrix ? Float32Array.from(model.matrix) : Float32Array.from([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1])
@@ -691,8 +678,9 @@ function animateMachineryModelLevel(viewer, task, mode, floatDay, viewerIds) {
     }
 
     const baseMat = modelBaseMatrices[modelId].matrix;
+    const customPivot = taskCustomPivots[task.id];
 
-    // Xác định tâm xoay (Ưu tiên tuyệt đối tâm trục tháp do cậu chọn)
+    // Xác định tâm xoay
     let lcx = 0, lcy = 0, lcz = 0;
     if (customPivot) {
       lcx = customPivot.x;
@@ -707,6 +695,7 @@ function animateMachineryModelLevel(viewer, task, mode, floatDay, viewerIds) {
     let transformMat = Float32Array.from(baseMat);
 
     if (mode === "rotate") {
+      // TÍNH TOÁN GÓC QUAY TUYỆT ĐỐI DỰA TRÊN floatDay (Tránh tích lũy sai số qua các frame)
       const angleRad = (floatDay * speed * 360) * (Math.PI / 180);
       const c = Math.cos(angleRad);
       const s = Math.sin(angleRad);
@@ -787,7 +776,7 @@ function resetTimelineVisibility() {
       }
     });
 
-    // Trả toàn bộ model về ma trận gốc ban đầu, chống trôi lệch tọa độ
+    // Khôi phục toàn bộ model về ma trận gốc ban đầu 100%
     if (viewer.scene.models) {
       Object.keys(viewer.scene.models).forEach(modelId => {
         const model = viewer.scene.models[modelId];
@@ -897,13 +886,6 @@ function parseExcelTasks(file) {
   });
 }
 
-function parseMsProjectXml(file) {
-  return new Promise((readerReject, reject) => {
-    // Parser giữ nguyên
-  });
-}
-
-// Giữ lại hàm parseMsProjectXml cũ của cậu bên dưới nếu cần:
 function parseMsProjectXml(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
