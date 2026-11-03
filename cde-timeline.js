@@ -135,8 +135,8 @@ function renderAddTaskBox() {
             <label style="font-size:10px;color:#666;">Trục hoạt động:</label>
             <select id="tlNewAxis" style="width:100%;padding:4px;border:1px solid #dcdfe3;border-radius:4px;font-size:11px;">
               <option value="Z">Trục Z (Đứng)</option>
-              <option value="X">Trục X (Ngang)</option>
               <option value="Y">Trục Y (Dọc)</option>
+              <option value="X">Trục X (Ngang)</option>
             </select>
           </div>
           <div style="flex:1;">
@@ -386,8 +386,8 @@ function renderTaskList() {
               <label style="font-size:10px;color:#666;">Trục hoạt động:</label>
               <select id="tlEditAxis" style="width:100%;padding:4px;border:1px solid #dcdfe3;border-radius:4px;font-size:11px;">
                 <option value="Z" ${t.machine_axis === 'Z' ? 'selected' : ''}>Trục Z (Đứng)</option>
-                <option value="X" ${t.machine_axis === 'X' ? 'selected' : ''}>Trục X (Ngang)</option>
                 <option value="Y" ${t.machine_axis === 'Y' ? 'selected' : ''}>Trục Y (Dọc)</option>
+                <option value="X" ${t.machine_axis === 'X' ? 'selected' : ''}>Trục X (Ngang)</option>
               </select>
             </div>
             <div style="flex:1;">
@@ -623,7 +623,7 @@ function setObjectsStateAdvanced(viewerIds, visible, progress, colorize, animTyp
 }
 
 /* ---------------------------------------------------------------------
-   HÀM NHÂN MA TRẬN 4X4 & NHẬN DIỆN MODEL AN TOÀN (ROBUST MODEL FINDER)
+   HÀM NHÂN MA TRẬN 4X4 & ĐỊNH VỊ MODEL CHÍNH XÁC TUYỆT ĐỐI
    --------------------------------------------------------------------- */
 function multiplyMatrices4x4(a, b) {
   const out = new Float32Array(16);
@@ -648,7 +648,7 @@ function animateMachineryModelLevel(viewer, task, mode, floatDay, viewerIds) {
 
   const targetModelIds = new Set();
 
-  // 1. Tìm theo model.objectIds
+  // 1. Tìm theo model.objectIds chứa cấu kiện gắn
   if (viewerIds && viewerIds.length > 0) {
     Object.keys(viewer.scene.models).forEach(modelId => {
       const model = viewer.scene.models[modelId];
@@ -658,46 +658,16 @@ function animateMachineryModelLevel(viewer, task, mode, floatDay, viewerIds) {
       }
     });
 
-    // 2. Tìm theo thuộc tính modelId của từng object
+    // 2. Tìm theo thuộc tính modelId của object
     if (targetModelIds.size === 0) {
       viewerIds.forEach(id => {
         const obj = viewer.scene.objects[id];
         if (obj && obj.modelId) targetModelIds.add(obj.modelId);
       });
     }
-
-    // 3. Tìm qua entity model reference nếu có
-    if (targetModelIds.size === 0) {
-      viewerIds.forEach(id => {
-        const obj = viewer.scene.objects[id];
-        if (obj && obj.entity && obj.entity.model) {
-          targetModelIds.add(obj.entity.model.id);
-        }
-      });
-    }
   }
 
-  // 4. Fallback thông minh: Nếu task có customPivot (chọn tâm trục tháp), tìm model gần tâm đó nhất hoặc model khác với model tháp
-  if (targetModelIds.size === 0) {
-    const cp = taskCustomPivots[task.id];
-    if (cp) {
-      let closestId = null;
-      let minD = Infinity;
-      Object.keys(viewer.scene.models).forEach(modelId => {
-        const m = viewer.scene.models[modelId];
-        if (m && m.aabb) {
-          const cx = (m.aabb[0] + m.aabb[3]) / 2;
-          const cy = (m.aabb[1] + m.aabb[4]) / 2;
-          const cz = (m.aabb[2] + m.aabb[5]) / 2;
-          const d = Math.hypot(cx - cp.x, cy - cp.y, cz - cp.z);
-          if (d < minD) { minD = d; closestId = modelId; }
-        }
-      });
-      if (closestId) targetModelIds.add(closestId);
-    }
-  }
-
-  // 5. Fallback cuối cùng: Lấy model nạp sau cùng (thường là cần cẩu)
+  // 3. Fallback an toàn: Nếu không tìm thấy qua ID, lấy model nạp sau cùng (thường là cần cẩu)
   if (targetModelIds.size === 0) {
     const allModels = Object.keys(viewer.scene.models);
     if (allModels.length > 0) {
@@ -713,41 +683,25 @@ function animateMachineryModelLevel(viewer, task, mode, floatDay, viewerIds) {
 
     const customPivot = taskCustomPivots[task.id];
 
+    // Ghi nhận ma trận gốc ban đầu (Pristine Base Matrix)
     if (!modelBaseMatrices[modelId]) {
-      let initialCx = 0, initialCy = 0, initialCz = 0;
-
-      if (customPivot) {
-        initialCx = customPivot.x;
-        initialCy = customPivot.y;
-        initialCz = customPivot.z;
-      } else if (model.aabb) {
-        initialCx = (model.aabb[0] + model.aabb[3]) / 2;
-        initialCy = (model.aabb[1] + model.aabb[4]) / 2;
-        initialCz = (model.aabb[2] + model.aabb[5]) / 2;
-      } else if (viewerIds.length > 0 && typeof viewer.scene.getAABB === "function") {
-        const aabb = viewer.scene.getAABB({ objectIds: viewerIds });
-        if (aabb && !isNaN(aabb[0])) {
-          initialCx = (aabb[0] + aabb[3]) / 2;
-          initialCy = (aabb[1] + aabb[4]) / 2;
-          initialCz = (aabb[2] + aabb[5]) / 2;
-        }
-      }
-
       modelBaseMatrices[modelId] = {
-        matrix: model.matrix ? Float32Array.from(model.matrix) : Float32Array.from([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]),
-        center: [initialCx, initialCy, initialCz]
+        matrix: model.matrix ? Float32Array.from(model.matrix) : Float32Array.from([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1])
       };
     }
 
-    const baseData = modelBaseMatrices[modelId];
-    const baseMat = baseData.matrix;
-    let [lcx, lcy, lcz] = baseData.center;
+    const baseMat = modelBaseMatrices[modelId].matrix;
 
-    // Ưu tiên tuyệt đối tâm tùy chỉnh (tâm trục tháp do cậu đã chọn)
+    // Xác định tâm xoay (Ưu tiên tuyệt đối tâm trục tháp do cậu chọn)
+    let lcx = 0, lcy = 0, lcz = 0;
     if (customPivot) {
       lcx = customPivot.x;
       lcy = customPivot.y;
       lcz = customPivot.z;
+    } else if (model.aabb) {
+      lcx = (model.aabb[0] + model.aabb[3]) / 2;
+      lcy = (model.aabb[1] + model.aabb[4]) / 2;
+      lcz = (model.aabb[2] + model.aabb[5]) / 2;
     }
 
     let transformMat = Float32Array.from(baseMat);
@@ -772,18 +726,18 @@ function animateMachineryModelLevel(viewer, task, mode, floatDay, viewerIds) {
           0, 0, 1, 0,
           0, 0, 0, 1
         ]);
+      } else if (axis === "Y") {
+        R = Float32Array.from([
+          c, 0, s, 0,
+          0, 1, 0, 0,
+          -s, 0, c, 0,
+          0, 0, 0, 1
+        ]);
       } else if (axis === "X") {
         R = Float32Array.from([
           1, 0, 0, 0,
           0, c, s, 0,
           0, -s, c, 0,
-          0, 0, 0, 1
-        ]);
-      } else if (axis === "Y") {
-        R = Float32Array.from([
-          c, 0, -s, 0,
-          0, 1, 0, 0,
-          s, 0, c, 0,
           0, 0, 0, 1
         ]);
       }
@@ -833,6 +787,7 @@ function resetTimelineVisibility() {
       }
     });
 
+    // Trả toàn bộ model về ma trận gốc ban đầu, chống trôi lệch tọa độ
     if (viewer.scene.models) {
       Object.keys(viewer.scene.models).forEach(modelId => {
         const model = viewer.scene.models[modelId];
@@ -942,6 +897,13 @@ function parseExcelTasks(file) {
   });
 }
 
+function parseMsProjectXml(file) {
+  return new Promise((readerReject, reject) => {
+    // Parser giữ nguyên
+  });
+}
+
+// Giữ lại hàm parseMsProjectXml cũ của cậu bên dưới nếu cần:
 function parseMsProjectXml(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
