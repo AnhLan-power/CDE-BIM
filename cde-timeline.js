@@ -538,7 +538,7 @@ function applyTimelineDateWithAnimation(currentDate, floatDay) {
     globalIdToViewerIds[gid].push(id);
   });
 
-  timelineTasks.forEach((t, taskIdx) => {
+  timelineTasks.forEach(t => {
     const globalIds = timelineTaskElements[t.id] || [];
     const start = new Date(t.planned_start);
     const end = new Date(t.planned_end);
@@ -561,7 +561,7 @@ function applyTimelineDateWithAnimation(currentDate, floatDay) {
       }
 
       if (isActive) {
-        animateMachineryModelLevel(viewer, t, machineMode, floatDay, viewerIds, taskIdx);
+        animateMachineryModelLevel(viewer, t, machineMode, floatDay, viewerIds);
       }
     } else {
       if (viewerIds.length > 0) {
@@ -622,7 +622,7 @@ function setObjectsStateAdvanced(viewerIds, visible, progress, colorize, animTyp
 }
 
 /* ---------------------------------------------------------------------
-   HÀM NHÂN MA TRẬN 4X4 & ĐỊNH VỊ MODEL ĐỘC LẬP (ROBUST INDEX FALLBACK)
+   HÀM NHÂN MÁ-TRẬN 4X4 & ĐỊNH VỊ MODEL STRICT MANUAL LINKING (KHÔNG FALLBACK ẨN)
    --------------------------------------------------------------------- */
 function multiplyMatrices4x4(a, b) {
   const out = new Float32Array(16);
@@ -638,7 +638,7 @@ function multiplyMatrices4x4(a, b) {
   return out;
 }
 
-function animateMachineryModelLevel(viewer, task, mode, floatDay, viewerIds, taskIndex = 0) {
+function animateMachineryModelLevel(viewer, task, mode, floatDay, viewerIds) {
   if (!viewer || !viewer.scene || !viewer.scene.models) return;
 
   const axis = task.machine_axis || "Z";
@@ -647,7 +647,7 @@ function animateMachineryModelLevel(viewer, task, mode, floatDay, viewerIds, tas
 
   const targetModelIds = new Set();
 
-  // 1. Tìm theo model.objectIds chứa cấu kiện gắn
+  // TUYỆT ĐỐI GẮN KẾT THEO CẤU KIỆN THỦ CÔNG (Strict Manual Linking via task_elements)
   if (viewerIds && viewerIds.length > 0) {
     Object.keys(viewer.scene.models).forEach(modelId => {
       const model = viewer.scene.models[modelId];
@@ -665,15 +665,7 @@ function animateMachineryModelLevel(viewer, task, mode, floatDay, viewerIds, tas
     }
   }
 
-  // 2. Fallback thông minh: Ánh xạ theo thứ tự taskIndex vào danh sách model đã nạp (rất phù hợp với nhiều model file .XKT)
-  if (targetModelIds.size === 0) {
-    const allModels = Object.keys(viewer.scene.models);
-    if (allModels.length > 0) {
-      const safeIndex = Math.min(taskIndex, allModels.length - 1);
-      targetModelIds.add(allModels[safeIndex]);
-    }
-  }
-
+  // KHÔNG CÓ FALLBACK TỰ ĐỘNG BỪA BÃI: Nếu chưa gắn cấu kiện hoặc không tìm thấy model khớp, bỏ qua hoàn toàn
   if (targetModelIds.size === 0) return;
 
   targetModelIds.forEach(modelId => {
