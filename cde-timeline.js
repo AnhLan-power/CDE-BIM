@@ -623,7 +623,7 @@ function setObjectsStateAdvanced(viewerIds, visible, progress, colorize, animTyp
 }
 
 /* ---------------------------------------------------------------------
-   HÀM NHÂN MA TRẬN 4X4 & CHỈ XOAY ĐÚNG MODEL ĐƯỢC GẮN CẤU KIỆN
+   HÀM NHÂN MA TRẬN 4X4 & NHẬN DIỆN MODEL AN TOÀN (ROBUST MODEL FINDER)
    --------------------------------------------------------------------- */
 function multiplyMatrices4x4(a, b) {
   const out = new Float32Array(16);
@@ -648,7 +648,7 @@ function animateMachineryModelLevel(viewer, task, mode, floatDay, viewerIds) {
 
   const targetModelIds = new Set();
 
-  // CHỈ tìm model chứa đúng các cấu kiện THỰC TẾ được gắn vào task (viewerIds)
+  // 1. Tìm theo model.objectIds
   if (viewerIds && viewerIds.length > 0) {
     Object.keys(viewer.scene.models).forEach(modelId => {
       const model = viewer.scene.models[modelId];
@@ -658,15 +658,53 @@ function animateMachineryModelLevel(viewer, task, mode, floatDay, viewerIds) {
       }
     });
 
+    // 2. Tìm theo thuộc tính modelId của từng object
     if (targetModelIds.size === 0) {
       viewerIds.forEach(id => {
         const obj = viewer.scene.objects[id];
         if (obj && obj.modelId) targetModelIds.add(obj.modelId);
       });
     }
+
+    // 3. Tìm qua entity model reference nếu có
+    if (targetModelIds.size === 0) {
+      viewerIds.forEach(id => {
+        const obj = viewer.scene.objects[id];
+        if (obj && obj.entity && obj.entity.model) {
+          targetModelIds.add(obj.entity.model.id);
+        }
+      });
+    }
   }
 
-  // Nếu không tìm thấy model khớp cấu kiện gắn, không thực hiện xoay nhầm model khác
+  // 4. Fallback thông minh: Nếu task có customPivot (chọn tâm trục tháp), tìm model gần tâm đó nhất hoặc model khác với model tháp
+  if (targetModelIds.size === 0) {
+    const cp = taskCustomPivots[task.id];
+    if (cp) {
+      let closestId = null;
+      let minD = Infinity;
+      Object.keys(viewer.scene.models).forEach(modelId => {
+        const m = viewer.scene.models[modelId];
+        if (m && m.aabb) {
+          const cx = (m.aabb[0] + m.aabb[3]) / 2;
+          const cy = (m.aabb[1] + m.aabb[4]) / 2;
+          const cz = (m.aabb[2] + m.aabb[5]) / 2;
+          const d = Math.hypot(cx - cp.x, cy - cp.y, cz - cp.z);
+          if (d < minD) { minD = d; closestId = modelId; }
+        }
+      });
+      if (closestId) targetModelIds.add(closestId);
+    }
+  }
+
+  // 5. Fallback cuối cùng: Lấy model nạp sau cùng (thường là cần cẩu)
+  if (targetModelIds.size === 0) {
+    const allModels = Object.keys(viewer.scene.models);
+    if (allModels.length > 0) {
+      targetModelIds.add(allModels[allModels.length - 1]);
+    }
+  }
+
   if (targetModelIds.size === 0) return;
 
   targetModelIds.forEach(modelId => {
@@ -705,7 +743,7 @@ function animateMachineryModelLevel(viewer, task, mode, floatDay, viewerIds) {
     const baseMat = baseData.matrix;
     let [lcx, lcy, lcz] = baseData.center;
 
-    // Ưu tiên tuyệt đối tâm tùy chỉnh (tâm trục tháp do cậu chọn)
+    // Ưu tiên tuyệt đối tâm tùy chỉnh (tâm trục tháp do cậu đã chọn)
     if (customPivot) {
       lcx = customPivot.x;
       lcy = customPivot.y;
