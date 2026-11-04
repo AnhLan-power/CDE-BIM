@@ -622,7 +622,7 @@ function setObjectsStateAdvanced(viewerIds, visible, progress, colorize, animTyp
 }
 
 /* ---------------------------------------------------------------------
-   HÀM NHÂN MÁ-TRẬN 4X4 & ĐỊNH VỊ MODEL STRICT MANUAL LINKING (KHÔNG FALLBACK ẨN)
+   HÀM NHÂN MA TRẬN 4X4 & ĐỊNH VỊ MODEL THEO CẤU KIỆN ĐƯỢC GẮN THỦ CÔNG
    --------------------------------------------------------------------- */
 function multiplyMatrices4x4(a, b) {
   const out = new Float32Array(16);
@@ -647,7 +647,7 @@ function animateMachineryModelLevel(viewer, task, mode, floatDay, viewerIds) {
 
   const targetModelIds = new Set();
 
-  // TUYỆT ĐỐI GẮN KẾT THEO CẤU KIỆN THỦ CÔNG (Strict Manual Linking via task_elements)
+  // 1. Lọc chính xác model chứa cấu kiện được gắn thủ công cho task này
   if (viewerIds && viewerIds.length > 0) {
     Object.keys(viewer.scene.models).forEach(modelId => {
       const model = viewer.scene.models[modelId];
@@ -665,7 +665,7 @@ function animateMachineryModelLevel(viewer, task, mode, floatDay, viewerIds) {
     }
   }
 
-  // KHÔNG CÓ FALLBACK TỰ ĐỘNG BỪA BÃI: Nếu chưa gắn cấu kiện hoặc không tìm thấy model khớp, bỏ qua hoàn toàn
+  // Nếu cấu kiện chưa được gắn vào task, không tác động gì (Tránh lỗi gắn nhầm model)
   if (targetModelIds.size === 0) return;
 
   targetModelIds.forEach(modelId => {
