@@ -622,7 +622,7 @@ function setObjectsStateAdvanced(viewerIds, visible, progress, colorize, animTyp
 }
 
 /* ---------------------------------------------------------------------
-   HÀM NHÂN MA TRẬN 4X4 & ĐỊNH VỊ MODEL THEO CẤU KIỆN ĐƯỢC GẮN THỦ CÔNG
+   HÀM NHÂN MA TRẬN 4X4 & ĐỊNH VỊ MODEL CHÍNH XÁC (XEOMODEL DIRECT LOOKUP)
    --------------------------------------------------------------------- */
 function multiplyMatrices4x4(a, b) {
   const out = new Float32Array(16);
@@ -647,25 +647,16 @@ function animateMachineryModelLevel(viewer, task, mode, floatDay, viewerIds) {
 
   const targetModelIds = new Set();
 
-  // 1. Lọc chính xác model chứa cấu kiện được gắn thủ công cho task này
+  // Truy xuất trực tiếp modelId từ danh sách cấu kiện được gắn thủ công (Cực kỳ chính xác cho mô hình tách file)
   if (viewerIds && viewerIds.length > 0) {
-    Object.keys(viewer.scene.models).forEach(modelId => {
-      const model = viewer.scene.models[modelId];
-      if (model && Array.isArray(model.objectIds)) {
-        const hasMatch = viewerIds.some(id => model.objectIds.includes(id));
-        if (hasMatch) targetModelIds.add(modelId);
+    viewerIds.forEach(id => {
+      const obj = viewer.scene.objects[id];
+      if (obj && obj.modelId) {
+        targetModelIds.add(obj.modelId);
       }
     });
-
-    if (targetModelIds.size === 0) {
-      viewerIds.forEach(id => {
-        const obj = viewer.scene.objects[id];
-        if (obj && obj.modelId) targetModelIds.add(obj.modelId);
-      });
-    }
   }
 
-  // Nếu cấu kiện chưa được gắn vào task, không tác động gì (Tránh lỗi gắn nhầm model)
   if (targetModelIds.size === 0) return;
 
   targetModelIds.forEach(modelId => {
