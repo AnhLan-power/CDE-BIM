@@ -5,7 +5,10 @@
 
    - Quyền xem/tải lên/xoá theo (vai trò × trạng thái) do Edge Function drive-proxy QUYẾT ĐỊNH
      (action cde_permissions); giao diện chỉ phản ánh lại để ẩn/hiện nút.
-   - Cây thư mục lưu ở bảng cde_folders; nhật ký thao tác ở cde_audit (xem migration_cde_folders.sql).
+   - Cây thư mục lưu ở bảng cde_folders; nhật ký thao tác ở cde_audit (xem migration_cde_folders.sql);
+     lịch sử chuyển trạng thái ở cde_transitions (xem migration_cde_transitions.sql).
+   - Chuyển trạng thái (WIP → Shared → Published → Archived): chọn 1 hoặc nhiều file → ➡️ Chuyển; luồng và vai
+     trò được phép do Edge Function quyết định (cde_permissions trả về `transitions`).
    - Dùng chung biến toàn cục của cde-auth.js: sb, activeProjectId, activeRole, currentUser.
    - Không sửa cde-auth.js: module này ẩn phần "tab trạng thái + danh sách file" cũ trong panel CDE
      và thay bằng nút mở trình quản lý này.
@@ -40,7 +43,17 @@
     ARCHIVED: { view: ALL, upload: ["bim_manager"], deleteAny: ["bim_manager"], deleteOwn: [] },
   };
 
+  // Dự phòng CHỈ để hiển thị khi function cũ chưa trả `transitions` (server vẫn chặn thật)
+  const FALLBACK_TRANSITIONS = [
+    { from: "WIP", to: "SHARED", roles: ["bim_manager", "task_team_manager"], label: "Chia sẻ để phối hợp" },
+    { from: "SHARED", to: "PUBLISHED", roles: ["bim_manager", "approver"], label: "Phê duyệt phát hành" },
+    { from: "SHARED", to: "WIP", roles: ["bim_manager", "task_team_manager", "approver"], label: "Trả về WIP để chỉnh sửa", noteRequired: true },
+    { from: "SHARED", to: "ARCHIVED", roles: ["bim_manager"], label: "Lưu trữ" },
+    { from: "PUBLISHED", to: "ARCHIVED", roles: ["bim_manager"], label: "Lưu trữ (đã có bản thay thế)" },
+  ];
+
   const S = {
+    transitions: FALLBACK_TRANSITIONS, selFiles: new Set(), move: null,
     projectId: null, role: null, rules: null, rulesFromServer: false,
     banner: "", folders: [], selectedId: null, files: [], perms: null, filesError: "", filesLoading: false,
     configMode: false, view: "files",           // "files" | "audit"
@@ -77,6 +90,9 @@
   function curUserId() { try { return currentUser && currentUser.id; } catch (e) { return null; } }
   function client() { return (typeof sb !== "undefined" && sb) ? sb : window.sb; }
   function isManager() { return S.role === "bim_manager"; }
+
+  function myTransitions(status) { return (S.transitions || []).filter((t) => t.from === status && t.roles.includes(S.role)); }
+  function linkedFolders(status) { return S.folders.filter((f) => f.status === status && hasLink(f)); }
 
   function rulesFor(status) { return ((S.rules || FALLBACK_RULES)[status]) || { view: [], upload: [], deleteAny: [], deleteOwn: [] }; }
   function can(status, what) { return rulesFor(status)[what].includes(S.role); }
@@ -143,9 +159,10 @@
     try {
       const j = await call({ action: "cde_permissions" });
       S.rules = j.rules; S.rulesFromServer = true;
+      if (Array.isArray(j.transitions)) S.transitions = j.transitions;
       if (j.role) S.role = j.role;
     } catch (e) {
-      S.rules = FALLBACK_RULES; S.rulesFromServer = false;
+      S.rules = FALLBACK_RULES; S.rulesFromServer = false; S.transitions = FALLBACK_TRANSITIONS;
       S.banner = e.message;
     }
   }
@@ -181,7 +198,7 @@
 
   async function loadFiles() {
     const f = selected();
-    S.files = []; S.perms = null; S.filesError = "";
+    S.files = []; S.perms = null; S.filesError = ""; S.selFiles = new Set();
     if (!f || !can(f.status, "view") || !hasLink(f)) { renderPane(); return; }
     S.filesLoading = true; renderPane();
     const forId = f.id;
@@ -217,6 +234,8 @@
       #cfmPanel th { text-align:left; font-size:10px; color:#777; padding:4px 5px; border-bottom:1px solid #ddd; }
       #cfmPanel td { padding:5px; border-bottom:1px solid #f0f0f0; vertical-align:middle; }
       #cfmPanel .cfm-link { color:#1a73e8; }
+      #cfmPanel .cfm-box { background:#f6f8fa; border:1px solid #d7dee8; border-radius:6px; padding:8px; margin-bottom:8px; }
+      #cfmPanel select, #cfmPanel textarea { width:100%; box-sizing:border-box; padding:4px; font-size:12px; margin:2px 0 6px; }
     `;
     document.head.appendChild(style);
 
@@ -350,44 +369,161 @@
       html += `<div style="color:#888;margin-bottom:6px;">Vai trò ${esc(ROLE_LABEL[S.role] || S.role)} chỉ được xem/tải về ở trạng thái ${f.status}.</div>`;
     }
 
+    const trs = myTransitions(f.status);
+    if (trs.length) {
+      html += `<div style="color:#555;margin-bottom:6px;">➡️ Bạn có thể chuyển file từ <b>${f.status}</b> sang: ${trs.map((t) => `<b>${t.to}</b> <span style="color:#888;">(${esc(t.label)})</span>`).join(" · ")}</div>`;
+    }
+    html += `<div id="cfmMoveBox"></div><div id="cfmSelBar"></div>`;
+
     if (S.filesLoading) html += `<div style="color:#888;padding:10px 0;">⏳ Đang tải danh sách file…</div>`;
     else if (S.filesError) html += `<div style="color:#c5221f;padding:6px 0;">❌ ${esc(S.filesError)}</div>`;
     else if (!S.files.length) html += `<div style="color:#999;padding:10px 0;font-style:italic;">Chưa có file nào.</div>`;
     else {
-      html += `<div style="color:#777;margin-bottom:4px;">${S.files.length} file</div><table><thead><tr><th>Tên file</th><th>Dung lượng</th><th>Cập nhật</th><th>Người tải lên</th><th></th></tr></thead><tbody>`;
+      const canMove = trs.length > 0;
+      html += `<div style="color:#777;margin-bottom:4px;">${S.files.length} file</div><table><thead><tr>${canMove ? `<th style="width:22px;"><input type="checkbox" data-act="selall" title="Chọn tất cả"></th>` : ""}<th>Tên file</th><th>Dung lượng</th><th>Cập nhật</th><th>Người tải lên</th><th></th></tr></thead><tbody>`;
       S.files.forEach((file, i) => {
         const e = extOf(file.name);
         const mayDelete = (S.perms && S.perms.canDeleteAny) || (S.perms && S.perms.canDeleteOwn && file.uploadedBy && file.uploadedBy === curUserId());
         const b = (act, label, title, cls) => `<button class="cfm-btn ${cls || ""}" data-act="${act}" data-idx="${i}" title="${title}">${label}</button>`;
-        html += `<tr><td><span>${iconFor(file.name)}</span> <span title="${esc(file.name)}">${esc(file.name)}</span></td>
+        html += `<tr>${canMove ? `<td><input type="checkbox" data-act="selfile" data-idx="${i}" ${S.selFiles.has(file.id) ? "checked" : ""}></td>` : ""}<td><span>${iconFor(file.name)}</span> <span title="${esc(file.name)}">${esc(file.name)}</span></td>
           <td>${esc(fmtSize(file.size))}</td><td>${esc(fmtDate(file.modifiedTime))}</td>
           <td>${file.uploadedByName ? esc(file.uploadedByName) : `<span style="color:#aaa;">—</span>`}</td>
           <td style="white-space:nowrap;">
-            ${PREVIEWABLE.includes(e) ? b("fview", "👁", "Xem trước") : ""}${b("fdown", "⬇️", "Tải về")}
+            ${canMove ? b("fmove", "➡️", "Chuyển trạng thái") : ""}${PREVIEWABLE.includes(e) ? b("fview", "👁", "Xem trước") : ""}${b("fdown", "⬇️", "Tải về")}
             ${LOADABLE.includes(e) ? b("fload", "🧊", "Nạp vào mô hình 3D") : ""}${mayDelete ? b("fdel", "🗑", "Xoá (chuyển vào thùng rác Drive)", "danger") : ""}
           </td></tr>`;
       });
       html += `</tbody></table>`;
     }
     el.innerHTML = html;
+    renderSelBar(); renderMoveBox();
+  }
+
+  /* ------------------------- chuyển trạng thái ------------------------- */
+  function renderSelBar() {
+    const el = $("cfmSelBar"); if (!el) return;
+    const n = S.selFiles.size;
+    el.innerHTML = n ? `<div class="cfm-box" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+      <b>Đã chọn ${n} file</b>
+      <button class="cfm-btn primary" data-act="movesel">➡️ Chuyển trạng thái…</button>
+      <button class="cfm-btn" data-act="selnone">Bỏ chọn</button></div>` : "";
+  }
+
+  function openMoveDialog(files) {
+    const f = selected(); if (!f || !files.length) return;
+    const opts = myTransitions(f.status);
+    if (!opts.length) return alert(`Vai trò ${ROLE_LABEL[S.role] || S.role} không được chuyển file ở trạng thái ${f.status}.`);
+    S.move = { files, from: f, toState: (opts.find((t) => linkedFolders(t.to).length) || opts[0]).to, note: "", busy: false, result: null };
+    renderMoveBox();
+    const box = $("cfmMoveBox"); if (box && box.scrollIntoView) box.scrollIntoView({ block: "nearest" });
+  }
+
+  function moveDefaultTarget(m) {
+    const list = linkedFolders(m.toState);
+    return (list.find((x) => x.name === m.from.name) || list[0] || {}).id || "";
+  }
+
+  function renderMoveBox() {
+    const el = $("cfmMoveBox"); if (!el) return;
+    const m = S.move;
+    if (!m) { el.innerHTML = ""; return; }
+    const opts = myTransitions(m.from.status);
+    const tr = opts.find((t) => t.to === m.toState) || opts[0];
+    const list = linkedFolders(m.toState);
+    const names = m.files.slice(0, 3).map((x) => esc(x.name)).join(", ") + (m.files.length > 3 ? ` … (+${m.files.length - 3})` : "");
+    let html = `<div class="cfm-box"><div style="font-weight:700;margin-bottom:4px;">➡️ Chuyển ${m.files.length} file từ ${m.from.status} › ${esc(m.from.name)}</div>
+      <div style="color:#666;margin-bottom:6px;" title="${esc(m.files.map((x) => x.name).join("\n"))}">${names}</div>`;
+    if (m.result) {
+      html += `<div style="white-space:pre-line;color:${m.result.fail ? "#c5221f" : "#188038"};margin-bottom:6px;">${esc(m.result.text)}</div>
+        <button class="cfm-btn" data-act="movecancel">Đóng</button></div>`;
+      el.innerHTML = html; return;
+    }
+    html += `<label>Đến trạng thái</label><select id="cfmMoveTo" ${m.busy ? "disabled" : ""}>
+      ${opts.map((t) => `<option value="${t.to}" ${t.to === m.toState ? "selected" : ""} ${linkedFolders(t.to).length ? "" : "disabled"}>${t.to} — ${esc(t.label)}${linkedFolders(t.to).length ? "" : " (chưa có mục nào gắn link)"}</option>`).join("")}
+    </select>`;
+    if (!list.length) {
+      html += `<div style="color:#c5221f;margin-bottom:6px;">Trạng thái ${m.toState} chưa có mục con nào được gắn link Drive — nhờ BIM Manager thiết lập trước.</div>`;
+    } else {
+      const def = m.targetId && list.some((x) => x.id === m.targetId) ? m.targetId : moveDefaultTarget(m);
+      html += `<label>Vào mục</label><select id="cfmMoveFolder" ${m.busy ? "disabled" : ""}>${list.map((x) => `<option value="${esc(x.id)}" ${x.id === def ? "selected" : ""}>${esc(x.name)}</option>`).join("")}</select>`;
+    }
+    html += `<label>Ghi chú ${tr && tr.noteRequired ? `<b style="color:#c5221f;">(bắt buộc — lý do trả về)</b>` : "(tuỳ chọn)"}</label>
+      <textarea id="cfmMoveNote" rows="2" maxlength="500" placeholder="${tr && tr.noteRequired ? "VD: Sai cao độ tầng 2, cần sửa lại" : "VD: Đã kiểm tra nội bộ, đủ điều kiện chia sẻ"}" ${m.busy ? "disabled" : ""}>${esc(m.note)}</textarea>
+      <div id="cfmMoveProg" style="color:#1a73e8;margin-bottom:6px;white-space:pre-line;">${esc(m.progress || "")}</div>
+      <button class="cfm-btn primary" data-act="moveok" ${m.busy || !list.length ? "disabled" : ""}>Xác nhận chuyển</button>
+      <button class="cfm-btn" data-act="movecancel" ${m.busy ? "disabled" : ""}>Huỷ</button></div>`;
+    el.innerHTML = html;
+  }
+
+  // Lỗi mang tính cố định (sai quyền/luồng/cấu hình): lặp lại cho các file còn lại là vô ích -> dừng
+  const FATAL_MOVE = /không được chuyển|Không có luồng|Cần ghi lý do|BẢN CŨ|quyền ĐỌC|chưa được BIM Manager gắn link|cùng một thư mục|không tồn tại trong dự án|Phiên đăng nhập/;
+
+  async function confirmMove() {
+    const m = S.move; if (!m || m.busy) return;
+    const toState = ($("cfmMoveTo") || {}).value || m.toState;
+    const toFolderId = ($("cfmMoveFolder") || {}).value;
+    const note = (($("cfmMoveNote") || {}).value || "").trim();
+    const tr = myTransitions(m.from.status).find((t) => t.to === toState);
+    if (!tr) return alert("Luồng chuyển này không có trong quyền của bạn.");
+    if (!toFolderId) return alert("Chọn mục đích.");
+    if (tr.noteRequired && !note) return alert(`Cần ghi lý do khi chuyển file từ ${tr.from} về ${tr.to}.`);
+    const target = S.folders.find((x) => x.id === toFolderId);
+    const label = `${toState} › ${target ? target.name : ""}`;
+    if (!confirm(`Chuyển ${m.files.length} file từ ${m.from.status} › ${m.from.name} sang ${label}?\n\nThao tác được ghi vào lịch sử. File giữ nguyên nội dung, chỉ đổi thư mục trên Drive.`)) return;
+
+    m.busy = true; m.toState = toState; m.targetId = toFolderId; m.note = note; renderMoveBox();
+    const okNames = [], failed = [], warnings = [];
+    let stopped = null;
+    for (let i = 0; i < m.files.length; i++) {
+      const file = m.files[i];
+      m.progress = `⏳ (${i + 1}/${m.files.length}) ${file.name}`;
+      const pr = $("cfmMoveProg"); if (pr) pr.textContent = m.progress;
+      try {
+        const res = await call({ action: "cde_move", folderId: m.from.id, fileId: file.id, toFolderId, note });
+        okNames.push(file.name);
+        if (res.auditWarning) warnings.push(res.auditWarning);
+      } catch (e) {
+        failed.push(`• ${file.name}: ${e.message}`);
+        if (FATAL_MOVE.test(e.message)) { stopped = e.message; break; }
+      }
+    }
+    const left = m.files.length - okNames.length - failed.length;
+    let text = okNames.length ? `✅ Đã chuyển ${okNames.length}/${m.files.length} file sang ${label}.` : `❌ Không chuyển được file nào.`;
+    if (failed.length) text += `\n${failed.join("\n")}`;
+    if (left > 0) text += `\n(Đã dừng — ${left} file còn lại chưa được chuyển.)`;
+    if (warnings.length) text += `\n⚠️ ${warnings[0]}`;
+    m.busy = false; m.result = { text, fail: !okNames.length || !!failed.length };
+    S.selFiles = new Set();
+    renderMoveBox();
+    if (okNames.length) { const keep = m; await loadFiles(); S.move = keep; renderMoveBox(); }   // làm mới danh sách nhưng giữ hộp kết quả
   }
 
   function renderAudit() {
     let html = `<div style="font-weight:700;font-size:13px;margin-bottom:6px;">📜 Nhật ký thao tác CDE <button class="cfm-btn" data-act="auditback" style="margin-left:8px;">← Quay lại</button></div>`;
     if (!S.auditRows) return html + `<div style="color:#888;">⏳ Đang tải…</div>`;
     if (S.auditError) return html + `<div style="color:#c5221f;">${esc(S.auditError)}</div>`;
+    if (S.auditNote) html += `<div style="color:#8a4b00;margin-bottom:6px;">⚠️ ${esc(S.auditNote)}</div>`;
     if (!S.auditRows.length) return html + `<div style="color:#999;font-style:italic;">Chưa có thao tác nào được ghi nhận.</div>`;
     html += `<table><thead><tr><th>Thời gian</th><th>Người thực hiện</th><th>Hành động</th><th>Trạng thái › mục</th><th>File</th></tr></thead><tbody>`;
     for (const r of S.auditRows) {
+      const label = r.action === "upload" ? "⬆️ Tải lên" : r.action === "move" ? "➡️ Chuyển" : "🗑 Xoá";
+      const where = r.action === "move" ? `${esc(r.from_status)} › ${esc(r.from_folder_name || "")} → <b>${esc(r.to_status)} › ${esc(r.to_folder_name || "")}</b>` : `${esc(r.status || "")} › ${esc(r.folder_name || "")}`;
       html += `<tr><td>${esc(fmtDate(r.created_at))}</td><td>${esc(r.userName || "—")}</td>
-        <td>${r.action === "upload" ? "⬆️ Tải lên" : "🗑 Xoá"}</td><td>${esc(r.status || "")} › ${esc(r.folder_name || "")}</td>
-        <td title="${esc(r.file_name || "")}">${esc(r.file_name || "")} <span style="color:#999;">${r.size_bytes ? "(" + esc(fmtSize(r.size_bytes)) + ")" : ""}</span></td></tr>`;
+        <td>${label}</td><td>${where}</td>
+        <td title="${esc(r.file_name || "")}">${esc(r.file_name || "")} <span style="color:#999;">${r.size_bytes ? "(" + esc(fmtSize(r.size_bytes)) + ")" : ""}</span>${r.note ? `<div style="color:#555;font-style:italic;">“${esc(r.note)}”</div>` : ""}</td></tr>`;
     }
     return html + `</tbody></table>`;
   }
 
   /* ------------------------- sự kiện ------------------------- */
-  function onChange(e) { /* dành chỗ cho mở rộng sau */ }
+  function onChange(e) {
+    const t = e.target;
+    if (t && t.id === "cfmMoveTo" && S.move) {          // đổi trạng thái đích -> nạp lại danh sách mục + nhãn ghi chú, giữ nội dung ghi chú đã gõ
+      S.move.note = (($("cfmMoveNote") || {}).value || "");
+      S.move.toState = t.value; S.move.targetId = null;
+      renderMoveBox();
+    }
+  }
 
   async function onClick(e) {
     const t = e.target.closest ? e.target.closest("[data-act]") : null;
@@ -407,7 +543,14 @@
       if (act === "audit") return showAudit();
       if (act === "auditback") { S.view = "files"; return renderPane(); }
       if (act === "upload") return uploadSelected();
+      if (act === "selall") { const on = t.checked; S.selFiles = new Set(on ? S.files.map((x) => x.id) : []); document.querySelectorAll('#cfmPane [data-act="selfile"]').forEach((c) => { c.checked = on; }); return renderSelBar(); }
+      if (act === "selfile") { const fl = S.files[Number(t.dataset.idx)]; if (!fl) return; if (t.checked) S.selFiles.add(fl.id); else S.selFiles.delete(fl.id); return renderSelBar(); }
+      if (act === "selnone") { S.selFiles = new Set(); document.querySelectorAll('#cfmPane [data-act="selfile"], #cfmPane [data-act="selall"]').forEach((c) => { c.checked = false; }); return renderSelBar(); }
+      if (act === "movesel") return openMoveDialog(S.files.filter((x) => S.selFiles.has(x.id)));
+      if (act === "moveok") return confirmMove();
+      if (act === "movecancel") { S.move = null; return renderMoveBox(); }
       const file = S.files[Number(t.dataset.idx)];
+      if (act === "fmove") return openMoveDialog([file]);
       if (act === "fview") return viewFile(file, t);
       if (act === "fdown") return downloadFile(file, t);
       if (act === "fload") return loadIntoViewer(file, t);
@@ -486,13 +629,20 @@
     S.view = "audit"; S.auditRows = null; S.auditError = ""; renderPane();
     const { data, error } = await client().from("cde_audit").select("*").eq("project_id", S.projectId).order("created_at", { ascending: false }).limit(100);
     if (error) { S.auditError = "Không đọc được nhật ký: " + error.message; S.auditRows = []; return renderPane(); }
-    const ids = [...new Set((data || []).map((r) => r.user_id).filter(Boolean))];
+    // Lịch sử chuyển trạng thái nằm ở bảng riêng; thiếu bảng (chưa chạy migration) thì vẫn xem được phần còn lại
+    S.auditNote = "";
+    let moves = [];
+    const tq = await client().from("cde_transitions").select("*").eq("project_id", S.projectId).order("created_at", { ascending: false }).limit(100);
+    if (tq.error) S.auditNote = "Chưa xem được lịch sử chuyển trạng thái (đã chạy migration_cde_transitions.sql chưa?): " + tq.error.message;
+    else moves = (tq.data || []).map((r) => ({ ...r, action: "move" }));
+    const merged = (data || []).concat(moves).sort((a, b) => (a.created_at < b.created_at ? 1 : -1)).slice(0, 150);
+    const ids = [...new Set(merged.map((r) => r.user_id).filter(Boolean))];
     let names = {};
     if (ids.length) {
       const { data: profs } = await client().from("profiles").select("id, full_name").in("id", ids);
       (profs || []).forEach((p) => { names[p.id] = p.full_name; });
     }
-    S.auditRows = (data || []).map((r) => ({ ...r, userName: names[r.user_id] || null }));
+    S.auditRows = merged.map((r) => ({ ...r, userName: names[r.user_id] || null }));
     renderPane();
   }
 
