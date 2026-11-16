@@ -341,7 +341,19 @@
     style.id = "cfmStyle";
     style.textContent = `
       #cdeStatusTabs, #cdeFilesList { display: none !important; }   /* thay bằng trình quản lý cây thư mục */
-      #cfmPanel { position:absolute; left:15px; top:70px; width:780px; max-width:96vw; max-height:88vh; overflow:auto; font-size:12px; }
+      /* z-index 300: nổi trên ribbon (#toolbar = 100), thanh chọn cấu kiện (150) và menu (200); vẫn dưới popup (500), lớp phủ (800) và hộp thoại (2000+) */
+      #cfmPanel { position:absolute; left:15px; top:70px; width:790px; min-width:320px; max-width:98vw; min-height:200px; max-height:calc(100vh - 20px);
+                  overflow:auto; font-size:12px; z-index:300; box-sizing:border-box; }
+      #cfmPanel .panel-header { cursor:move; touch-action:none; }
+      #cfmPanel .cfm-hbtn { cursor:pointer; padding:0 3px; color:#555; }
+      #cfmPanel .cfm-hbtn:hover { color:#1a73e8; }
+      .cfm-rz { position:fixed; z-index:301; display:none; touch-action:none; }
+      .cfm-rz[data-dir="n"], .cfm-rz[data-dir="s"] { cursor:ns-resize; }
+      .cfm-rz[data-dir="e"], .cfm-rz[data-dir="w"] { cursor:ew-resize; }
+      .cfm-rz[data-dir="ne"], .cfm-rz[data-dir="sw"] { cursor:nesw-resize; }
+      .cfm-rz[data-dir="nw"], .cfm-rz[data-dir="se"] { cursor:nwse-resize; }
+      .cfm-rz[data-dir="se"] { background:linear-gradient(135deg, transparent 55%, #9aa7b8 55%, #9aa7b8 63%, transparent 63%, transparent 75%, #9aa7b8 75%, #9aa7b8 83%, transparent 83%); }
+      body.cfm-busy { user-select:none !important; cursor:grabbing; }
       #cfmPanel .cfm-row { display:flex; align-items:center; gap:6px; padding:5px 7px; border-radius:6px; cursor:pointer; }
       #cfmPanel .cfm-row:hover { background:#f1f3f5; }
       #cfmPanel .cfm-row.sel { background:#e7f1ff; font-weight:600; }
@@ -365,7 +377,7 @@
     panel.id = "cfmPanel";
     panel.style.display = "none";
     panel.innerHTML = `
-      <div class="panel-header"><b>🗂 Quản Lý File CDE</b><span style="cursor:pointer" id="cfmClose">✕</span></div>
+      <div class="panel-header"><b>🗂 Quản Lý File CDE</b><span style="display:inline-flex;gap:6px;align-items:center;"><span class="cfm-hbtn" id="cfmFit" title="Co giãn vừa nội dung (nhấp đúp tiêu đề cũng được)">⤢</span><span class="cfm-hbtn" id="cfmReset" title="Kích thước mặc định">↺</span><span style="cursor:pointer" id="cfmClose">✕</span></span></div>
       <div id="cfmBanner"></div>
       <div id="cfmBody" style="display:flex;flex-wrap:wrap;gap:12px;">
         <div id="cfmTree" style="flex:1 1 230px;min-width:210px;"></div>
@@ -373,6 +385,7 @@
       </div>`;
     document.body.appendChild(panel);
     $("cfmClose").addEventListener("click", () => { panel.style.display = "none"; });
+    bindGeometry(panel);
     panel.addEventListener("click", onClick);
     panel.addEventListener("change", onChange);
     panel.addEventListener("input", onInput);
@@ -1248,18 +1261,184 @@
     } catch (e) { alert("Lỗi xoá file: " + e.message); }
   }
 
+  /* ------------------------- kéo di chuyển / kéo giãn / ghi nhớ vị trí panel ------------------------- */
+  // Mã kéo panel có sẵn trong index.html chỉ gắn 1 lần lúc nạp trang cho các panel ĐÃ có — panel này được tạo
+  // sau nên không được gắn. Ở đây tự xử lý (Pointer Events: chuột, cảm ứng, bút), tương thích hệ thống ghim:
+  // khi đang ghim vào cột/đáy thì không kéo/giãn, khi thả nổi lại thì khôi phục vị trí và kích thước đã lưu.
+  const GEOM_KEY = "cfm_geom_v1";
+  const MIN_W = 320, MIN_H = 220;
+  const DIRS = ["n", "s", "e", "w", "ne", "nw", "se", "sw"];
+  let handles = null;
+
+  function panelEl() { return $("cfmPanel"); }
+  function isDocked() {
+    const p = panelEl();
+    return !!p && (p.style.position === "static" || /^dock/.test((p.parentElement && p.parentElement.id) || ""));
+  }
+  function isOpen() { const p = panelEl(); return !!p && p.style.display === "block"; }
+  function num(v, d) { const n = parseFloat(v); return isNaN(n) ? d : n; }
+  // Hình chữ nhật hiện tại của panel; chưa có bố cục (vd môi trường kiểm thử) thì dùng giá trị inline
+  function rectOf(p) {
+    const r = p.getBoundingClientRect();
+    if (r.width > 0 || r.height > 0) return { left: r.left, top: r.top, width: r.width, height: r.height };
+    return { left: num(p.style.left, 15), top: num(p.style.top, 70), width: num(p.style.width, 790), height: num(p.style.height, 400) };
+  }
+  function clampGeom(g) {
+    const vw = window.innerWidth, vh = window.innerHeight;
+    const width = Math.min(Math.max(g.width, MIN_W), vw - 12), height = Math.min(Math.max(g.height, MIN_H), vh - 12);
+    return {
+      width, height,
+      left: Math.min(Math.max(g.left, -(width - 80)), vw - 80),   // luôn chừa ≥ 80px tiêu đề trong màn hình để còn kéo lại được
+      top: Math.min(Math.max(g.top, 0), vh - 40),
+    };
+  }
+  function applyGeom(g, withSize) {
+    const p = panelEl(); if (!p) return;
+    p.style.right = "auto"; p.style.bottom = "auto";
+    p.style.left = g.left + "px"; p.style.top = g.top + "px";
+    if (withSize) { p.style.width = g.width + "px"; p.style.height = g.height + "px"; }
+  }
+  function saveGeom() {
+    const p = panelEl(); if (!p || isDocked()) return;
+    const r = rectOf(p);
+    try { localStorage.setItem(GEOM_KEY, JSON.stringify({ left: r.left, top: r.top, width: r.width, height: r.height, sized: !!(p.style.width || p.style.height) })); } catch (e) { /* bỏ qua */ }
+  }
+  function restoreGeom() {
+    const p = panelEl(); if (!p || isDocked()) return;
+    let g = null;
+    try { g = JSON.parse(localStorage.getItem(GEOM_KEY) || "null"); } catch (e) { g = null; }
+    if (!g || !["left", "top", "width", "height"].every((k) => typeof g[k] === "number")) return;
+    applyGeom(clampGeom(g), !!g.sized);
+    syncHandles();
+  }
+
+  // 8 tay nắm (4 cạnh + 4 góc) là phần tử riêng bám theo panel — nếu đặt trong panel thì sẽ cuộn mất theo nội dung
+  function ensureHandles() {
+    if (handles) return handles;
+    handles = DIRS.map((dir) => {
+      const h = document.createElement("div");
+      h.className = "cfm-rz"; h.dataset.dir = dir;
+      h.addEventListener("pointerdown", (e) => startGesture(e, dir));
+      document.body.appendChild(h);
+      return h;
+    });
+    return handles;
+  }
+  function syncHandles() {
+    ensureHandles();
+    const p = panelEl();
+    const show = !!p && isOpen() && !isDocked();
+    handles.forEach((h) => { h.style.display = show ? "block" : "none"; });
+    if (!show) return;
+    const r = rectOf(p), T = 8, C = 14;
+    const pos = {
+      n: [r.left + C, r.top - T / 2, r.width - 2 * C, T], s: [r.left + C, r.top + r.height - T / 2, r.width - 2 * C, T],
+      w: [r.left - T / 2, r.top + C, T, r.height - 2 * C], e: [r.left + r.width - T / 2, r.top + C, T, r.height - 2 * C],
+      nw: [r.left - T / 2, r.top - T / 2, C, C], ne: [r.left + r.width - C + T / 2, r.top - T / 2, C, C],
+      sw: [r.left - T / 2, r.top + r.height - C + T / 2, C, C], se: [r.left + r.width - C + T / 2, r.top + r.height - C + T / 2, C, C],
+    };
+    handles.forEach((h) => { const [l, t, w, hh] = pos[h.dataset.dir]; h.style.left = l + "px"; h.style.top = t + "px"; h.style.width = Math.max(w, 4) + "px"; h.style.height = Math.max(hh, 4) + "px"; });
+  }
+
+  function resizeGeom(dir, r, dx, dy) {
+    let { left, top, width, height } = r;
+    if (dir.includes("e")) width = r.width + dx;
+    if (dir.includes("s")) height = r.height + dy;
+    if (dir.includes("w")) { width = r.width - dx; left = r.left + dx; }
+    if (dir.includes("n")) { height = r.height - dy; top = r.top + dy; }
+    if (width < MIN_W) { if (dir.includes("w")) left -= (MIN_W - width); width = MIN_W; }       // giữ cạnh đối diện đứng yên khi chạm cỡ tối thiểu
+    if (height < MIN_H) { if (dir.includes("n")) top -= (MIN_H - height); height = MIN_H; }
+    const vw = window.innerWidth, vh = window.innerHeight;
+    if (left < 0) { width += left; left = 0; }
+    if (top < 0) { height += top; top = 0; }
+    if (left + width > vw) width = vw - left;
+    if (top + height > vh) height = vh - top;
+    return { left, top, width: Math.max(width, MIN_W), height: Math.max(height, MIN_H) };
+  }
+
+  // Một thao tác kéo (di chuyển hoặc giãn): theo dõi trên document + pointer capture để không bị "tuột" khi rê qua khung PDF/canvas 3D
+  function startGesture(e, dir) {
+    if (isDocked() || (e.button !== undefined && e.button > 0)) return;
+    const p = panelEl(); if (!p) return;
+    e.preventDefault(); e.stopImmediatePropagation();
+    const start = { x: e.clientX, y: e.clientY, r: rectOf(p) };
+    try { e.target.setPointerCapture && e.pointerId !== undefined && e.target.setPointerCapture(e.pointerId); } catch (err) { /* bỏ qua */ }
+    document.body.classList.add("cfm-busy");
+    const move = (ev) => {
+      const dx = ev.clientX - start.x, dy = ev.clientY - start.y;
+      if (dir === "move") applyGeom(clampGeom({ ...start.r, left: start.r.left + dx, top: start.r.top + dy }), false);
+      else applyGeom(resizeGeom(dir, start.r, dx, dy), true);
+      syncHandles();
+    };
+    const up = () => {
+      document.removeEventListener("pointermove", move); document.removeEventListener("pointerup", up); document.removeEventListener("pointercancel", up);
+      document.body.classList.remove("cfm-busy");
+      saveGeom(); syncHandles();
+    };
+    document.addEventListener("pointermove", move); document.addEventListener("pointerup", up); document.addEventListener("pointercancel", up);
+  }
+
+  // Co giãn vừa nội dung: đo kích thước tự nhiên rồi giới hạn trong màn hình
+  function fitToContent() {
+    const p = panelEl(); if (!p || isDocked()) return;
+    p.style.width = "max-content"; p.style.height = "auto";
+    const r = p.getBoundingClientRect();
+    const cur = rectOf(p);
+    const g = clampGeom({ left: cur.left, top: cur.top, width: (r.width || 790) + 2, height: (r.height || 400) + 2 });
+    g.left = Math.max(0, Math.min(g.left, window.innerWidth - g.width - 6));
+    g.top = Math.max(0, Math.min(g.top, window.innerHeight - g.height - 6));
+    applyGeom(g, true); saveGeom(); syncHandles();
+  }
+  function resetGeom() {
+    const p = panelEl(); if (!p || isDocked()) return;
+    p.style.width = ""; p.style.height = "";
+    p.style.left = "15px"; p.style.top = "70px";
+    try { localStorage.removeItem(GEOM_KEY); } catch (e) { /* bỏ qua */ }
+    syncHandles();
+  }
+
+  function bindGeometry(panel) {
+    const header = panel.querySelector(".panel-header");
+    // Đăng ký TRƯỚC mọi mã khác: nếu mã kéo của index.html cũng gắn vào tiêu đề này thì bị chặn, chỉ còn 1 bộ xử lý
+    header.addEventListener("pointerdown", (e) => {
+      if (e.target.closest && e.target.closest(".cde-dock-btn, .cfm-hbtn, #cfmClose")) return;
+      startGesture(e, "move");
+    });
+    header.addEventListener("dblclick", (e) => { if (!(e.target.closest && e.target.closest(".cde-dock-btn, .cfm-hbtn, #cfmClose"))) fitToContent(); });
+    $("cfmFit").addEventListener("click", fitToContent);
+    $("cfmReset").addEventListener("click", resetGeom);
+
+    // Theo dõi ghim/thả nổi và ẩn/hiện: ghim vào cột/đáy thì bỏ chiều cao tự đặt (hệ thống ghim tự quyết kích thước);
+    // thả nổi lại thì khôi phục vị trí và kích thước đã lưu
+    let wasDocked = isDocked();
+    new MutationObserver(() => {
+      const now = isDocked();
+      if (now !== wasDocked) {
+        wasDocked = now;
+        if (now) { panel.style.height = ""; panel.style.left = ""; panel.style.top = ""; }
+        else restoreGeom();
+      }
+      syncHandles();
+    }).observe(panel, { attributes: true, attributeFilter: ["style"] });
+    if (typeof ResizeObserver !== "undefined") new ResizeObserver(() => syncHandles()).observe(panel);
+    window.addEventListener("resize", () => { if (isOpen() && !isDocked()) { const g = clampGeom(rectOf(panel)); applyGeom(g, !!(panel.style.width || panel.style.height)); } syncHandles(); });
+    restoreGeom();
+  }
+
   /* ------------------------- điểm vào ------------------------- */
   window.toggleCdeFilesManager = function (forceOpen) {
     ensurePanel();
     const p = $("cfmPanel");
     const open = forceOpen === true ? true : p.style.display !== "block";
     p.style.display = open ? "block" : "none";
-    if (open) { S.configMode = false; S.addingFor = null; refresh(); }   // mở lại luôn ở chế độ xem (tránh sửa cấu hình nhầm)
+    if (open) { S.configMode = false; S.addingFor = null; refresh(); restoreGeom(); }   // mở lại luôn ở chế độ xem (tránh sửa cấu hình nhầm)
+    syncHandles();
   };
 
   // Tự nhận biết khi người dùng đổi dự án / vai trò ở panel CDE lúc trình quản lý đang mở
   setInterval(() => {
     const p = $("cfmPanel");
+    syncHandles();
     if (!p || p.style.display !== "block") return;
     if (curProject() !== S.projectId || curRole() !== S.role) refresh();
   }, 800);
