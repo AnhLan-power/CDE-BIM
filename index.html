@@ -517,7 +517,7 @@
             <label for="ifcModelFileInput" class="btn btn-add-model" id="btnAddIfcModel" title="Chỉ cần 1 file .ifc — hệ thống tự dựng hình 3D và giữ dữ liệu chính xác để check va chạm, không cần nạp thêm .xkt">📂 Nạp Mô Hình (.IFC)</label>
             <input type="file" id="ifcModelFileInput" accept=".ifc" multiple>
             <button class="btn" id="btnModelsList">📁 Danh Sách Model (<span id="modelCount">0</span>)</button>
-            <button class="btn" onclick="toggleCdeFilesPanel()" title="Quản lý file theo CDE ISO 19650">📁 CDE</button>
+            <button class="btn" onclick="toggleCdeFilesPanel()" title="Dự án: chọn/tạo/xoá dự án, kết nối Google Drive, thành viên">📁 Dự Án</button>
             <button class="btn" onclick="toggleCdeFilesManager()" title="Quản lý file CDE theo cây thư mục: WIP / Shared / Published / Archived (ISO 19650, TCVN 14177)">🗂 File CDE</button>
             <button class="btn" onclick="toggleTimelinePanel()" title="Tiến độ thi công 4D">📅 Tiến Độ</button>
             <button class="btn" onclick="toggleViewsPanel()" title="Lưu và chia sẻ góc nhìn camera">📷 Views</button>
@@ -4037,6 +4037,7 @@ window.debugClashPair = function() {
   <script src="./cde-docking.js"></script>
   <script src="./cde-auth.js"></script>
   <script src="./cde-files.js"></script>
+  <script src="./cde-projects.js"></script>
   <script src="./cde-timeline.js"></script>
   <script src="./cde-sun-analysis.js"></script>
   <script src="./cde-daylight-analysis.js"></script>
